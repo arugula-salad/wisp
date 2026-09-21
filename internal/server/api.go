@@ -39,12 +39,19 @@ type Server struct {
 	urlFmt string // fmt pattern taking the sprite name
 
 	urlDomain string // sprite URLs are <name>.<urlDomain>
+	storage   *storage
 }
 
 func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org, urlDomain, port string) *Server {
 	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
 		urlDomain: urlDomain, urlFmt: "http://%s." + urlDomain + ":" + port}
 	life.guestAPI = s.guestAPI
+	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
+	if s.storage.reflink {
+		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
+	} else {
+		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
+	}
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		go s.autoCheckpoints()
 	}
@@ -192,7 +199,11 @@ func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	disk := filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile)
-	if err := cloneFile(r.Context(), s.opts.BaseImage, disk); err != nil {
+	base, err := s.storage.base(r.Context())
+	if err == nil {
+		err = cloneFile(r.Context(), base, disk)
+	}
+	if err != nil {
 		s.store.Delete(sp.Name)
 		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
 		return
