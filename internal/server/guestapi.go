@@ -76,6 +76,8 @@ func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
 	mux.HandleFunc("GET /v1/checkpoints/{id}", bind(s.getCheckpoint))
 	mux.HandleFunc("DELETE /v1/checkpoints/{id}", bind(s.deleteCheckpoint))
 	mux.HandleFunc("POST /v1/checkpoints/{id}/restore", bind(s.restoreCheckpoint))
+	mux.HandleFunc("POST /v1/checkpoints/{id}/mount", bind(s.mountCheckpoint))
+	mux.HandleFunc("POST /v1/checkpoints/{id}/unmount", bind(s.unmountCheckpoint))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})

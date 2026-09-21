@@ -39,6 +39,9 @@ func (s *Server) GuestAPI(hostDial func(ctx context.Context) (net.Conn, error)) 
 				writeErr(w, http.StatusBadGateway, "host_unreachable", err.Error())
 			},
 		}
+		// More specific than the proxied prefix below, so these two are ours: mounting
+		// needs work on both sides of the channel.
+		s.registerCheckpointMounts(mux, hostDial)
 		// Only these paths leave the guest; spritesd's side serves nothing else either.
 		mux.Handle("/v1/checkpoint", host)
 		mux.Handle("/v1/checkpoints", host)

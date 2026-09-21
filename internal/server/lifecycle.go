@@ -319,6 +319,9 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 		return l.startLocked(ctx, sp, rt)
 	}
 	rt.m, rt.tap, rt.guest = m, tap, guest
+	if cur, err := l.store.Get(sp.Name); err == nil {
+		l.publishNetworkPolicy(ctx, m, cur) // it may have changed while the sprite slept
+	}
 	rt.useMu.Lock()
 	rt.lastUse = time.Now()
 	rt.useMu.Unlock()
@@ -327,6 +330,7 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 		s.LastRunningAt = &now
 		if mode == "cold" {
 			s.BootIP = cfg.IPCIDR
+			s.Mounts = nil // a fresh VM has placeholders behind every checkpoint slot
 		}
 	})
 	l.log.Info("sprite running", "sprite", sp.Name, "wake", mode, "took", time.Since(start).Round(time.Millisecond), "net", tap != "")

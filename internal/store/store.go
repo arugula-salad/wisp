@@ -75,6 +75,10 @@ type Sprite struct {
 	// the live filesystem was last saved as or restored from, then its ancestors.
 	Lineage []string `json:"lineage,omitempty"`
 
+	// Mounts maps a checkpoint slot to the checkpoint whose image backs it, for as
+	// long as the VM (or its warm snapshot, which records the drive paths) lives.
+	Mounts map[int]string `json:"mounts,omitempty"`
+
 	// NetworkRules is the egress policy as the client wrote it. Empty means unrestricted.
 	NetworkRules []NetworkRule `json:"network_rules,omitempty"`
 

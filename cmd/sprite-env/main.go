@@ -39,6 +39,8 @@ const usage = `sprite-env manages this sprite from the inside.
   sprite-env checkpoints get <id>
   sprite-env checkpoints restore <id>     restarts the sprite: this session ends
   sprite-env checkpoints delete <id>
+  sprite-env checkpoints mount <id>       read-only, at /.sprite/checkpoints/<id>; copy files out without restoring
+  sprite-env checkpoints unmount <id>
 
   sprite-env curl [curl options] <path>   curl against the management socket, e.g. sprite-env curl /v1/services
 `
@@ -249,6 +251,15 @@ func checkpoints(verb string, args []string) error {
 			return err
 		}
 		return restore(pos[0])
+	case "mount", "unmount", "umount":
+		pos, err := parse(fs, args, 1)
+		if err != nil {
+			return err
+		}
+		if verb == "umount" {
+			verb = "unmount"
+		}
+		return call(http.MethodPost, "/v1/checkpoints/"+url.PathEscape(pos[0])+"/"+verb, nil, nil)
 	}
 	return usageErr("unknown checkpoints command %q", verb)
 }

@@ -75,6 +75,7 @@ func serve(args []string) {
 
 	srv := &agent.Server{
 		Sessions: agent.NewManager(),
+		StateDir: *stateDir,
 		Services: agent.NewSupervisor(*stateDir, *runDir),
 		Poweroff: func() {
 			unix.Sync()

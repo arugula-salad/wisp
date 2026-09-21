@@ -33,6 +33,19 @@ export SPRITE_TOKEN=$(cat ~/.local/share/mini-sprites/token)
 sprite create dev && sprite exec -s dev -- uname -a
 ```
 
+### Instant clones (optional, needs root once)
+
+```sh
+sudo apt install xfsprogs
+sudo ./scripts/setup-storage.sh      # stop spritesd first; SPRITE_VOLUME_GB=40 by default
+```
+
+Puts the sprite directory on a loop-mounted XFS volume with reflinks, so creating a sprite,
+taking a checkpoint and restoring one are instant and share disk blocks until written. The
+script migrates existing sprites, never sizes the volume beyond what the host disk can hold,
+and `--remove` moves everything back. spritesd needs no configuration: it probes the
+filesystem at startup and logs which mode it is in.
+
 ### Guest networking (the one thing that needs root, once)
 
 ```sh
@@ -121,6 +134,20 @@ sprite-env services create web --cmd python3 --args "-m,http.server,3000" --http
 sprite-env checkpoints create && sprite-env checkpoints list
 ```
 
+An old checkpoint can be browsed without restoring it:
+
+```sh
+sprite-env checkpoints mount v3          # read-only at /.sprite/checkpoints/v3
+cp /.sprite/checkpoints/v3/home/sprite/app/config.yml ~/app/   # pull one file back from the past
+sprite-env checkpoints unmount v3
+```
+
+Firecracker cannot hot-plug a drive but can swap the file behind one, so every VM boots with
+four placeholder drives and a mount points one at the checkpoint's image: no copy, no reboot.
+Mounts survive a warm suspend, are reset by a cold boot or a restore, and a mounted checkpoint
+cannot be deleted. The sprite's network policy is readable at `/.sprite/policy/network.json`
+(information only; enforcement is on the host).
+
 Checkpoint calls ride a guest-initiated vsock channel to a per-VM listener bound to that one
 sprite: the channel is the identity, and a guest cannot address anything but itself.
 Restoring from inside ends the session, since the VM is replaced.
@@ -144,7 +171,7 @@ without a NIC (or, if warm, refuses to wake rather than lose its memory state).
 
 ## Deliberate differences from the hosted product
 
-- **Durability is this machine's disk.** There is no object-storage tier.
+- **Durability is this machine's disk.** There is no object-storage tier ([#2](https://github.com/jhgaylor/mini-sprites/issues/2)).
 - Disk is 20 GB sparse by default (`SPRITE_DISK_GB` at image build) rather than 100 GB, and
   Firecracker has no discard, so space freed in a guest is not returned to the host.
 - RAM is fixed per sprite (`--mem-mib`, `config.ram_mb`, or a resources policy); each warm
@@ -153,16 +180,17 @@ without a NIC (or, if warm, refuses to wake rather than lose its memory state).
 - The memory cgroup is a guard rail, not a boundary: guest root can leave it unless
   `noNewPrivileges` closes the sudo route. VM RAM is the hard bound. Privileges do not bind
   the filesystem API, which acts as root.
-- Checkpoints are full-disk clones: instant on a reflink filesystem (XFS/btrfs), a sparse
-  copy (~0.5 s for the base image) on ext4; the VM is paused for the copy. IDs start at `v1`.
+- Checkpoints are full-disk clones: a sparse copy (~0.5 s for the base image, VM paused
+  for it) on a plain directory, or an instant copy-on-write clone after
+  `sudo ./scripts/setup-storage.sh` (see below). IDs start at `v1`.
   An automatic checkpoint is taken before every restore so that a restore can be undone, which
   upstream does not do. Autos are kept to `--auto-checkpoint-keep` (3). Creating checkpoints
   from inside is capped (`--guest-checkpoint-limit`, 20) so one guest cannot fill the host disk.
 - Restricted sprites are TCP-only (no QUIC, NTP or ping), and a denied destination connects
   and is then reset, because a transparent proxy must accept before it can decide. The
-  `defaults` allowlist is our own. There is no in-guest policy file.
+  `defaults` allowlist is our own.
 - Setting a policy returns 204 where upstream's docs say 200: the official SDKs require 204.
-- Firecracker runs unjailed as your user.
+- Firecracker runs unjailed as your user, under its own seccomp filter only ([#1](https://github.com/jhgaylor/mini-sprites/issues/1)).
 
 ### Issues in the official Go SDK that this server works around or documents
 

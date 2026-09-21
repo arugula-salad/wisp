@@ -165,7 +165,8 @@ func (s *Server) pruneAutosLocked(name, spare string) {
 	}
 	var autos []string
 	for _, cp := range sp.Checkpoints {
-		if cp.IsAuto && cp.ID != spare {
+		// One that is mounted inside the sprite is in use: it neither goes nor counts.
+		if cp.IsAuto && cp.ID != spare && !s.checkpointMounted(sp, s.life.rt(sp.ID), cp.ID) {
 			autos = append(autos, cp.ID)
 		}
 	}
@@ -332,6 +333,10 @@ func (s *Server) deleteCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	rt := s.life.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if s.checkpointMounted(sp, rt, r.PathValue("id")) {
+		writeErr(w, http.StatusConflict, "checkpoint_mounted", errCheckpointMounted.Error())
+		return
+	}
 	if err := s.deleteCheckpointLocked(sp.Name, r.PathValue("id")); errors.Is(err, errNoCheckpoint) {
 		writeErr(w, http.StatusNotFound, "not_found", "checkpoint not found")
 		return

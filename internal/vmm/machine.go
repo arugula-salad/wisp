@@ -32,7 +32,18 @@ const (
 	snapState  = "snap.vmstate"
 	snapMem    = "snap.mem"
 	pidFile    = "fc.pid"
+	emptyDrive = "empty.img"
 )
+
+// CheckpointSlots is how many checkpoints a sprite can have mounted at once.
+// Firecracker cannot hot-plug a drive, but it can swap the file behind one, so
+// every VM boots with this many read-only drives backed by a placeholder.
+const CheckpointSlots = 4
+
+// SlotDrive is the Firecracker drive ID of a checkpoint slot. Slots are
+// configured in order right after the root disk, which is how the guest agent
+// knows which block device is which.
+func SlotDrive(slot int) string { return fmt.Sprintf("ckpt%d", slot) }
 
 // Host paths shared by all machines.
 type Host struct {
@@ -196,6 +207,18 @@ func Boot(ctx context.Context, h Host, cfg Config) (*Machine, error) {
 		{"/vsock", obj{"guest_cid": 3, "uds_path": vsockSock}},
 		{"/entropy", obj{}},
 	}
+	// A drive needs a backing file even when it holds nothing yet.
+	if f, err := os.OpenFile(filepath.Join(cfg.Dir, emptyDrive), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
+		f.Truncate(1 << 20)
+		f.Close()
+	}
+	for i := 0; i < CheckpointSlots; i++ {
+		id := SlotDrive(i)
+		steps = append(steps, struct {
+			path string
+			body obj
+		}{"/drives/" + id, obj{"drive_id": id, "path_on_host": emptyDrive, "is_root_device": false, "is_read_only": true}})
+	}
 	if cfg.Tap != "" {
 		steps = append(steps, struct {
 			path string
@@ -237,6 +260,16 @@ func Restore(ctx context.Context, h Host, cfg Config) (*Machine, error) {
 	}
 	DiscardSnapshot(cfg.Dir)
 	return m, nil
+}
+
+// SwapDrive points a running VM's drive at another file (relative to the machine
+// directory, like every path Firecracker is given). The guest is notified and
+// sees the new size. An empty path puts the placeholder back.
+func (m *Machine) SwapDrive(ctx context.Context, driveID, path string) error {
+	if path == "" {
+		path = emptyDrive
+	}
+	return m.api(ctx, http.MethodPatch, "/drives/"+driveID, obj{"drive_id": driveID, "path_on_host": path})
 }
 
 // Pause and Resume freeze/unfreeze vCPUs (used around disk checkpoints).

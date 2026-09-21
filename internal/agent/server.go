@@ -30,6 +30,8 @@ type Server struct {
 	Services *Supervisor
 	// Poweroff syncs and stops the guest.
 	Poweroff func()
+	// StateDir is the platform's directory on the sprite's disk; empty means /.sprite.
+	StateDir string
 
 	control controlConns
 	tasks   taskTable
@@ -56,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/presuspend", s.handlePresuspend)
 	mux.HandleFunc("POST /internal/resumed", s.handleResumed)
 	mux.HandleFunc("POST /internal/policy", s.handlePolicy)
+	mux.HandleFunc("POST /internal/netpolicy", s.handleNetPolicyFile)
 	mux.HandleFunc("POST /internal/poweroff", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		if s.Poweroff != nil {
