@@ -281,6 +281,17 @@ func (m *Machine) Kill() {
 	os.Remove(filepath.Join(m.cfg.Dir, vsockSock))
 }
 
+// ListenGuest accepts streams the guest opens to the host. Firecracker maps a
+// guest connect() to CID 2 port N onto the unix socket "<uds_path>_N"; it looks
+// the socket up per connection, so the listener only has to exist by the time
+// the guest first uses it, and one made before a snapshot restore works the same.
+// Closing the listener removes the socket file.
+func ListenGuest(dir string, port uint32) (net.Listener, error) {
+	path := filepath.Join(dir, fmt.Sprintf("%s_%d", vsockSock, port))
+	os.Remove(path) // left behind by a spritesd that died
+	return net.Listen("unix", path)
+}
+
 // Exited is closed when the VMM process ends (guest reboot/poweroff, crash, or Kill).
 func (m *Machine) Exited() <-chan struct{} { return m.exited }
 

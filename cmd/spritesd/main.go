@@ -57,6 +57,9 @@ func main() {
 	dns := flag.String("dns", "1.1.1.1,8.8.8.8", "nameservers handed to guests")
 	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are http://<name>.<url-domain>:<port>; point a wildcard DNS record here to serve them beyond this machine")
 	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one spritesd per host may own it, so run extra dev/test instances with --net=false")
+	autoEvery := flag.Duration("auto-checkpoint-interval", time.Hour, "take an automatic checkpoint of a sprite whose disk changed and whose newest checkpoint is older than this (0 = only before restores)")
+	autoKeep := flag.Int("auto-checkpoint-keep", 3, "automatic checkpoints kept per sprite; each is a full disk clone (0 = take none)")
+	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
 	org := flag.String("org", "local", "organization name reported in API responses")
 	flag.Parse()
 
@@ -77,6 +80,7 @@ func main() {
 			Initrd:      filepath.Join(abs, "initrd.cpio"),
 		},
 		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn,
+		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,

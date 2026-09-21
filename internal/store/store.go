@@ -36,6 +36,9 @@ type Checkpoint struct {
 	ID         string    `json:"id"`
 	CreateTime time.Time `json:"create_time"`
 	Comment    string    `json:"comment,omitempty"`
+	// History is the chain of checkpoints this one descends from, nearest first.
+	History []string `json:"history,omitempty"`
+	IsAuto  bool     `json:"is_auto,omitempty"`
 }
 
 // Sprite is the persisted record. Runtime status is not stored here.
@@ -58,6 +61,11 @@ type Sprite struct {
 	BootIP         string       `json:"boot_ip,omitempty"`
 	Checkpoints    []Checkpoint `json:"checkpoints,omitempty"`
 	NextCheckpoint int          `json:"next_checkpoint"`
+	// NextAuto numbers auto-<n> checkpoints, which never consume a v<n>.
+	NextAuto int `json:"next_auto,omitempty"`
+	// Lineage is the History a checkpoint taken now would get: the checkpoint
+	// the live filesystem was last saved as or restored from, then its ancestors.
+	Lineage []string `json:"lineage,omitempty"`
 }
 
 type Store struct {

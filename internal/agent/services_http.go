@@ -130,6 +130,12 @@ func (s *Server) streamAction(w http.ResponseWriter, r *http.Request, watch bool
 			}
 			continue
 		case <-deadline:
+			if !actionDone {
+				// A watch shorter than the action itself (duration=0, a slow stop
+				// inside a restart) must not report "complete" before it happened.
+				deadline, watch = nil, false
+				continue
+			}
 		case <-r.Context().Done():
 			return
 		}
