@@ -13,9 +13,6 @@ import (
 	"github.com/jhgaylor/mini-sprites/internal/vmm"
 )
 
-// defaultHTTPPort is where a sprite's URL is routed inside the guest.
-const defaultHTTPPort = 8080
-
 // bufferedConn replays bytes the HTTP response parser read past the 101.
 type bufferedConn struct {
 	net.Conn
@@ -25,12 +22,13 @@ type bufferedConn struct {
 func (c *bufferedConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
 // dialGuestTCP opens a raw TCP stream to localhost:port inside the guest, tunnelled over vsock via the agent.
-func dialGuestTCP(ctx context.Context, m *vmm.Machine, port int) (net.Conn, error) {
+// port is a number, or "http" for the sprite's URL target (its HTTP service, else 8080).
+func dialGuestTCP(ctx context.Context, m *vmm.Machine, port string) (net.Conn, error) {
 	conn, err := m.Dial(ctx)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(conn, "GET /internal/tcp?port=%d HTTP/1.1\r\nHost: agent\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n", port)
+	fmt.Fprintf(conn, "GET /internal/tcp?port=%s HTTP/1.1\r\nHost: agent\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n", port)
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, nil)
 	if err != nil {
@@ -40,7 +38,7 @@ func dialGuestTCP(ctx context.Context, m *vmm.Machine, port int) (net.Conn, erro
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		resp.Body.Close()
 		conn.Close()
-		return nil, fmt.Errorf("nothing is listening on port %d inside the sprite", port)
+		return nil, fmt.Errorf("nothing is listening on the %s port inside the sprite", port)
 	}
 	return &bufferedConn{Conn: conn, r: br}, nil
 }
@@ -89,7 +87,7 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 		},
 		Transport: &http.Transport{DisableKeepAlives: true,
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return dialGuestTCP(ctx, m, defaultHTTPPort)
+				return dialGuestTCP(ctx, m, "http")
 			}},
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {

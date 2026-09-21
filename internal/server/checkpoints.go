@@ -155,7 +155,8 @@ func (s *Server) restoreCheckpoint(w http.ResponseWriter, r *http.Request) {
 	defer rt.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if rt.m != nil {
+	wasRunning := rt.m != nil
+	if wasRunning {
 		out.info("Stopping services...")
 		rt.m.Kill() // the running filesystem is about to be replaced; nothing in it is worth flushing
 		s.life.cleanupLocked(rt)
@@ -168,5 +169,16 @@ func (s *Server) restoreCheckpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("checkpoint restored", "sprite", sp.Name, "checkpoint", id)
+	if wasRunning {
+		// The environment restarts on its own, so services come back from the
+		// restored disk without waiting for the next request.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			if _, release, err := s.life.Acquire(ctx, sp); err == nil {
+				release()
+			}
+		}()
+	}
 	out.complete("Restored to %s", id)
 }

@@ -221,6 +221,14 @@ func defaultUser() (cred *syscall.Credential, home, name string) {
 	return cred, u.HomeDir, u.Username
 }
 
+// baseEnv is the environment every exec session and service starts from.
+func baseEnv(home, uname string) []string {
+	return []string{
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"HOME=" + home, "USER=" + uname, "LOGNAME=" + uname, "LANG=C.UTF-8", "SHELL=/bin/bash",
+	}
+}
+
 // Start launches a command and registers the session.
 func (m *Manager) Start(o SessionOpts) (*Session, error) {
 	if len(o.Cmd) == 0 {
@@ -231,10 +239,7 @@ func (m *Manager) Start(o SessionOpts) (*Session, error) {
 	if dir == "" {
 		dir = home
 	}
-	env := []string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"HOME=" + home, "USER=" + uname, "LOGNAME=" + uname, "LANG=C.UTF-8", "SHELL=/bin/bash",
-	}
+	env := baseEnv(home, uname)
 	if o.TTY {
 		env = append(env, "TERM=xterm-256color")
 	}

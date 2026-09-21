@@ -41,6 +41,8 @@ func main() {
 func serve(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", "vsock", "vsock, tcp:HOST:PORT or unix:PATH (the latter two are for host-side testing)")
+	stateDir := fs.String("state-dir", "/.sprite", "where service definitions and logs live (on the sprite's disk)")
+	runDir := fs.String("run-dir", "/run/sprite-services", "pid files; must not survive a reboot")
 	fs.Parse(args)
 
 	var ln net.Listener
@@ -61,6 +63,7 @@ func serve(args []string) {
 
 	srv := &agent.Server{
 		Sessions: agent.NewManager(),
+		Services: agent.NewSupervisor(*stateDir, *runDir),
 		Poweroff: func() {
 			unix.Sync()
 			// With reboot=k on the kernel command line this resets via the

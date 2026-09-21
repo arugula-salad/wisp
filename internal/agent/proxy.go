@@ -82,7 +82,15 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 // handleTCP gives spritesd a raw byte stream to a guest port: after the 101
 // the vsock connection simply becomes the TCP connection. Used for sprite URLs.
 func (s *Server) handleTCP(w http.ResponseWriter, r *http.Request) {
+	// port=http means "wherever this sprite's URL should go": the service that
+	// owns the HTTP port (started on demand), or 8080.
 	port, _ := strconv.Atoi(r.URL.Query().Get("port"))
+	if r.URL.Query().Get("port") == "http" {
+		port = defaultHTTPPort
+		if s.Services != nil {
+			port = s.Services.HTTPTarget(r.Context())
+		}
+	}
 	conn, _, err := dialTarget(r.URL.Query().Get("host"), port)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "connect_failed", err.Error())

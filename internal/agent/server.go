@@ -24,6 +24,8 @@ var upgrader = websocket.Upgrader{
 // the /v1/sprites/{name} prefix stripped; /internal/* is for spritesd only.
 type Server struct {
 	Sessions *Manager
+	// Services is optional; without it the services API answers 404.
+	Services *Supervisor
 	// Poweroff syncs and stops the guest.
 	Poweroff func()
 }
@@ -36,6 +38,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /exec", s.handleExecPost)
 	mux.HandleFunc("GET /exec/{id}", s.handleAttach)
 	mux.HandleFunc("POST /exec/{id}/kill", s.handleKill)
+	if s.Services != nil {
+		s.registerServices(mux)
+	}
+	s.registerFS(mux)
 	mux.HandleFunc("GET /proxy", s.handleProxy)
 	mux.HandleFunc("GET /internal/tcp", s.handleTCP)
 	mux.HandleFunc("GET /internal/activity", s.handleActivity)

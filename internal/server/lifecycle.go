@@ -26,7 +26,6 @@ const (
 	agentPort  = 1024
 	bridgeName = "msbr0"
 	tapPrefix  = "mstap"
-	gatewayIP  = "10.88.0.1"
 )
 
 type Options struct {
@@ -38,6 +37,9 @@ type Options struct {
 	DefaultVCPUs  int
 	DefaultMemMiB int
 	DNS           string
+	// NoNetwork boots every sprite without a NIC and leaves the shared tap pool
+	// alone, so several spritesd instances (dev, tests) can coexist on one host.
+	NoNetwork bool
 }
 
 // runtime is the in-memory lifecycle state for one sprite.
@@ -82,11 +84,17 @@ type Lifecycle struct {
 	mu       sync.Mutex
 	runtimes map[string]*runtime // by sprite ID
 	freeTaps []string
+	gateway  net.IP // the bridge's address; sprites live in its /16. nil = no networking
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}}
-	if _, err := os.Stat("/sys/class/net/" + bridgeName); err == nil {
+	if opts.NoNetwork {
+		log.Info("guest networking disabled by --net=false")
+	} else if gw, err := bridgeAddr(); err != nil {
+		log.Warn("guest networking disabled", "reason", err)
+	} else {
+		l.gateway = gw
 		entries, _ := os.ReadDir("/sys/class/net")
 		for _, e := range entries {
 			if strings.HasPrefix(e.Name(), tapPrefix) {
@@ -94,16 +102,43 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 			}
 		}
 	}
-	if len(l.freeTaps) == 0 {
+	if len(l.freeTaps) == 0 && !opts.NoNetwork {
 		log.Warn("no tap devices found: sprites will boot without networking (run scripts/setup-host.sh once)")
-	} else {
-		log.Info("guest networking enabled", "taps", len(l.freeTaps), "bridge", bridgeName)
+	} else if !opts.NoNetwork {
+		log.Info("guest networking enabled", "taps", len(l.freeTaps), "bridge", bridgeName, "gateway", l.gateway)
 	}
 	for _, sp := range st.List("") {
 		vmm.ReapOrphan(st.Dir(sp.ID))
 	}
 	go l.janitor()
 	return l
+}
+
+// bridgeAddr returns the sprite bridge's IPv4 address. setup-host.sh owns the
+// choice of network; reading it back keeps the two from drifting apart.
+func bridgeAddr() (net.IP, error) {
+	ifc, err := net.InterfaceByName(bridgeName)
+	if err != nil {
+		return nil, fmt.Errorf("no %s bridge (run scripts/setup-host.sh once)", bridgeName)
+	}
+	addrs, _ := ifc.Addrs()
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil {
+			if ones, _ := n.Mask.Size(); ones != 16 {
+				return nil, fmt.Errorf("%s has %s; expected a /16", bridgeName, n)
+			}
+			return n.IP.To4(), nil
+		}
+	}
+	return nil, fmt.Errorf("%s has no IPv4 address", bridgeName)
+}
+
+// spriteIP is the sprite's address within the bridge's /16.
+func (l *Lifecycle) spriteIP(sp store.Sprite) net.IP {
+	if l.gateway == nil || sp.NetIndex == 0 {
+		return nil
+	}
+	return net.IPv4(l.gateway[0], l.gateway[1], byte(sp.NetIndex>>8), byte(sp.NetIndex))
 }
 
 func (l *Lifecycle) rt(id string) *runtime {
@@ -166,9 +201,8 @@ func (l *Lifecycle) vmConfig(sp store.Sprite, tap string) vmm.Config {
 	if sp.Config.RamMB > 0 {
 		cfg.MemMiB = sp.Config.RamMB
 	}
-	if tap != "" {
-		ip := net.ParseIP(sp.IP).To4()
-		cfg.Tap, cfg.IPCIDR, cfg.Gateway, cfg.DNS = tap, sp.IP+"/16", gatewayIP, l.opts.DNS
+	if ip := l.spriteIP(sp).To4(); tap != "" && ip != nil {
+		cfg.Tap, cfg.IPCIDR, cfg.Gateway, cfg.DNS = tap, ip.String()+"/16", l.gateway.String(), l.opts.DNS
 		cfg.MAC = fmt.Sprintf("06:00:%02x:%02x:%02x:%02x", ip[0], ip[1], ip[2], ip[3])
 	}
 	return cfg
@@ -213,6 +247,12 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 	var m *vmm.Machine
 	var err error
 	mode := "cold"
+	if vmm.HasSnapshot(dir) && sp.BootIP != cfg.IPCIDR {
+		// The guest configured its address at boot; a snapshot from before the
+		// network changed (or appeared) would resume with the wrong one.
+		l.log.Info("network changed since boot; discarding warm state", "sprite", sp.Name, "was", sp.BootIP, "now", cfg.IPCIDR)
+		vmm.DiscardSnapshot(dir)
+	}
 	if vmm.HasSnapshot(dir) {
 		mode = "warm"
 		if m, err = vmm.Restore(ctx, l.opts.Host, cfg); err != nil {
@@ -238,7 +278,12 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 	rt.lastUse = time.Now()
 	rt.useMu.Unlock()
 	now := time.Now()
-	l.store.Update(sp.Name, func(s *store.Sprite) { s.LastRunningAt = &now })
+	l.store.Update(sp.Name, func(s *store.Sprite) {
+		s.LastRunningAt = &now
+		if mode == "cold" {
+			s.BootIP = cfg.IPCIDR
+		}
+	})
 	l.log.Info("sprite running", "sprite", sp.Name, "wake", mode, "took", time.Since(start).Round(time.Millisecond), "net", tap != "")
 	go l.watch(sp, rt, m)
 	return nil

@@ -31,10 +31,13 @@ sprite create dev && sprite exec -s dev -- uname -a
 Guest internet access is the one thing that needs root, once:
 
 ```sh
-sudo ./scripts/setup-host.sh     # bridge + tap pool + NAT/isolation rules + boot unit
+sudo ./scripts/setup-host.sh     # bridge (10.209.0.0/16) + tap pool + NAT/isolation rules + boot unit
 ```
 
-Without it sprites run with no NIC; exec, checkpoints, sprite URLs and the TCP proxy
+Sprites get outbound internet but cannot reach each other, the host, or private/LAN/tailnet
+ranges. The script refuses a subnet that overlaps an existing route (`MINI_SPRITES_NET_PREFIX`
+picks another /16); spritesd reads the network back off the bridge. If ufw is active it also adds `ufw route allow in on msbr0` (ufw's forward policy
+is DROP, and a drop in any netfilter table is final). Without the setup sprites run with no NIC; exec, checkpoints, sprite URLs and the TCP proxy
 all still work because they travel over vsock.
 
 ## Lifecycle
@@ -56,9 +59,19 @@ SIGTERM, spritesd suspends every running sprite so they resume warm after a rest
 Implemented: sprites CRUD + pagination, exec (WebSocket TTY/non-TTY, detach/reattach with
 output replay, `max_run_after_disconnect`, signals, HTTP POST variant, session list, kill),
 checkpoints (create/list/get/restore, streaming NDJSON), TCP proxy, per-sprite URLs with
-`sprite`/`public` auth routed to guest port 8080.
+`sprite`/`public` auth, and services (create/get/list/delete, start/stop/restart with
+streamed logs, signal, `needs` ordering, crash restart with backoff, one `http_port`
+service that the URL routes to and starts on demand; otherwise the URL goes to port 8080).
 
-Not yet: services, filesystem API, network/privilege/resource policies, port-watch
+Service definitions live on the sprite's disk in `/.sprite/services/`, logs in
+`/.sprite/logs/services/<name>.log`, so both travel with checkpoints. Every service starts
+on a cold boot; across a warm suspend the process is simply frozen and resumed. Services
+never keep a sprite awake.
+
+The filesystem API (read, write, list, delete, rename, copy, chmod, chown) writes atomically
+and hands new files to the `sprite` user, so they look like the user's own from inside.
+
+Not yet: the in-guest `sprite-env` CLI and `/.sprite/api.sock`, filesystem watch, network/privilege/resource policies, port-watch
 notifications, the multiplexed `/control` channel (clients fall back automatically),
 the Tasks API, auto checkpoints.
 

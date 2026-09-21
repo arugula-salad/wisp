@@ -40,19 +40,24 @@ type Checkpoint struct {
 
 // Sprite is the persisted record. Runtime status is not stored here.
 type Sprite struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Config         Config            `json:"config"`
-	Environment    map[string]string `json:"environment,omitempty"`
-	URLSettings    URLSettings       `json:"url_settings"`
-	Labels         []string          `json:"labels,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
-	LastRunningAt  *time.Time        `json:"last_running_at,omitempty"`
-	LastWarmingAt  *time.Time        `json:"last_warming_at,omitempty"`
-	IP             string            `json:"ip"`
-	Checkpoints    []Checkpoint      `json:"checkpoints,omitempty"`
-	NextCheckpoint int               `json:"next_checkpoint"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Config        Config            `json:"config"`
+	Environment   map[string]string `json:"environment,omitempty"`
+	URLSettings   URLSettings       `json:"url_settings"`
+	Labels        []string          `json:"labels,omitempty"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	LastRunningAt *time.Time        `json:"last_running_at,omitempty"`
+	LastWarmingAt *time.Time        `json:"last_warming_at,omitempty"`
+	// NetIndex is this sprite's host number within the sprite network (whose
+	// prefix belongs to the host bridge, not to us). 0 means unassigned.
+	NetIndex int `json:"net_index"`
+	// BootIP is the address the guest configured at its last cold boot. A warm
+	// snapshot taken under a different address is useless and gets discarded.
+	BootIP         string       `json:"boot_ip,omitempty"`
+	Checkpoints    []Checkpoint `json:"checkpoints,omitempty"`
+	NextCheckpoint int          `json:"next_checkpoint"`
 }
 
 type Store struct {
@@ -114,17 +119,17 @@ func (s *Store) Create(sp *Sprite) error {
 	if _, ok := s.byName[sp.Name]; ok {
 		return ErrExists
 	}
-	used := map[string]bool{}
+	used := map[int]bool{}
 	for _, o := range s.byName {
-		used[o.IP] = true
+		used[o.NetIndex] = true
 	}
-	// 10.88.0.1 is the host bridge; hand out the rest of the /16.
-	for n := 2; n < 65534 && sp.IP == ""; n++ {
-		if ip := fmt.Sprintf("10.88.%d.%d", n>>8, n&0xff); !used[ip] && n&0xff != 0 && n&0xff != 255 {
-			sp.IP = ip
+	// Host .0.1 is the bridge; hand out the rest of the /16, skipping .0 and .255 octets.
+	for n := 2; n < 65534 && sp.NetIndex == 0; n++ {
+		if !used[n] && n&0xff != 0 && n&0xff != 255 {
+			sp.NetIndex = n
 		}
 	}
-	if sp.IP == "" {
+	if sp.NetIndex == 0 {
 		return errors.New("address pool exhausted")
 	}
 	if err := os.MkdirAll(s.Dir(sp.ID), 0o755); err != nil {

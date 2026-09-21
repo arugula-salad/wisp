@@ -55,6 +55,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/sprites/{name}/exec", s.proxyAgent)
 	mux.HandleFunc("/v1/sprites/{name}/exec/{rest...}", s.proxyAgent)
 	mux.HandleFunc("GET /v1/sprites/{name}/proxy", s.proxyAgent)
+	mux.HandleFunc("/v1/sprites/{name}/fs/{rest...}", s.proxyAgent)
+	mux.HandleFunc("/v1/sprites/{name}/services", s.proxyAgent)
+	mux.HandleFunc("/v1/sprites/{name}/services/{rest...}", s.proxyAgent)
 	mux.HandleFunc("POST /v1/sprites/{name}/checkpoint", s.createCheckpoint)
 	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints", s.listCheckpoints)
 	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints/{id}", s.getCheckpoint)
@@ -170,7 +173,7 @@ func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
 		return
 	}
-	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "ip", sp.IP)
+	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex)
 	writeJSON(w, http.StatusCreated, s.render(*sp))
 }
 

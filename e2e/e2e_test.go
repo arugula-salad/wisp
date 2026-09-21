@@ -12,6 +12,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -26,6 +30,26 @@ func client(t *testing.T) *sprites.Client {
 		t.Skip("SPRITES_E2E_URL / SPRITES_E2E_TOKEN not set")
 	}
 	return sprites.New(tok, sprites.WithBaseURL(url))
+}
+
+// fetchURL GETs the sprite's own URL. *.localhost may not resolve everywhere, so
+// dial the API address and send the sprite's hostname in the Host header.
+func fetchURL(t *testing.T, sprite string) string {
+	t.Helper()
+	base, _ := url.Parse(os.Getenv("SPRITES_E2E_URL"))
+	req, _ := http.NewRequest(http.MethodGet, base.String()+"/", nil)
+	req.Host = sprite + ".sprites.localhost:" + base.Port()
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("SPRITES_E2E_TOKEN"))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("fetch sprite URL: %v", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sprite URL: %s: %s", resp.Status, b)
+	}
+	return string(b)
 }
 
 func TestSDKConformance(t *testing.T) {
@@ -165,6 +189,134 @@ func TestSDKConformance(t *testing.T) {
 		out, err := sp.CommandContext(ctx, "sh", "-c", "cat ~/state; test -x /usr/bin/git && echo git-is-back").Output()
 		if err != nil || string(out) != "before\ngit-is-back\n" {
 			t.Fatalf("after restore: out=%q err=%v", out, err)
+		}
+	})
+
+	t.Run("filesystem", func(t *testing.T) {
+		fsys := sp.FilesystemAt("/home/sprite")
+		payload := bytes.Repeat([]byte("0123456789abcdef"), 1<<16) // 1 MiB
+		if err := fsys.WriteFile("proj/data/blob.bin", payload, 0o640); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		got, err := fsys.ReadFile("proj/data/blob.bin")
+		if err != nil || !bytes.Equal(got, payload) {
+			t.Fatalf("read back: %d bytes, err=%v", len(got), err)
+		}
+		info, err := fsys.Stat("proj/data/blob.bin")
+		if err != nil || info.Size() != int64(len(payload)) || info.Mode().Perm() != 0o640 {
+			t.Fatalf("stat: %+v %v", info, err)
+		}
+		// What the API wrote must look like the user's own files from inside the sprite.
+		out, err := sp.CommandContext(ctx, "sh", "-c", "stat -c '%U %a' proj/data/blob.bin proj/data; sha256sum < proj/data/blob.bin | cut -c1-12").Output()
+		if err != nil || !strings.HasPrefix(string(out), "sprite 640\nsprite 755\n") {
+			t.Fatalf("ownership/mode seen in guest: %q err=%v", out, err)
+		}
+		if err := fsys.Rename("proj/data/blob.bin", "proj/data/moved.bin"); err != nil {
+			t.Fatal(err)
+		}
+		if err := fsys.MkdirAll("proj/empty", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := fsys.ReadDir("proj/data")
+		if err != nil || len(entries) != 1 || entries[0].Name() != "moved.bin" {
+			t.Fatalf("readdir: %v %v", entries, err)
+		}
+		if _, err := fsys.ReadFile("proj/nope"); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("missing file: want ErrNotExist, got %v", err)
+		}
+		if err := fsys.Remove("proj"); err == nil {
+			t.Fatal("non-recursive remove of a non-empty directory should fail")
+		}
+		if err := fsys.RemoveAll("proj"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fsys.Stat("proj"); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("after RemoveAll: %v", err)
+		}
+	})
+
+	t.Run("services", func(t *testing.T) {
+		if _, err := sp.CommandContext(ctx, "sh", "-c", "mkdir -p ~/site && echo served-by-a-service > ~/site/index.html").Output(); err != nil {
+			t.Fatal(err)
+		}
+		port := 3000
+		stream, err := sp.CreateServiceWithDuration(ctx, "web", &sprites.ServiceRequest{
+			Cmd: "python3", Args: []string{"-m", "http.server", "3000", "--directory", "/home/sprite/site"}, HTTPPort: &port,
+		}, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		started := false
+		if err := stream.ProcessAll(func(ev *sprites.ServiceLogEvent) error {
+			started = started || ev.Type == "started"
+			return nil
+		}); err != nil || !started {
+			t.Fatalf("create stream: started=%v err=%v", started, err)
+		}
+		svc, err := sp.GetService(ctx, "web")
+		if err != nil || svc.State == nil || svc.State.Status != "running" {
+			t.Fatalf("get service: %+v %v", svc, err)
+		}
+		if _, err := sp.CreateService(ctx, "web2", &sprites.ServiceRequest{Cmd: "sleep", Args: []string{"1"}, HTTPPort: &port}); err == nil {
+			t.Fatal("second http_port service should be a conflict")
+		}
+
+		// The sprite URL now routes to the service's port instead of 8080.
+		if got := fetchURL(t, name); got != "served-by-a-service\n" {
+			t.Fatalf("sprite URL served %q", got)
+		}
+
+		// A crash is restarted and counted.
+		if err := sp.SignalService(ctx, "web", "KILL"); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			svc, _ = sp.GetService(ctx, "web")
+			if svc != nil && svc.State != nil && svc.State.Status == "running" && svc.State.RestartCount == 1 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("service did not restart after crash: %+v", svc.State)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		// Cold boot: a checkpoint restore throws away all process state. The
+		// service must come back from its on-disk definition, and the URL with it.
+		cs, err := sp.CreateCheckpoint(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs.ProcessAll(func(*sprites.StreamMessage) error { return nil })
+		cps, _ := sp.ListCheckpoints(ctx, "")
+		rs, err := sp.RestoreCheckpoint(ctx, cps[0].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rs.ProcessAll(func(*sprites.StreamMessage) error { return nil })
+		if got := fetchURL(t, name); got != "served-by-a-service\n" {
+			t.Fatalf("after cold boot the sprite URL served %q", got)
+		}
+		svc, _ = sp.GetService(ctx, "web")
+		if svc.State.RestartCount != 0 {
+			t.Fatalf("restart_count should reset on a fresh boot, got %d", svc.State.RestartCount)
+		}
+
+		// Stop is sticky, and the URL proxy starts a stopped HTTP service on demand.
+		stop, err := sp.StopService(ctx, "web")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stop.ProcessAll(func(*sprites.ServiceLogEvent) error { return nil })
+		if svc, _ = sp.GetService(ctx, "web"); svc.State.Status != "stopped" {
+			t.Fatalf("after stop: %+v", svc.State)
+		}
+		if got := fetchURL(t, name); got != "served-by-a-service\n" {
+			t.Fatalf("URL should start the stopped service on demand, served %q", got)
+		}
+		if err := sp.DeleteService(ctx, "web"); err != nil {
+			t.Fatal(err)
 		}
 	})
 

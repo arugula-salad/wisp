@@ -56,6 +56,7 @@ func main() {
 	mem := flag.Int("mem-mib", 2048, "default guest RAM per sprite (MiB); also the size of each warm snapshot on disk")
 	dns := flag.String("dns", "1.1.1.1,8.8.8.8", "nameservers handed to guests")
 	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are http://<name>.<url-domain>:<port>; point a wildcard DNS record here to serve them beyond this machine")
+	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one spritesd per host may own it, so run extra dev/test instances with --net=false")
 	org := flag.String("org", "local", "organization name reported in API responses")
 	flag.Parse()
 
@@ -75,7 +76,7 @@ func main() {
 			Kernel:      filepath.Join(abs, "kernel", "vmlinux"),
 			Initrd:      filepath.Join(abs, "initrd.cpio"),
 		},
-		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns,
+		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn,
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,
