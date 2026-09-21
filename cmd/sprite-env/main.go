@@ -1,6 +1,6 @@
 // sprite-env is the CLI a sprite uses on itself: it talks to the agent's
 // management socket at /.sprite/api.sock, so it needs no API token and cannot
-// name any other sprite. Output is the API's own JSON / NDJSON, which is what
+// name any other sprite, except the ones a spawn policy let it create. Output is the API's own JSON / NDJSON, which is what
 // the scripts and agents that call it want to parse.
 package main
 
@@ -42,6 +42,11 @@ const usage = `sprite-env manages this sprite from the inside.
   sprite-env checkpoints mount <id>       read-only, at /.sprite/checkpoints/<id>; copy files out without restoring
   sprite-env checkpoints unmount <id>
 
+  sprite-env sprites create <name> [--from <sprite>[@<checkpoint>]] [--public] [--env K=v,...] [--labels a,b]
+  sprite-env sprites list | get <name> | delete <name>
+                                          sprites this one created; needs a spawn policy, set from outside.
+                                          --from clones a checkpoint ("." is this sprite, no @ is its newest)
+
   sprite-env curl [curl options] <path>   curl against the management socket, e.g. sprite-env curl /v1/services
 `
 
@@ -65,6 +70,8 @@ func main() {
 		err = services(verb, args)
 	case "checkpoints", "checkpoint":
 		err = checkpoints(verb, args)
+	case "sprites", "sprite":
+		err = sprites(verb, args)
 	case "curl":
 		err = curl(os.Args[2:])
 	default:
@@ -208,6 +215,63 @@ func stream(method, path, duration string, quiet bool, body any) error {
 
 func call(method, path string, q url.Values, body any) error {
 	return request(method, path, q, body, os.Stdout)
+}
+
+func sprites(verb string, args []string) error {
+	fs := flag.NewFlagSet("sprites "+verb, flag.ExitOnError)
+	switch verb {
+	case "list", "ls":
+		if _, err := parse(fs, args, 0); err != nil {
+			return err
+		}
+		return call(http.MethodGet, "/v1/sprites", nil, nil)
+	case "get", "delete", "rm":
+		pos, err := parse(fs, args, 1)
+		if err != nil {
+			return err
+		}
+		method := http.MethodGet
+		if verb != "get" {
+			method = http.MethodDelete
+		}
+		return call(method, "/v1/sprites/"+url.PathEscape(pos[0]), nil, nil)
+	case "create":
+		from := fs.String("from", "", "clone <sprite>[@<checkpoint>] instead of starting from the base image")
+		public := fs.Bool("public", false, "serve the new sprite's URL without authentication")
+		env := fs.String("env", "", "comma-separated KEY=value environment variables")
+		labels := fs.String("labels", "", "comma-separated labels")
+		pos, err := parse(fs, args, 1)
+		if err != nil {
+			return err
+		}
+		body := map[string]any{"name": pos[0]}
+		if *from != "" {
+			sprite, checkpoint, _ := strings.Cut(*from, "@")
+			if sprite == "." {
+				sprite = ""
+			}
+			body["from"] = map[string]string{"sprite": sprite, "checkpoint": checkpoint}
+		}
+		if *public {
+			body["url_settings"] = map[string]string{"auth": "public"}
+		}
+		if *env != "" {
+			vars := map[string]string{}
+			for _, kv := range splitList(*env) {
+				k, v, ok := strings.Cut(kv, "=")
+				if !ok {
+					return usageErr("--env wants KEY=value, got %q", kv)
+				}
+				vars[k] = v
+			}
+			body["environment"] = vars
+		}
+		if *labels != "" {
+			body["labels"] = splitList(*labels)
+		}
+		return call(http.MethodPost, "/v1/sprites", nil, body)
+	}
+	return usageErr("unknown sprites command %q", verb)
 }
 
 func checkpoints(verb string, args []string) error {

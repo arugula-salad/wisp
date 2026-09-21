@@ -68,6 +68,23 @@ func TestServicesCreateRequest(t *testing.T) {
 	}
 }
 
+func TestSpritesCreateRequest(t *testing.T) {
+	got := serve(t, 201, "application/json", `{"name":"game-1"}`)
+	if err := sprites("create", []string{"game-1", "--from", "template@v2", "--public", "--env", "SEED=7"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Method != http.MethodPost || got.URL.Path != "/v1/sprites" {
+		t.Errorf("request = %s %s", got.Method, got.URL)
+	}
+	var body map[string]any
+	json.NewDecoder(got.Body).Decode(&body)
+	want := map[string]any{"name": "game-1", "from": map[string]any{"sprite": "template", "checkpoint": "v2"},
+		"url_settings": map[string]any{"auth": "public"}, "environment": map[string]any{"SEED": "7"}}
+	if !reflect.DeepEqual(body, want) {
+		t.Errorf("body = %v\nwant %v", body, want)
+	}
+}
+
 func TestFailuresBecomeErrors(t *testing.T) {
 	serve(t, 409, "application/json", `{"error":"conflict","message":"another service already has an HTTP port configured"}`)
 	if err := services("create", []string{"web", "--cmd", "x"}); err == nil || err.Error() != "another service already has an HTTP port configured (409)" {

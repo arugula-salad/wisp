@@ -17,3 +17,14 @@ type MemoryPolicy struct {
 type ResourcesPolicy struct {
 	Memory *MemoryPolicy `json:"memory,omitempty"`
 }
+
+// SpawnPolicy is ours, not upstream's: it lets code inside a sprite create and
+// manage sprites of its own over /.sprite/api.sock.
+type SpawnPolicy struct {
+	Enabled bool `json:"enabled"`
+	// MaxChildren caps the sprites it may hold at once. 0 means the default.
+	MaxChildren int `json:"max_children,omitempty"`
+	// Sources names sprites whose checkpoints it may clone, besides its own and
+	// its children's.
+	Sources []string `json:"sources,omitempty"`
+}

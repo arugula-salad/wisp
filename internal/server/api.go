@@ -112,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sprites/{name}/policy/network", s.setNetworkPolicy)
 	s.registerTasks(mux)
 	s.registerPolicyLimits(mux)
+	s.registerSpawnPolicy(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
@@ -155,6 +156,8 @@ type spriteJSON struct {
 	UpdatedAt     time.Time         `json:"updated_at"`
 	LastRunningAt *time.Time        `json:"last_running_at,omitempty"`
 	LastWarmingAt *time.Time        `json:"last_warming_at,omitempty"`
+	// ParentID is ours: the sprite that created this one from inside.
+	ParentID string `json:"parent_id,omitempty"`
 	// Backup is ours, not upstream's: where this sprite's durability stands. The
 	// SDKs ignore fields they do not know, and it is absent entirely when no bucket
 	// is configured.
@@ -166,7 +169,7 @@ func (s *Server) render(sp store.Sprite) spriteJSON {
 		ID: sp.ID, Name: sp.Name, Organization: s.org, Status: s.life.Status(sp),
 		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name),
 		URLSettings: sp.URLSettings, Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
-		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt,
+		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, ParentID: sp.ParentID,
 		Backup: s.backups.State(sp.ID),
 	}
 }
@@ -183,14 +186,23 @@ func (s *Server) lookup(w http.ResponseWriter, r *http.Request) (store.Sprite, b
 
 func validAuth(a string) bool { return a == "sprite" || a == "public" }
 
-func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name        string             `json:"name"`
-		Config      *store.Config      `json:"config"`
-		Environment map[string]string  `json:"environment"`
-		Labels      []string           `json:"labels"`
-		URLSettings *store.URLSettings `json:"url_settings"`
-	}
+// createRequest is POST /v1/sprites. From is our extension.
+type createRequest struct {
+	Name        string             `json:"name"`
+	Config      *store.Config      `json:"config"`
+	Environment map[string]string  `json:"environment"`
+	Labels      []string           `json:"labels"`
+	URLSettings *store.URLSettings `json:"url_settings"`
+	// From starts the sprite as a clone of a checkpoint instead of the base image.
+	From *cloneFrom `json:"from"`
+}
+
+func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) { s.create(w, r, nil) }
+
+// create serves the public API and, with parent set, a sprite creating one from
+// inside (see spawn.go for what that changes).
+func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sprite) {
+	var req createRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
@@ -204,27 +216,52 @@ func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) {
 			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)})
 		return
 	}
-	base, err := s.storage.base(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
+	if parent != nil {
+		if lim := s.childLimit(*parent); lim != nil {
+			writeLimitErr(w, lim)
+			return
+		}
+	}
+	if req.URLSettings != nil && req.URLSettings.Auth != "" && !validAuth(req.URLSettings.Auth) {
+		writeErr(w, http.StatusBadRequest, "bad_request", `url_settings.auth must be "sprite" or "public"`)
 		return
 	}
-	if err := s.life.disk.admit("a new sprite", s.cloneCost(base)); err != nil {
-		writeNoRoom(w, err)
-		return
-	}
+
 	now := time.Now().UTC()
 	sp := &store.Sprite{ID: store.NewID(), Name: req.Name, Environment: req.Environment, Labels: req.Labels,
 		URLSettings: store.URLSettings{Auth: "sprite"}, CreatedAt: now, UpdatedAt: now}
-	if req.Config != nil {
-		sp.Config = *req.Config
-	}
 	if req.URLSettings != nil && req.URLSettings.Auth != "" {
-		if !validAuth(req.URLSettings.Auth) {
-			writeErr(w, http.StatusBadRequest, "bad_request", `url_settings.auth must be "sprite" or "public"`)
+		sp.URLSettings = *req.URLSettings
+	}
+
+	var image string
+	if req.From != nil {
+		src, cp, unlock, err := s.cloneSource(*req.From, parent)
+		if err != nil {
+			writeErr(w, err.status, err.code, err.msg)
 			return
 		}
-		sp.URLSettings = *req.URLSettings
+		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
+		defer unlock()
+		image = s.checkpointPath(src.ID, cp)
+		// A clone is the source's machine as well as its disk.
+		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
+	} else {
+		base, err := s.storage.base(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
+			return
+		}
+		image = base
+	}
+	if parent != nil {
+		inherit(sp, *parent, req.From != nil)
+	} else if req.Config != nil {
+		sp.Config = *req.Config
+	}
+	if err := s.life.disk.admit("a new sprite", s.cloneCost(image)); err != nil {
+		writeNoRoom(w, err)
+		return
 	}
 	if err := s.store.Create(sp); err != nil {
 		if errors.Is(err, store.ErrExists) {
@@ -235,12 +272,12 @@ func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	disk := filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile)
-	if err := cloneFile(r.Context(), base, disk); err != nil {
+	if err := cloneFile(r.Context(), image, disk); err != nil {
 		s.store.Delete(sp.Name)
 		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
 		return
 	}
-	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex)
+	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", req.From != nil)
 	writeJSON(w, http.StatusCreated, s.render(*sp))
 }
 
@@ -257,6 +294,10 @@ func cloneFile(ctx context.Context, src, dst string) error {
 }
 
 func (s *Server) listSprites(w http.ResponseWriter, r *http.Request) {
+	s.list(w, r, func(store.Sprite) bool { return true })
+}
+
+func (s *Server) list(w http.ResponseWriter, r *http.Request, keep func(store.Sprite) bool) {
 	q := r.URL.Query()
 	max := 50
 	if n, err := strconv.Atoi(q.Get("max_results")); err == nil && n >= 1 && n <= 50 {
@@ -270,7 +311,7 @@ func (s *Server) listSprites(w http.ResponseWriter, r *http.Request) {
 		NextContinuationToken string       `json:"next_continuation_token,omitempty"`
 	}{Sprites: []spriteJSON{}, Org: s.orgInfo()}
 	for _, sp := range s.store.List(q.Get("prefix")) {
-		if sp.Name <= after {
+		if sp.Name <= after || !keep(sp) {
 			continue
 		}
 		if len(resp.Sprites) == max {
@@ -323,10 +364,12 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
-	sp, ok := s.lookup(w, r)
-	if !ok {
-		return
+	if sp, ok := s.lookup(w, r); ok {
+		s.remove(w, sp)
 	}
+}
+
+func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
 	s.life.Stop(sp, false)
 	if err := s.store.Delete(sp.Name); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())

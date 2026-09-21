@@ -85,6 +85,12 @@ type Sprite struct {
 	// A nil policy is upstream's default: unrestricted.
 	Privileges *PrivilegesPolicy `json:"privileges_policy,omitempty"`
 	Resources  *ResourcesPolicy  `json:"resources_policy,omitempty"`
+
+	// ParentID is the sprite that created this one from inside. An ID rather than
+	// a name, because names are reusable after a delete.
+	ParentID string `json:"parent_id,omitempty"`
+	// A nil spawn policy is the default: the sprite cannot create sprites.
+	Spawn *SpawnPolicy `json:"spawn_policy,omitempty"`
 }
 
 type Store struct {

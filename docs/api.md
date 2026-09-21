@@ -1,6 +1,9 @@
 # API coverage
 
 - **Sprites**: CRUD, pagination, labels, URL settings, and the `org` counts on the list response.
+  Ours: `"from": {"sprite": "template", "checkpoint": "v1"}` on create starts the sprite as a
+  clone of that checkpoint (newest manual one when omitted) instead of the base image, with
+  the source's config and policies. With a reflink volume the clone is instant.
 - **Exec**: WebSocket TTY/non-TTY, detach/reattach with output replay,
   `max_run_after_disconnect`, signals, session list, kill, and HTTP POST exec in upstream's
   frame format.
@@ -24,6 +27,8 @@
     `noNewPrivileges`, applied to processes started after the change.
   - `policy/resources`: a memory limit, as a guest cgroup immediately and as VM RAM of
     `limit_mb + 128` from the next cold boot.
+  - `policy/spawn` (ours): lets the sprite create sprites of its own from inside. See
+    [Sprites that create sprites](#sprites-that-create-sprites).
 - **Proxy / URLs**: the TCP proxy, and per-sprite URLs with `sprite`/`public` auth (see
   [Public sprite URLs](public-urls.md) for serving them to the internet).
 
@@ -53,5 +58,43 @@ cannot be deleted. The sprite's network policy is readable at `/.sprite/policy/n
 (information only; enforcement is on the host).
 
 Checkpoint calls ride a guest-initiated vsock channel to a per-VM listener bound to that one
-sprite: the channel is the identity, and a guest cannot address anything but itself.
+sprite: the channel is the identity, and a guest cannot address anything but itself (and,
+with a spawn policy, the sprites it created).
 Restoring from inside ends the session, since the VM is replaced.
+
+## Sprites that create sprites
+
+Upstream, an app inside a sprite that wants more sprites carries an API token and calls the
+public API. Here a guest cannot reach the host at all, and the one token is the whole API, so
+spawning rides the same in-guest socket as checkpoints, and is off until you grant it:
+
+```sh
+# from outside, once
+curl -X POST $SPRITES_API_URL/v1/sprites/lobby/policy/spawn -H "Authorization: Bearer $TOKEN" \
+  -d '{"enabled": true, "max_children": 20, "sources": ["game-template"]}'
+
+# from inside "lobby", no token
+sprite-env sprites create game-42 --from game-template --public    # prints the sprite, url included
+sprite-env sprites list
+sprite-env sprites delete game-42
+# or: curl --unix-socket /.sprite/api.sock http://sprite/v1/sprites -d '{"name":"game-42","from":{"sprite":"game-template"},"url_settings":{"auth":"public"}}'
+```
+
+The pattern this is for: set a template sprite up once (install the app, define its
+`http_port` service, `sprite-env checkpoints create`), then have a front sprite clone it per
+visitor and redirect to the new sprite's `url`. Services travel with the disk and the URL
+starts the sprite on demand, so nothing has to be run in the clone: create to first HTTP
+response measured 475 ms, without reflinks.
+
+What a spawner can and cannot do:
+
+- It sees and deletes only the sprites it created (`parent_id` on the sprite); everything else is 404.
+- It holds at most `max_children` of them (default 10); `--max-sprites` and the disk guard still apply.
+- It may clone its own checkpoints, its children's, and those of the sprites in `sources`.
+- A child always runs under the spawner's network policy, so spawning is no way out of one. It
+  gets the spawner's config and other policies, or the source's when it is a clone; `config`
+  in the request is ignored. It may choose `public` URL auth, environment and labels.
+- A child has no spawn policy of its own. Exec, the filesystem API and policies of a child are
+  not reachable from inside: put what a child needs in the template.
+- Deleting a spawner leaves its children in place.
+- Sprites running an agent from before this feature get the routes on their next cold boot.

@@ -48,12 +48,15 @@ func (g *guestChan) close() {
 	}
 }
 
+// guestHandler serves a request from inside the sprite it is given.
+type guestHandler func(http.ResponseWriter, *http.Request, store.Sprite, *guestChan)
+
 // guestAPI is the handler behind one sprite's channel. It mirrors the public
 // checkpoint routes with the /sprites/{name} part removed, the way upstream's
-// /.sprite/api.sock does.
+// /.sprite/api.sock does. The /v1/sprites routes are for a sprite that may
+// create sprites of its own (spawn.go).
 func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
-	type handler func(http.ResponseWriter, *http.Request, store.Sprite, *guestChan)
-	bind := func(h handler) http.HandlerFunc {
+	bind := func(h guestHandler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			// Names are reusable after a delete; the ID pins this channel to the sprite it was opened for.
 			cur, err := s.store.Get(sp.Name)
@@ -78,6 +81,7 @@ func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
 	mux.HandleFunc("POST /v1/checkpoints/{id}/restore", bind(s.restoreCheckpoint))
 	mux.HandleFunc("POST /v1/checkpoints/{id}/mount", bind(s.mountCheckpoint))
 	mux.HandleFunc("POST /v1/checkpoints/{id}/unmount", bind(s.unmountCheckpoint))
+	s.registerGuestSpawn(mux, bind)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
