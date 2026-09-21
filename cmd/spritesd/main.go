@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"net"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jhgaylor/mini-sprites/internal/confine"
 	"github.com/jhgaylor/mini-sprites/internal/server"
 	"github.com/jhgaylor/mini-sprites/internal/store"
 	"github.com/jhgaylor/mini-sprites/internal/vmm"
@@ -48,6 +50,12 @@ func loadToken(path string) (string, error) {
 }
 
 func main() {
+	// The confinement shim: spritesd re-execs itself to put a Landlock domain
+	// on a VMM before exec'ing Firecracker (internal/confine). It never returns.
+	if len(os.Args) > 1 && os.Args[1] == confine.ShimArg {
+		confine.RunShim(os.Args[2:])
+	}
+
 	data := flag.String("data", defaultDataDir(), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7788", "API listen address")
 	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
@@ -63,6 +71,7 @@ func main() {
 	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
 	netdSocket := flag.String("netd-socket", "", "mini-sprites-netd socket, the root helper that backs restrictive network policies (default /run/mini-sprites/netd.sock)")
 	org := flag.String("org", "local", "organization name reported in API responses")
+	confineMode := flag.String("confine", os.Getenv("MINI_SPRITES_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -98,6 +107,19 @@ func main() {
 		f.Close()
 	}
 
+	mode, err := confine.ParseMode(*confineMode)
+	if err != nil {
+		fatal(log, err)
+	}
+	// One cgroup subtree per data directory, so a second spritesd (dev, tests)
+	// on the same host does not sweep away the first one's VM cgroups.
+	conf, err := confine.Open(mode, "mini-sprites-"+cgroupTag(abs))
+	if err != nil {
+		fatal(log, err)
+	}
+	opts.Host.Confine = conf
+	log.Info("vmm confinement", "detail", conf.Describe())
+
 	token, err := loadToken(filepath.Join(abs, "token"))
 	if err != nil {
 		fatal(log, err)
@@ -128,6 +150,14 @@ func main() {
 	srv.Shutdown(ctx) // in-flight exec sessions are cut off; their sprites still suspend warm
 	srv.Close()
 	life.Shutdown()
+}
+
+// cgroupTag derives a stable, filesystem-safe suffix from the data directory,
+// so two spritesd instances on one host get separate cgroup subtrees.
+func cgroupTag(dataDir string) string {
+	h := fnv.New32a()
+	h.Write([]byte(dataDir))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func fatal(log *slog.Logger, err error) {
