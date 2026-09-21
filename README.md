@@ -41,7 +41,10 @@ sudo ./scripts/setup-storage.sh      # stop spritesd first; SPRITE_VOLUME_GB=40 
 ```
 
 Puts the sprite directory on a loop-mounted XFS volume with reflinks, so creating a sprite,
-taking a checkpoint and restoring one are instant and share disk blocks until written. The
+taking a checkpoint and restoring one are instant and share disk blocks until written
+(measured: create 13 ms, checkpoint 2 ms, restore 69 ms; six 20 GB images in 1.7 GB). Warm
+snapshots live on the volume too, at one guest-RAM-sized file per suspended sprite, so size
+it for both; suspend is a little slower through the loop device (~1.6 s vs ~1.2 s). The
 script migrates existing sprites, never sizes the volume beyond what the host disk can hold,
 and `--remove` moves everything back. spritesd needs no configuration: it probes the
 filesystem at startup and logs which mode it is in.

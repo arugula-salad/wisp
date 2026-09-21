@@ -20,6 +20,7 @@ trap 'echo "setup-storage.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 OWNER="${MINI_SPRITES_OWNER:-${SUDO_USER:-}}"
 [ -n "$OWNER" ] && id "$OWNER" >/dev/null 2>&1 || { echo "cannot determine owning user; run via sudo from your account" >&2; exit 1; }
 OWNER_HOME=$(getent passwd "$OWNER" | cut -d: -f6)
+OWNER_GROUP=$(id -gn "$OWNER")
 DATA="${MINI_SPRITES_DATA:-$OWNER_HOME/.local/share/mini-sprites}"
 IMG="$DATA/sprites.xfs"
 MNT="$DATA/vm"
@@ -93,7 +94,7 @@ create() {
   truncate -s "${SIZE_GB}G" "$IMG.tmp"
   mkfs.xfs -q -m reflink=1 -L msprites "$IMG.tmp"
   mv "$IMG.tmp" "$IMG"
-  chown "$OWNER": "$IMG"
+  chown "$OWNER:$OWNER_GROUP" "$IMG"
 
   local old=""
   if [ -n "$(ls -A "$MNT")" ]; then
@@ -103,7 +104,7 @@ create() {
     mkdir "$MNT"
   fi
   mount -o loop,discard,noatime "$IMG" "$MNT"
-  chown "$OWNER": "$MNT"
+  chown "$OWNER:$OWNER_GROUP" "$MNT"
   if [ -n "$old" ]; then
     echo "migrating existing sprites onto the volume..."
     # -a keeps ownership, modes and times; sparse keeps 20G disk images at their real size.
@@ -132,7 +133,7 @@ remove() {
     umount "$MNT"
     rmdir "$MNT"
     mv "$out" "$MNT"
-    chown "$OWNER": "$MNT"
+    chown "$OWNER:$OWNER_GROUP" "$MNT"
   fi
   if [ -f "$UNIT" ]; then
     # --now runs ExecStop (umount) too; it is already unmounted by then, hence the || true.
