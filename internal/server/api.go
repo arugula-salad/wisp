@@ -78,6 +78,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints/{id}", s.named(s.getCheckpoint))
 	mux.HandleFunc("DELETE /v1/sprites/{name}/checkpoints/{id}", s.named(s.deleteCheckpoint))
 	mux.HandleFunc("POST /v1/sprites/{name}/checkpoints/{id}/restore", s.named(s.restoreCheckpoint))
+	mux.HandleFunc("GET /v1/sprites/{name}/policy/network", s.getNetworkPolicy)
+	mux.HandleFunc("POST /v1/sprites/{name}/policy/network", s.setNetworkPolicy)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Includes /v1/sprites/{name}/control: the SDK treats 404 there as
 		// "no multiplexed control channel" and falls back to direct WebSockets.
@@ -281,6 +283,7 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.life.Forget(sp.ID)
+	s.life.egress.forget(sp)
 	s.log.Info("sprite deleted", "sprite", sp.Name)
 	w.WriteHeader(http.StatusNoContent)
 }

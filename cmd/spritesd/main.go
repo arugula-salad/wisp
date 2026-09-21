@@ -60,6 +60,7 @@ func main() {
 	autoEvery := flag.Duration("auto-checkpoint-interval", time.Hour, "take an automatic checkpoint of a sprite whose disk changed and whose newest checkpoint is older than this (0 = only before restores)")
 	autoKeep := flag.Int("auto-checkpoint-keep", 3, "automatic checkpoints kept per sprite; each is a full disk clone (0 = take none)")
 	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
+	netdSocket := flag.String("netd-socket", "", "mini-sprites-netd socket, the root helper that backs restrictive network policies (default /run/mini-sprites/netd.sock)")
 	org := flag.String("org", "local", "organization name reported in API responses")
 	flag.Parse()
 
@@ -81,6 +82,7 @@ func main() {
 		},
 		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn,
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
+		NetdSocket: *netdSocket,
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,

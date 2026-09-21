@@ -47,6 +47,8 @@ type Options struct {
 	// GuestCheckpointLimit caps the manual checkpoints a sprite can hold when the
 	// request to create one comes from inside it (0 = no limit).
 	GuestCheckpointLimit int
+	// NetdSocket is where mini-sprites-netd listens; empty means its default.
+	NetdSocket string
 }
 
 // runtime is the in-memory lifecycle state for one sprite.
@@ -97,6 +99,7 @@ type Lifecycle struct {
 
 	// guestAPI builds the handler served on a VM's guest channel. Set by the Server.
 	guestAPI func(store.Sprite, *guestChan) http.Handler
+	egress   *egress
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
@@ -122,6 +125,7 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	for _, sp := range st.List("") {
 		vmm.ReapOrphan(st.Dir(sp.ID))
 	}
+	l.egress = newEgress(opts, st, log, l.gateway)
 	go l.janitor()
 	return l
 }
@@ -253,7 +257,10 @@ func (l *Lifecycle) cleanupLocked(rt *runtime) {
 func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
 	start := time.Now()
 	dir := l.store.Dir(sp.ID)
-	tap := l.takeTap()
+	tap, gateErr := l.tapFor(sp)
+	if gateErr != nil {
+		return gateErr
+	}
 	cfg := l.vmConfig(sp, tap)
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
