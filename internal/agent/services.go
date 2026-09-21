@@ -321,7 +321,7 @@ func (sv *Supervisor) spawnLocked(s *service) {
 		cmd = &exec.Cmd{Path: path, Args: append([]string{s.def.Cmd}, s.def.Args...), Env: env, Dir: dir,
 			Stdout: outW, Stderr: errW,
 			SysProcAttr: &syscall.SysProcAttr{Credential: cred, Setpgid: true}}
-		err = cmd.Start()
+		err = launch(cmd.SysProcAttr, cmd.Start)
 	}
 	for _, f := range []*os.File{outW, errW} {
 		if f != nil {

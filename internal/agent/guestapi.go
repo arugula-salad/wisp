@@ -27,6 +27,8 @@ func (s *Server) GuestAPI(hostDial func(ctx context.Context) (net.Conn, error)) 
 		mux.Handle("/v1/services", http.StripPrefix("/v1", services))
 		mux.Handle("/v1/services/", http.StripPrefix("/v1", services))
 	}
+	// Tasks are keep-awake holds. Upstream serves them only here, inside the guest.
+	s.registerTasks(mux, "/v1/tasks")
 	if hostDial != nil {
 		host := &httputil.ReverseProxy{
 			Rewrite: func(pr *httputil.ProxyRequest) { pr.Out.URL.Scheme, pr.Out.URL.Host = "http", "host" },

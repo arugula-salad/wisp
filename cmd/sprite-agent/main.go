@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,6 +66,12 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
+
+	// Before the supervisor exists: it starts services, and they must be confined too.
+	boot := cmdline()
+	memLimit, _ := strconv.Atoi(boot["memlimit"])
+	agent.InitPolicy(agent.Policy{Profile: boot["profile"], NoNewPrivs: boot["nnp"] == "1", MemoryLimitMB: memLimit},
+		"/run/sprite-policy.json")
 
 	srv := &agent.Server{
 		Sessions: agent.NewManager(),

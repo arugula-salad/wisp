@@ -77,6 +77,10 @@ type Sprite struct {
 
 	// NetworkRules is the egress policy as the client wrote it. Empty means unrestricted.
 	NetworkRules []NetworkRule `json:"network_rules,omitempty"`
+
+	// A nil policy is upstream's default: unrestricted.
+	Privileges *PrivilegesPolicy `json:"privileges_policy,omitempty"`
+	Resources  *ResourcesPolicy  `json:"resources_policy,omitempty"`
 }
 
 type Store struct {

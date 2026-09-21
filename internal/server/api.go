@@ -86,6 +86,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sprites/{name}/checkpoints/{id}/restore", s.named(s.restoreCheckpoint))
 	mux.HandleFunc("GET /v1/sprites/{name}/policy/network", s.getNetworkPolicy)
 	mux.HandleFunc("POST /v1/sprites/{name}/policy/network", s.setNetworkPolicy)
+	s.registerTasks(mux)
+	s.registerPolicyLimits(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})

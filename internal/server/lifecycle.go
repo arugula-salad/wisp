@@ -224,6 +224,7 @@ func (l *Lifecycle) vmConfig(sp store.Sprite, tap string) vmm.Config {
 		cfg.Tap, cfg.IPCIDR, cfg.Gateway, cfg.DNS = tap, ip.String()+"/16", l.gateway.String(), l.opts.DNS
 		cfg.MAC = fmt.Sprintf("06:00:%02x:%02x:%02x:%02x", ip[0], ip[1], ip[2], ip[3])
 	}
+	applyPolicy(&cfg, sp)
 	return cfg
 }
 
@@ -307,6 +308,15 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 		m.Kill()
 		l.returnTap(tap)
 		return fmt.Errorf("guest agent did not come up: %w%s", err, consoleTail(dir))
+	}
+	if mode == "warm" && !l.policyResumed(ctx, m, sp) {
+		m.Kill()
+		l.returnTap(tap)
+		vmm.DiscardSnapshot(dir)
+		// Close before recursing: the retry listens on the same socket path, and
+		// closing this listener later would unlink the new one's socket.
+		guest.close()
+		return l.startLocked(ctx, sp, rt)
 	}
 	rt.m, rt.tap, rt.guest = m, tap, guest
 	rt.useMu.Lock()
@@ -397,6 +407,7 @@ func (l *Lifecycle) waitAgent(ctx context.Context, m *vmm.Machine, resumed bool)
 func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
+	held := false
 	for {
 		select {
 		case <-m.Exited():
@@ -415,11 +426,15 @@ func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 		var act struct {
 			IdleMS   int64 `json:"idle_ms"`
 			Attached int   `json:"attached_sessions"`
+			Tasks    int   `json:"tasks"`
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := agentCall(ctx, m, http.MethodGet, "/internal/activity", nil, &act)
 		cancel()
-		if err != nil || act.Attached > 0 || time.Duration(act.IdleMS)*time.Millisecond < l.opts.IdleTimeout {
+		if err == nil {
+			l.noteHold(sp, &held, act.Tasks)
+		}
+		if err != nil || act.Tasks > 0 || act.Attached > 0 || time.Duration(act.IdleMS)*time.Millisecond < l.opts.IdleTimeout {
 			continue
 		}
 

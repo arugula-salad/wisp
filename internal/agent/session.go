@@ -323,8 +323,11 @@ func (m *Manager) Start(o SessionOpts) (*Session, error) {
 		if s.rows == 0 {
 			s.rows = 24
 		}
-		ptmx, err := pty.StartWithAttrs(cmd, &pty.Winsize{Cols: s.cols, Rows: s.rows}, &syscall.SysProcAttr{
-			Credential: cred, Setsid: true, Setctty: true,
+		attr := &syscall.SysProcAttr{Credential: cred, Setsid: true, Setctty: true}
+		var ptmx *os.File
+		err := launch(attr, func() (err error) {
+			ptmx, err = pty.StartWithAttrs(cmd, &pty.Winsize{Cols: s.cols, Rows: s.rows}, attr)
+			return err
 		})
 		if err != nil {
 			return nil, err
@@ -352,7 +355,7 @@ func (m *Manager) Start(o SessionOpts) (*Session, error) {
 			cmd.Stdin = inR
 			s.stdin = inW
 		}
-		err = cmd.Start()
+		err = launch(cmd.SysProcAttr, cmd.Start)
 		outW.Close()
 		errW.Close()
 		if inR != nil {

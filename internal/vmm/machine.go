@@ -50,6 +50,8 @@ type Config struct {
 	// Network is optional: a VM without a tap boots with no NIC.
 	Tap, MAC, IPCIDR, Gateway, DNS string
 	AgentPort                      uint32
+	// BootArgs are extra sprite.* kernel parameters for the guest agent; they only reach a cold boot.
+	BootArgs []string
 }
 
 // Machine is a running Firecracker process.
@@ -183,6 +185,7 @@ func Boot(ctx context.Context, h Host, cfg Config) (*Machine, error) {
 	if cfg.Tap != "" {
 		args = append(args, "sprite.ip="+cfg.IPCIDR, "sprite.gw="+cfg.Gateway, "sprite.dns="+cfg.DNS)
 	}
+	args = append(args, cfg.BootArgs...)
 	steps := []struct {
 		path string
 		body obj

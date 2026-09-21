@@ -32,6 +32,7 @@ type Server struct {
 	Poweroff func()
 
 	control controlConns
+	tasks   taskTable
 }
 
 func (s *Server) Handler() http.Handler {
@@ -46,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 		s.registerServices(mux)
 	}
 	s.registerFS(mux)
+	s.registerTasks(mux, "/tasks")
 	mux.HandleFunc("GET /proxy", s.handleProxy)
 	mux.HandleFunc("GET /control", s.handleControl)
 	mux.HandleFunc("GET /ports/watch", s.handlePortsWatch)
@@ -53,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /internal/activity", s.handleActivity)
 	mux.HandleFunc("POST /internal/presuspend", s.handlePresuspend)
 	mux.HandleFunc("POST /internal/resumed", s.handleResumed)
+	mux.HandleFunc("POST /internal/policy", s.handlePolicy)
 	mux.HandleFunc("POST /internal/poweroff", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		if s.Poweroff != nil {
@@ -430,11 +433,18 @@ func (s *Server) handlePresuspend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+	// A live task is a hold: it counts as activity for as long as it lasts, so
+	// the idle window only starts once the last one is released or expires.
+	tasks := len(s.tasks.live())
+	if tasks > 0 {
+		s.Sessions.touch()
+	}
 	last, attached := s.Sessions.Activity()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"idle_ms":           time.Since(last).Milliseconds(),
 		"attached_sessions": attached,
+		"tasks":             tasks,
 	})
 }
 
@@ -455,5 +465,6 @@ func (s *Server) handleResumed(w http.ResponseWriter, r *http.Request) {
 	// Idle time is measured from the guest's monotonic clock, which did not
 	// advance while suspended, but count the wake itself as activity.
 	s.Sessions.touch()
+	s.tasks.clear()
 	w.WriteHeader(http.StatusNoContent)
 }
