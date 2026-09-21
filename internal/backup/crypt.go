@@ -30,7 +30,7 @@ import (
 // prune marker stay readable, and neither says anything about a sprite.
 //
 // The key never leaves this host. A key kept only on the machine the backup is
-// protecting against losing is not a backup; README says so.
+// protecting against losing is not a backup; docs/backups.md says so.
 
 const keyCheckMessage = "mini-sprites-backup-key-check"
 

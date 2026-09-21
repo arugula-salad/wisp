@@ -49,7 +49,7 @@ note() { printf '      %s\n' "$1"; }
 
 for tool in curl jq; do command -v "$tool" >/dev/null || { echo "need $tool" >&2; exit 2; }; done
 [ -x "$SPRITESD" ] || { echo "no $SPRITESD (run: make build)" >&2; exit 2; }
-[ -f "$CREDS" ] || { echo "no credentials at $CREDS (see README, Durability)" >&2; exit 2; }
+[ -f "$CREDS" ] || { echo "no credentials at $CREDS (see docs/backups.md)" >&2; exit 2; }
 
 BACKUP_FLAGS=(--backup-endpoint "$ENDPOINT" --backup-bucket "$BUCKET"
   --backup-region "$REGION" --backup-credentials-file "$CREDS")

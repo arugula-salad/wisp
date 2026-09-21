@@ -117,7 +117,7 @@ func Open(mode Mode, name string) (*Confiner, error) {
 }
 
 // Describe is the one-line startup summary: exactly what is enforced, so the
-// README's claim can be checked against a running spritesd.
+// claim in docs/security.md can be checked against a running spritesd.
 func (c *Confiner) Describe() string {
 	if c == nil {
 		return "off (firecracker runs with only its own seccomp filter)"

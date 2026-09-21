@@ -251,10 +251,10 @@ func TestLandlockDeniesTCP(t *testing.T) {
 	}
 }
 
-// TestLandlockPathnameUnixSockets pins down a limit the README states: Landlock
+// TestLandlockPathnameUnixSockets pins down a limit docs/security.md states: Landlock
 // scopes *abstract* unix sockets but does not mediate connect() on a pathname
 // one, so a compromised VMM can still reach a socket file whose mode lets it
-// in. If a future kernel closes this, the test says so and the README's
+// in. If a future kernel closes this, the test says so and the doc's
 // "not confined" list gets shorter.
 func TestLandlockPathnameUnixSockets(t *testing.T) {
 	requireLandlock(t, 1)
@@ -287,9 +287,9 @@ func TestLandlockPathnameUnixSockets(t *testing.T) {
 	})
 	switch res := got["other-sprite-api-sock"]; res {
 	case "allowed":
-		t.Log("pathname unix sockets are still reachable from inside the domain, as the README says")
+		t.Log("pathname unix sockets are still reachable from inside the domain, as docs/security.md says")
 	case "denied":
-		t.Log("this kernel denies pathname unix sockets outside the domain: the README's caveat can go")
+		t.Log("this kernel denies pathname unix sockets outside the domain: the caveat in docs/security.md can go")
 	default:
 		t.Errorf("connect to another sprite's pathname socket: %q", res)
 	}
