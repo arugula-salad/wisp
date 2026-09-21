@@ -57,6 +57,20 @@ func main() {
 		confine.RunShim(os.Args[2:])
 	}
 
+	// Two offline subcommands live alongside the daemon (backups.go). A first
+	// argument that is not a flag selects one.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		switch cmd := os.Args[1]; cmd {
+		case "restore":
+			os.Exit(runRestore(os.Args[2:]))
+		case "backups":
+			os.Exit(runBackups(os.Args[2:]))
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command %q (want restore or backups; no command runs the daemon)\n", cmd)
+			os.Exit(2)
+		}
+	}
+
 	data := flag.String("data", defaultDataDir(), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7788", "API listen address")
 	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
@@ -82,6 +96,7 @@ func main() {
 	publicConns := flag.Int("public-max-conns", 1024, "open connections allowed on --public-listen (0 = no limit)")
 	publicConnsPer := flag.Int("public-max-conns-per-client", 64, "open connections allowed per IPv4 address or IPv6 /64 on --public-listen (0 = no limit; use 0 behind a CDN, where every client shares the CDN's addresses)")
 	confineMode := flag.String("confine", os.Getenv("MINI_SPRITES_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
+	backupOpts := backupFlags(flag.CommandLine)
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -102,7 +117,7 @@ func main() {
 		},
 		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn, NoControl: !*control, ControlForGoSDK: *controlGo,
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
-		NetdSocket: *netdSocket,
+		NetdSocket: *netdSocket, Backup: backupOpts(),
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,
