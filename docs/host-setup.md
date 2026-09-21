@@ -37,3 +37,20 @@ it for both; suspend is a little slower through the loop device (~1.6 s vs ~1.2 
 script migrates existing sprites, never sizes the volume beyond what the host disk can hold,
 and `--remove` moves everything back. spritesd needs no configuration: it probes the
 filesystem at startup and logs which mode it is in.
+
+To give sprites more room later, grow the volume, and optionally move its image to a disk
+with more space (the image is one file; by default it sits in the data directory):
+
+```sh
+systemctl --user stop mini-sprites      # suspends every sprite; they resume warm afterwards
+sudo SPRITE_VOLUME_GB=300 SPRITE_VOLUME_IMAGE=/data/mini-sprites/sprites.xfs \
+     ./scripts/setup-storage.sh --grow
+systemctl --user start mini-sprites
+```
+
+Either variable can be left out: `SPRITE_VOLUME_GB` alone grows the image where it is,
+`SPRITE_VOLUME_IMAGE` alone moves it. It only ever grows, since XFS cannot shrink, and every
+sprite is kept: the filesystem is extended in place, a move copies the image and removes the
+old one only once the copy is mounted, and the boot unit is rewritten to wait for the new
+disk. The size is refused if the target disk could not hold it plus 5 GB, for the same reason
+as at creation: an image that outgrows its disk fails with I/O errors inside guests.
