@@ -70,6 +70,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/sprites/{name}/exec", s.proxyAgent)
 	mux.HandleFunc("/v1/sprites/{name}/exec/{rest...}", s.proxyAgent)
 	mux.HandleFunc("GET /v1/sprites/{name}/proxy", s.proxyAgent)
+	mux.HandleFunc("GET /v1/sprites/{name}/control", s.proxyAgentSocket)
+	mux.HandleFunc("GET /v1/sprites/{name}/ports/watch", s.proxyAgentSocket)
 	mux.HandleFunc("/v1/sprites/{name}/fs/{rest...}", s.proxyAgent)
 	mux.HandleFunc("/v1/sprites/{name}/services", s.proxyAgent)
 	mux.HandleFunc("/v1/sprites/{name}/services/{rest...}", s.proxyAgent)
@@ -81,8 +83,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sprites/{name}/policy/network", s.getNetworkPolicy)
 	mux.HandleFunc("POST /v1/sprites/{name}/policy/network", s.setNetworkPolicy)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Includes /v1/sprites/{name}/control: the SDK treats 404 there as
-		// "no multiplexed control channel" and falls back to direct WebSockets.
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
 
@@ -290,7 +290,16 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 
 // proxyAgent wakes the sprite and forwards the request (HTTP or WebSocket) to
 // the guest agent over vsock. The sprite is pinned awake until it completes.
-func (s *Server) proxyAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) proxyAgent(w http.ResponseWriter, r *http.Request) { s.proxy(w, r, true) }
+
+// proxyAgentSocket is proxyAgent for WebSockets that clients hold open while
+// doing nothing (pooled control channels, port watchers). Pinning those would
+// keep the sprite awake forever, so the pin is dropped once the agent accepts
+// the socket; from then on the guest's own activity report decides, and a
+// suspend simply closes the socket.
+func (s *Server) proxyAgentSocket(w http.ResponseWriter, r *http.Request) { s.proxy(w, r, false) }
+
+func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 	sp, ok := s.lookup(w, r)
 	if !ok {
 		return
@@ -308,7 +317,7 @@ func (s *Server) proxyAgent(w http.ResponseWriter, r *http.Request) {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host, pr.Out.URL.Path = "http", "agent", path
 			pr.Out.Header.Del("Authorization")
-			if len(sp.Environment) > 0 && path == "/exec" {
+			if len(sp.Environment) > 0 && (path == "/exec" || path == "/control") {
 				// Sprite-level environment goes first so per-exec env can override it.
 				q := pr.Out.URL.Query()
 				env := []string{}
@@ -322,6 +331,12 @@ func (s *Server) proxyAgent(w http.ResponseWriter, r *http.Request) {
 		Transport: &http.Transport{DisableKeepAlives: true,
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }},
 		FlushInterval: -1,
+		ModifyResponse: func(resp *http.Response) error {
+			if !pin && resp.StatusCode == http.StatusSwitchingProtocols {
+				release()
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			writeErr(w, http.StatusBadGateway, "agent_unreachable", err.Error())
 		},

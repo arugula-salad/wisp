@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -38,25 +39,40 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if err := ws.ReadJSON(&init); err != nil {
 		return
 	}
-	conn, target, err := dialTarget(init.Host, init.Port)
+	in, stop := readFrames(ws)
+	defer stop()
+	s.serveProxy(init.Host, init.Port, in, ws.WriteMessage)
+}
+
+// serveProxy is the TCP proxy protocol after the client has named its target:
+// dial, report the outcome, then relay binary frames until the target closes
+// (true) or in is closed (false). Like serveSession it leaves the socket to
+// the caller, so it serves both /proxy and a proxy op on a control channel.
+func (s *Server) serveProxy(host string, port int, in <-chan wsFrame, send func(typ int, data []byte) error) (targetClosed bool, err error) {
+	reply := func(v map[string]string) error {
+		b, _ := json.Marshal(v)
+		return send(websocket.TextMessage, b)
+	}
+	conn, target, err := dialTarget(host, port)
 	if err != nil {
-		ws.WriteJSON(map[string]string{"status": "error", "error": err.Error()})
-		return
+		reply(map[string]string{"status": "error", "error": err.Error()})
+		return false, err
 	}
 	defer conn.Close()
-	if err := ws.WriteJSON(map[string]string{"status": "connected", "target": target}); err != nil {
-		return
+	if reply(map[string]string{"status": "connected", "target": target}) != nil {
+		return false, nil
 	}
 	s.Sessions.touch()
 
+	eof := make(chan struct{})
 	go func() {
-		defer ws.Close()
+		defer close(eof)
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := conn.Read(buf)
 			if n > 0 {
 				s.Sessions.touch()
-				if ws.WriteMessage(websocket.BinaryMessage, buf[:n]) != nil {
+				if send(websocket.BinaryMessage, buf[:n]) != nil {
 					return
 				}
 			}
@@ -66,15 +82,19 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	for {
-		typ, data, err := ws.ReadMessage()
-		if err != nil {
-			return
-		}
-		if typ == websocket.BinaryMessage {
-			s.Sessions.touch()
-			if _, err := conn.Write(data); err != nil {
-				return
+		select {
+		case f, ok := <-in:
+			if !ok {
+				return false, nil
 			}
+			if f.typ == websocket.BinaryMessage {
+				s.Sessions.touch()
+				if _, err := conn.Write(f.data); err != nil {
+					return true, nil
+				}
+			}
+		case <-eof:
+			return true, nil
 		}
 	}
 }

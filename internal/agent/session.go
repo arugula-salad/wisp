@@ -96,6 +96,35 @@ func (c *client) backlog() int {
 
 func (c *client) shutdown() { c.once.Do(func() { close(c.closed) }) }
 
+// drain writes queued messages through send until it reaches a close marker
+// (true), or the client is shut down or send fails (false).
+func (c *client) drain(send func(typ int, data []byte) error) (finished bool) {
+	for {
+		select {
+		case <-c.notify:
+		case <-c.closed:
+			return false
+		}
+		for {
+			c.mu.Lock()
+			if len(c.q) == 0 {
+				c.mu.Unlock()
+				break
+			}
+			m := c.q[0]
+			c.q = c.q[1:]
+			c.qBytes -= len(m.data)
+			c.mu.Unlock()
+			if m.close {
+				return true
+			}
+			if err := send(m.typ, m.data); err != nil {
+				return false
+			}
+		}
+	}
+}
+
 // Session is a running (or recently exited) command.
 type Session struct {
 	ID      string
@@ -131,10 +160,14 @@ type Manager struct {
 	sessions     map[string]*Session
 	nextID       int
 	lastActivity time.Time
+	pins         int
+	ports        *portWatcher
 }
 
 func NewManager() *Manager {
-	return &Manager{sessions: map[string]*Session{}, lastActivity: time.Now()}
+	m := &Manager{sessions: map[string]*Session{}, lastActivity: time.Now()}
+	m.ports = &portWatcher{mgr: m}
+	return m
 }
 
 func (m *Manager) touch() {
@@ -143,10 +176,25 @@ func (m *Manager) touch() {
 	m.mu.Unlock()
 }
 
+// pin holds the sprite awake for work that is not an exec session (an op on a
+// control channel): until unpin it counts as one attached session.
+func (m *Manager) pin() (unpin func()) {
+	m.mu.Lock()
+	m.pins++
+	m.mu.Unlock()
+	return func() {
+		m.mu.Lock()
+		m.pins--
+		m.lastActivity = time.Now()
+		m.mu.Unlock()
+	}
+}
+
 // Activity reports when anything last happened and how many sessions have a client attached.
 func (m *Manager) Activity() (last time.Time, attached int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	attached = m.pins
 	for _, s := range m.sessions {
 		s.mu.Lock()
 		if !s.exited && len(s.clients) > 0 {
