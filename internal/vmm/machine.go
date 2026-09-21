@@ -72,7 +72,7 @@ func confineSpec(h Host, cfg Config) confine.Spec {
 	}
 	if cfg.Tap != "" {
 		// Firecracker opens /dev/net/tun and attaches by interface name. Landlock
-		// cannot narrow that to one tap; see the README's confinement table.
+		// cannot narrow that to one tap; see the confinement table in docs/security.md.
 		spec.Devices = append(spec.Devices, "/dev/net/tun")
 	}
 	return spec

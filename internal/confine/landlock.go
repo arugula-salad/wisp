@@ -233,7 +233,7 @@ func loaderPaths(binary string) []string {
 }
 
 // landlockSummary describes what a domain at this ABI actually enforces, for the
-// startup log and the README's claim.
+// startup log and the claim in docs/security.md.
 func landlockSummary(abi int) string {
 	if abi < 1 {
 		return "unavailable"

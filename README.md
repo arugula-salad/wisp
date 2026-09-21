@@ -20,512 +20,124 @@ Firecracker microVM ── sprite-agent as PID 1 (from an initramfs) ── your
                        └─ /.sprite/api.sock + sprite-env, for use from inside
 ```
 
-## Quick start
+## Install
 
-Needs Linux with read/write access to `/dev/kvm`, Go, and rootless podman. No root.
+Needs Linux with read/write access to `/dev/kvm`, Go, and rootless podman. spritesd runs as
+you; nothing below needs root until the optional step at the end.
 
 ```sh
-make deps image        # firecracker + guest kernel, then the base disk image
-make run               # builds spritesd + the agent initrd and starts on 127.0.0.1:7788
-                       # (to keep it running across reboots: make install-service, see "Operating it")
+git clone https://github.com/jhgaylor/mini-sprites && cd mini-sprites
+make deps image          # Firecracker + a guest kernel, then the base disk image
+make install-service     # build, install as a systemd user service, start on 127.0.0.1:7788
+```
 
+`make run` instead of `make install-service` runs it in the foreground, for trying it out.
+Either way the API token is written to `~/.local/share/mini-sprites/token` on first start.
+
+Give sprites a network (once, needs root). Without it they have no NIC; exec, checkpoints,
+sprite URLs and the TCP proxy still work, because those travel over vsock.
+
+```sh
+make netd && sudo ./scripts/setup-host.sh
+```
+
+More in [host setup](docs/host-setup.md) (networking, and instant copy-on-write clones) and
+[operating it](docs/operations.md) (the service, surviving reboots, `spritesd status`, limits).
+
+## Use it
+
+Everything that speaks the Sprites API needs two things: where the server is, and the token.
+
+```sh
 export SPRITES_API_URL=http://127.0.0.1:7788
 export SPRITE_TOKEN=$(cat ~/.local/share/mini-sprites/token)
-sprite create dev && sprite exec -s dev -- uname -a
 ```
 
-### Instant clones (optional, needs root once)
+### With an official SDK
+
+The only change from upstream's docs is the base URL. Python (`pip install sprites-py`):
+
+```python
+import os
+from sprites import SpritesClient
+
+client = SpritesClient(os.environ["SPRITE_TOKEN"], base_url=os.environ["SPRITES_API_URL"])
+
+sprite = client.create_sprite("dev")                 # a fresh VM; cold until first used
+print(sprite.command("uname", "-a").output().decode())   # boots it (~200 ms), runs, returns stdout
+
+sprite.command("sh", "-c", "echo hello > ~/note").run()
+print(sprite.command("cat", "/home/sprite/note").output().decode())   # the disk persists across suspends
+
+client.delete_sprite("dev")
+```
+
+Leave a sprite alone for 30 seconds and it suspends to disk; the next call wakes it in about
+20 ms with its processes and memory intact ([lifecycle](docs/lifecycle.md)).
+
+JavaScript (`npm install @fly/sprites`):
+
+```js
+import { SpritesClient } from '@fly/sprites';
+
+const client = new SpritesClient(process.env.SPRITE_TOKEN, { baseURL: process.env.SPRITES_API_URL });
+
+const sprite = await client.createSprite('dev');
+const { stdout } = await sprite.exec('uname -a');
+console.log(stdout);
+
+await client.deleteSprite('dev');
+```
+
+Go (`go get github.com/superfly/sprites-go`):
+
+```go
+client := sprites.New(os.Getenv("SPRITE_TOKEN"), sprites.WithBaseURL(os.Getenv("SPRITES_API_URL")))
+
+sprite, err := client.CreateSprite(ctx, "dev", nil)
+if err != nil {
+	log.Fatal(err)
+}
+defer client.DeleteSprite(ctx, "dev")
+
+out, err := sprite.CommandContext(ctx, "uname", "-a").Output()
+fmt.Print(string(out))
+```
+
+### With the `sprite` CLI
+
+It reads the two variables above:
 
 ```sh
-sudo apt install xfsprogs
-sudo ./scripts/setup-storage.sh      # stop spritesd first; SPRITE_VOLUME_GB=40 by default
+sprite create dev
+sprite exec -s dev -- uname -a
 ```
 
-Puts the sprite directory on a loop-mounted XFS volume with reflinks, so creating a sprite,
-taking a checkpoint and restoring one are instant and share disk blocks until written
-(measured: create 13 ms, checkpoint 2 ms, restore 69 ms; six 20 GB images in 1.7 GB). Warm
-snapshots live on the volume too, at one guest-RAM-sized file per suspended sprite, so size
-it for both; suspend is a little slower through the loop device (~1.6 s vs ~1.2 s). The
-script migrates existing sprites, never sizes the volume beyond what the host disk can hold,
-and `--remove` moves everything back. spritesd needs no configuration: it probes the
-filesystem at startup and logs which mode it is in.
+### Sprite URLs
 
-### Durability beyond this machine (optional)
-
-Point spritesd at any S3-compatible bucket and every sprite's disk and checkpoints are
-backed up to it, incrementally, after each suspend:
+Every sprite has a URL that wakes it and proxies to port 8080 inside it (or to the service you
+mark with `http_port`):
 
 ```sh
-./bin/spritesd \
-  --backup-endpoint http://garage-s3:3900 --backup-bucket mini-sprites \
-  --backup-region home-cloud --backup-credentials-file ~/.config/mini-sprites/backup.env
+sprite exec -s dev -- sh -c 'mkdir -p ~/site && echo hi > ~/site/index.html'
+sprite exec -s dev -- sprite-env services create web --cmd python3 \
+  --args "-m,http.server,8080,--directory,/home/sprite/site" --http-port 8080
+curl -H "Authorization: Bearer $SPRITE_TOKEN" http://dev.sprites.localhost:7788/
 ```
 
-The credentials file holds `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines (with or
-without `export`); with no file the environment is used.
-
-**Recovery point: the last completed upload** — normally the sprite's last suspend, or at
-worst `--backup-interval` (6h) ago for one that has been running without pause. That is the
-guarantee, and it is a backup tier, not upstream's storage architecture: a cold wake still
-reads the local disk, and waking on another machine means downloading the disk first.
-
-- A suspend is the consistent point: the guest has synced and the VM is paused or gone. On a
-  reflink volume the disk is cloned instantly under the lifecycle lock and uploaded from the
-  clone, so a periodic backup of a *running* sprite is possible too (quiesce, pause, clone,
-  resume — the same sequence a checkpoint uses). Without reflinks there is no cheap
-  consistent point, so a running sprite is skipped until it next suspends.
-- **A backup never delays a wake and never fails a suspend.** A sprite that is asked for
-  mid-upload wakes normally; where the disk is being read in place, the upload is the one
-  that gives way, within a fraction of a second and before any manifest is written, and is
-  retried once the sprite is suspended again.
-- Anything missed is caught up: every `--backup-interval`/10 (at most 5 minutes) spritesd
-  looks for stopped sprites whose disk is newer than their recovery point — a backup that
-  failed, was deferred, or was still queued when spritesd shut down — and retries with a
-  backoff. Recovery points are read back from the bucket at startup, so a restart neither
-  forgets them nor re-reads every disk.
-- Uploads are incremental and deduplicated: files are cut into 4 MiB content-addressed
-  chunks, sparse holes are skipped entirely, and checkpoints share almost every chunk with
-  the disk they were cloned from. A second backup after a small change transfers roughly
-  that change.
-- Warm memory snapshots are **not** backed up: they are guest-RAM-sized and only valid on
-  the machine that took them. A restored sprite starts cold, with its filesystem and
-  checkpoints intact.
-- `--backup-key-file` (32 bytes, `openssl rand -hex 32 > key`) turns on client-side
-  AES-256-GCM, for the chunks and for everything that describes a sprite (manifests carry
-  its record, environment included). Chunk IDs are keyed hashes of the plaintext, so dedup
-  survives; the price is that someone who can read the bucket can tell that two chunks are
-  equal, and how many sprites there are. **A key kept only
-  on the machine you are protecting against losing is not a backup** — copy it somewhere
-  else, or leave encryption off and trust the bucket.
-- A sprite labelled `nobackup` is skipped. Everything else is included once a bucket is set.
-- Failures are visible, never fatal: an unreachable bucket is logged and reported in
-  `GET /v1/sprites/<name>` under a non-upstream `backup` field (`phase`, `last_backup_at`,
-  `last_uploaded_bytes`, `last_backup_size_bytes`, `error`, `failures`). Suspends, wakes and
-  everything else carry on, including starting up: a bucket that is down when spritesd
-  starts is retried until it answers.
-
-Losing the machine, and getting it back somewhere else:
-
-```sh
-spritesd backups list                          # what is in the bucket, and every manifest
-spritesd restore --all                         # or: spritesd restore dev [--manifest <stamp>]
-spritesd backups prune --dry-run               # then without --dry-run
-spritesd backups forget scratch                # drop one sprite's backups now, whatever the retention
-```
-
-`restore` rebuilds machine directories in `--data` and must run with spritesd **stopped**. A
-restored sprite gets an address that is free on the new host. Deleting a sprite leaves a
-tombstone rather than removing its backup, so losing a machine and deleting a sprite do not
-look the same; `prune` retires tombstoned sprites after `--backup-retention` (30 days) and
-collects chunks nothing references any more. It is safe to run beside a live spritesd: it
-announces itself in the bucket, backups stand aside until it has finished, and one that
-was overtaken by it checks its chunks again before committing. All of these take the same
-`--backup-*` flags as the daemon, before any sprite names.
-
-### Guest networking (the one thing that needs root, once)
-
-```sh
-make netd                        # optional: the helper that makes network policies enforceable
-sudo ./scripts/setup-host.sh     # bridge (10.209.0.0/16) + tap pool + NAT/isolation rules + boot units
-```
-
-Sprites get outbound internet but cannot reach each other, the host, or private/LAN/tailnet
-ranges. Without the setup sprites simply have no NIC; exec, checkpoints, sprite URLs and the
-TCP proxy still work because they travel over vsock.
-
-What the script knows about because it bit us:
-- It refuses a subnet that overlaps an existing route (`MINI_SPRITES_NET_PREFIX` picks another
-  /16). podman owns 10.88/16 by default, and an overlap silently steals all return traffic.
-  spritesd reads the network back off the bridge, so the script is the only place it is set.
-- If ufw is active it adds `ufw route allow in on msbr0` and input allowances for the two
-  policy ports: ufw's policies are DROP, and a drop in any netfilter table is final.
-- `--print-rules` shows the nftables ruleset without root; `--remove` undoes everything.
-
-## Lifecycle
-
-| State | What exists | Wake |
-|---|---|---|
-| `running` | Firecracker process | – |
-| `warm` | memory snapshot on disk, processes frozen | ~15 ms VM restore |
-| `cold` | disk only | ~200 ms boot to a responsive agent |
-
-A sprite suspends after `--idle-timeout` (30s) with nothing keeping it awake.
-
-- **Keeps it awake:** an API or sprite-URL request in flight, an attached exec session or a
-  running control-channel operation, session I/O, an open filesystem watch, a live task, and
-  checkpoint calls made from inside.
-- **Does not:** services and their output, port notifications, filesystem events, and idle
-  pooled `/control` or `ports/watch` sockets (these are closed at suspend).
-
-It goes cold after `--warm-ttl` (1h), which drops memory state: processes are gone, the
-filesystem is intact. TCP connections never survive a suspend. The guest clock is stepped to
-host time on every resume. On SIGTERM, spritesd suspends every running sprite so they resume
-warm after a restart.
-
-**Tasks** are explicit keep-awake holds, created from inside the sprite as upstream does:
-
-```sh
-curl --unix-socket /.sprite/api.sock -X POST http://sprite/v1/tasks -d '{"name":"build","expire":"10m"}'
-```
-
-They last at most 1h, are refreshed with PUT, and do not survive a cold boot or a spritesd
-restart. `/v1/sprites/{name}/tasks` exposes the same thing from outside (our extension).
-
-## Operating it
-
-### Run it as a service
-
-`make run` is for trying things out: the API is gone when the terminal is. To have it come
-back after a reboot, like the network and the volume already do:
-
-```sh
-make install-service                       # builds, installs a systemd *user* unit, (re)starts it
-./scripts/install-service.sh -- --max-running 8 --url-domain sprites.example.com   # with spritesd flags
-./scripts/install-service.sh --uninstall   # suspends the sprites and removes the unit; data stays
-```
-
-It runs as you, with no root, exactly like `make run`. The binary is copied to
-`~/.local/lib/mini-sprites/`, so the unit does not depend on this checkout; the flags live in
-`~/.config/mini-sprites/mini-sprites.env` and survive a re-install. Stop the `make run` daemon
-first (`^C` suspends its sprites, and the service resumes them).
-
-```sh
-journalctl --user -u mini-sprites -f            # the log: wakes with latency, suspends, egress denied, ...
-journalctl --user -u mini-sprites -b -p warning # this boot, trouble only
-systemctl --user restart mini-sprites           # suspends every running sprite, starts, resumes on demand
-```
-
-A stop sends SIGTERM to spritesd alone (`KillMode=mixed`), which writes every running sprite's
-RAM to disk before exiting: about 0.6 s for three 2 GiB guests at once here. Measured on a
-restart with three sprites running: all three came back with the same kernel `boot_id`.
-
-Two things need root, once, and the installer tells you when they are missing rather than
-doing them:
-
-- `sudo loginctl enable-linger $USER`: without lingering, your user manager (and spritesd in
-  it) starts at your first login and stops at your last logout.
-- `sudo ./scripts/install-service.sh --system-dropin`: a drop-in for `user@<uid>.service` that
-  orders your user manager after `mini-sprites-net`, `-netd` and `-storage` (and so stops it
-  before them), and raises its stop timeout. **Ubuntu ships that timeout at 5 seconds**
-  (`user@.service.d/timeout.conf`): at reboot every user service is killed 5 s after being
-  asked to stop, whatever its own `TimeoutStopSec` says. A sprite cut off mid-snapshot is
-  intact (an incomplete snapshot is never published) but comes back cold.
-
-Until the drop-in is there the unit still waits, for up to 90 s, for the volume to be mounted
-and the bridge to exist: started early, spritesd would see an empty sprite directory, or boot
-every sprite without a NIC.
-
-### See what is running
-
-```
-$ spritesd status
-spritesd   pid 1140375, up 3h12m, API on 127.0.0.1:7788
-data       /home/you/.local/share/mini-sprites
-volume     5.9G used, 33G free of 39G, reflink clones; 2.0G kept in reserve
-image      /home/you/.local/share/mini-sprites/sprites.xfs; 66G free on its filesystem
-sprites    1 running (limit 8), 1 warm, 0 cold; 2 in all (no limit)
-network    1 of 32 taps in use
-policy     helper reachable
-
-NAME   ID            STATE    PID      RSS   DISK  OWN   SNAP  CKPTS             HOLDS  IP          POLICY
-build  09dc6ed0dfbd  running  1140792  412M  1.9G  1.3G  0     3 (mounted 0=v2)  1      10.209.0.2  restricted
-hello  19610039ea00  warm     -        -     589M  7M    2.0G  0                 -      10.209.0.3  open
-
-ORPHANED VMs: 1 firecracker process(es) of yours that no running spritesd started. Not touched; ...
-  PID      RSS   PARENT          CWD
-  1083557  915M  systemd (6354)  /tmp/ms-mem/vm/e7a5da5ef31f
-```
-
-It needs no token: the running daemon answers on `<data>/spritesd.sock` (mode 0600, so the
-filesystem permission is the authentication), and with no daemon up the same command answers
-from the files. That socket is also the lock on the data directory: a second spritesd on the
-same one refuses to start. `--json` prints everything, under field names that are meant to be
-scripted against (`internal/server/status.go`).
-
-- **DISK / OWN**: a 20 GB apparent size says nothing, and on a reflink volume neither does
-  `du`, which counts a shared block once per clone. These come from the files' extent maps:
-  DISK is what the sprite's disk and checkpoints occupy with every shared block counted once,
-  OWN the part nothing else shares, i.e. what deleting the sprite gives back.
-- **HOLDS** is the number of live tasks keeping a sprite awake: the answer to "why is this
-  VM still running".
-- **Orphans** are Firecracker processes of your user whose parent is not a running spritesd:
-  a VM started by hand, or left by a daemon that was killed. They are reported, never killed,
-  since another data directory or someone's experiment may own them. (A spritesd does reap
-  stale VMs in *its own* data directory when it starts.) Other spritesd instances and their VM
-  counts are listed separately.
-
-### Limits
-
-`--max-sprites` and `--max-running` (both 0 = none) are enforced at create and at wake. The
-errors have upstream's shape, which the SDKs parse into their `APIError`
-(`limit`, `current_count`, `retry_after_seconds`): a wake past `--max-running` is a `429
-concurrent_sprite_limit_exceeded` with `Retry-After` set to the idle timeout, which is when a
-slot can free up; a create past `--max-sprites` is a `403 sprite_limit_exceeded`, since
-waiting does not help. `GET /v1/sprites` carries upstream's `org` block
-(`running`/`warm`/`cold` over all sprites, `running_limit`; `warm_limit` is always 0, because
-what bounds warm sprites here is the disk, below).
-
-### Disk pressure
-
-The volume holds sprite disks, checkpoints and one guest-RAM-sized snapshot per warm sprite.
-When it is the loop-mounted image from `setup-storage.sh`, filling it, or the host filesystem
-under the sparse image, does not produce a clean ENOSPC but I/O errors inside guests. So:
-
-- A create, checkpoint or restore that would leave less than `--disk-reserve-mib` (2048) free
-  is refused with `507 insufficient_storage`. On a reflink volume a clone costs nothing up
-  front, so this is the reserve being defended; elsewhere the full copy is counted.
-- A suspend must not fail, or the VM would run forever. If its snapshot does not fit, the
-  longest-suspended warm sprites are turned cold first (they lose only memory state), and if
-  even that cannot make room the sprite is synced and stopped cold instead. Concurrent
-  suspends (a shutdown) are not promised the same free bytes twice.
-- Free space is the smaller of the volume's and, for a sparse image, its host filesystem's;
-  `spritesd status` shows both. The log warns while either is below `--disk-warn-percent` (10).
-
-What the guard cannot do is stop running guests from growing their own disks, which are
-sparse too; the warning and the reserve are the margin for that.
-`scripts/verify-disk-guard.sh` fills a real 3 GB filesystem under real VMs and checks all of
-the above (22 checks), including that nothing is corrupted afterwards; it needs no root where
-`udisksctl` can set up a loop device.
-
-### Not built yet
-
-- **Metrics**: no Prometheus endpoint. The log has the raw events (wake mode and latency,
-  suspends, going cold, policy denials, limit refusals, disk warnings), and
-  `spritesd status --json` has the gauges.
-- **Tokens**: one bearer token in `<data>/token`; to rotate it, replace the file and restart.
-  No named tokens, scopes or revocation.
-- **Listening beyond localhost**: the API binds `127.0.0.1` in plaintext, and the supported
-  way to expose it is a TLS-terminating reverse proxy in front (it must pass WebSocket
-  upgrades and the `Host` header, which routes sprite URLs). There is no built-in TLS.
-
-## API coverage
-
-- **Sprites**: CRUD, pagination, labels, URL settings, and the `org` counts on the list response.
-- **Exec**: WebSocket TTY/non-TTY, detach/reattach with output replay,
-  `max_run_after_disconnect`, signals, session list, kill, and HTTP POST exec in upstream's
-  frame format.
-- **Control**: the multiplexed `/control` channel (exec, proxy and `fs.*` operations).
-- **Ports**: `port_opened`/`port_closed` notifications on exec sessions (`address` is the bind
-  IP, which is what the CLI dials) and `ports/watch`.
-- **Checkpoints**: create/list/get/delete/restore with streaming NDJSON, `history`, and
-  automatic checkpoints (`auto-<n>`, hidden unless `includeAuto`).
-- **Services**: create/get/list/delete, start/stop/restart with streamed logs, signal, `needs`
-  ordering, crash restart with backoff, and one `http_port` service that the sprite URL routes
-  to and starts on demand (otherwise the URL goes to port 8080). Definitions live on the
-  sprite's disk in `/.sprite/services/`, logs in `/.sprite/logs/services/<name>.log`, so both
-  travel with checkpoints. Every service starts on a cold boot.
-- **Filesystem**: read, write (atomic), list, delete, rename, copy, chmod, chown, and `watch`
-  (recursive, including directories created later; bounded, and a slow reader is told how many
-  events it missed rather than stalling the agent). New files belong to the `sprite` user.
-- **Policies**:
-  - `policy/network`: a domain allowlist with `{"include":"defaults"}` and `*.` wildcards.
-    Empty rules mean unrestricted. Changes apply live. See below for how it is enforced.
-  - `policy/privileges`: capability profiles (`minimal`, `standard`, `privileged`) and
-    `noNewPrivileges`, applied to processes started after the change.
-  - `policy/resources`: a memory limit, as a guest cgroup immediately and as VM RAM of
-    `limit_mb + 128` from the next cold boot.
-- **Proxy / URLs**: the TCP proxy, and per-sprite URLs with `sprite`/`public` auth (see
-  [Public sprite URLs](#public-sprite-urls) for serving them to the internet).
-
-### From inside a sprite
-
-`sprite-env` (at `/.sprite/bin`, on `$PATH`, reinstalled from the initramfs on every cold
-boot) talks to `/.sprite/api.sock`, owned by the `sprite` user. It manages services and
-checkpoints with no API token:
-
-```sh
-sprite-env services create web --cmd python3 --args "-m,http.server,3000" --http-port 3000
-sprite-env checkpoints create && sprite-env checkpoints list
-```
-
-An old checkpoint can be browsed without restoring it:
-
-```sh
-sprite-env checkpoints mount v3          # read-only at /.sprite/checkpoints/v3
-cp /.sprite/checkpoints/v3/home/sprite/app/config.yml ~/app/   # pull one file back from the past
-sprite-env checkpoints unmount v3
-```
-
-Firecracker cannot hot-plug a drive but can swap the file behind one, so every VM boots with
-four placeholder drives and a mount points one at the checkpoint's image: no copy, no reboot.
-Mounts survive a warm suspend, are reset by a cold boot or a restore, and a mounted checkpoint
-cannot be deleted. The sprite's network policy is readable at `/.sprite/policy/network.json`
-(information only; enforcement is on the host).
-
-Checkpoint calls ride a guest-initiated vsock channel to a per-VM listener bound to that one
-sprite: the channel is the identity, and a guest cannot address anything but itself.
-Restoring from inside ends the session, since the VM is replaced.
-
-### How network policy is enforced
-
-Unrestricted sprites stay on the kernel NAT path, untouched. A sprite with rules has its
-address placed in an nftables set; from then on its DNS and all of its TCP are redirected to
-listeners in spritesd and everything else it sends (other UDP, ICMP) is dropped, so the policy
-is not leaky. The DNS listener answers only for allowed names (REFUSED otherwise, as
-upstream), remembers the addresses it handed out, and strips private answers. The proxy
-recovers the original destination and connects only to addresses that sprite was given for an
-allowed name. Because the proxy dials from the host, it refuses private, CGNAT, link-local,
-multicast and the host's own addresses itself, always.
-
-spritesd is unprivileged, so the set is edited by a tiny root helper, `mini-sprites-netd`,
-that accepts exactly one request: replace the set with these addresses, each validated to be
-inside the sprite network. Policy **fails closed**: with the helper unreachable a restrictive
-policy is refused with `503 policy_unenforceable`, and a sprite that already has one boots
-without a NIC (or, if warm, refuses to wake rather than lose its memory state).
-
-### How Firecracker is confined
-
-Upstream runs Firecracker under its jailer, which must start as root. spritesd stays
-unprivileged, so each VMM is sandboxed with what an ordinary user is given. spritesd re-execs
-itself as a small shim that applies a Landlock domain and then `execve`s Firecracker in place
-(same pid, same cwd), and the VMM is born inside its own cgroup v2 leaf via
-`CLONE_INTO_CGROUP`. The startup log line `vmm confinement` says exactly what is in force.
-
-| | A compromised VMM... | Enforced by |
-|---|---|---|
-| Filesystem | can read and write only its own machine directory (disk, snapshot, console, sockets); can read the guest kernel, the initrd and `/etc/localtime`; can open `/dev/kvm` and, with a NIC, `/dev/net/tun`. Other sprites' directories, the API token, `$HOME` and the rest of the filesystem are `EACCES`. It cannot `mkdir`, delete or rename anything, and can execute nothing but the Firecracker binary. | Landlock (ABI 1+) |
-| Device ioctls | only on the devices above | Landlock ABI 5+ |
-| TCP | cannot bind or connect | Landlock ABI 4+ |
-| Signals, abstract unix sockets | cannot signal spritesd or another VMM, or reach an abstract socket outside its domain | Landlock ABI 6+ |
-| CPU | `cpu.max` = vCPUs + 1 core (the extra core is the VMM's own I/O threads) | cgroup v2 |
-| Memory | `memory.high` = guest RAM + 192 MiB, `memory.max` 256 MiB above that, so a busy sprite is reclaimed rather than OOM-killed | cgroup v2 |
-| Processes | `pids.max` = 32 + 4 per vCPU | cgroup v2 |
-
-The limits come from the VM's shape, so a resources policy that sizes the guest also sizes the
-host cgroup. The cgroup subtree is found by walking up from spritesd's own cgroup to the first
-level with `cpu`, `memory` and `pids` delegated (`user@<uid>.service` on a systemd host).
-
-**What this does not do**, so the claim stays honest:
-
-- Every VMM still runs as your uid. The jailer's per-VM uid and chroot are not reproduced;
-  Firecracker's seccomp filter remains what blocks `ptrace` and friends.
-- Landlock does not mediate `connect()` on a *pathname* unix socket. A compromised VMM can
-  still reach another sprite's Firecracker API and vsock sockets, and `mini-sprites-netd`'s
-  socket, because it has the same uid. It cannot read their files, but it can talk to them.
-  Closing this needs a mount namespace (so, root or an unrestricted user namespace; Ubuntu's
-  AppArmor restricts the latter) or a future Landlock right. `TestLandlockPathnameUnixSockets`
-  pins the behaviour down.
-- Landlock cannot narrow `/dev/net/tun` to one interface: a VMM with a NIC could attach to
-  another *free* tap in the pool (one in use is `EBUSY`).
-- Landlock does not cover UDP or raw sockets; that is left to Firecracker's seccomp filter.
-
-`--confine` (or `MINI_SPRITES_CONFINE`) picks the mode: `best-effort` (default) applies what
-the kernel and host support and logs the rest, `strict` refuses to start without both Landlock
-(with signal scoping) and a delegated cgroup, `off` runs Firecracker as before. Measured on the
-development host (kernel 7.0, Landlock ABI 8; median of 15, `scripts/measure-confine-latency.sh`):
-cold boot 222 ms off / 226 ms confined, warm wake 23.5 ms off / 26.5 ms confined.
-
-## Public sprite URLs
-
-Every sprite has a URL, `<name>.<url-domain>`, that wakes it and proxies to its `http_port`
-service (else port 8080). Out of the box that is `http://<name>.sprites.localhost:7788`, on
-the same listener as the API. To put the URLs on the internet without putting the API there:
-
-```sh
-# once, in Cloudflare: an A record  *.widgets.wtf -> your public IP  (DNS only, grey cloud),
-# and an API token with Zone:Read + DNS:Edit on that zone
-(umask 077; echo "$TOKEN" > ~/.local/share/mini-sprites/cloudflare-token)
-# once, on the router: forward external 443 -> this machine's 8443
-
-./bin/spritesd --url-domain widgets.wtf --public-listen :8443
-```
-
-- `--public-listen` serves sprite URLs over HTTPS and **nothing else**: the management API has
-  no routes there, so a leaked forward cannot expose it. Keep `--listen` on loopback or a tailnet.
-- The certificate is one wildcard, `*.widgets.wtf`, from Let's Encrypt over DNS-01, renewed at
-  two thirds of its life and kept in `<data>/acme/`. A wildcard because sprite names then never
-  appear in certificate-transparency logs, a new sprite's URL works at once, and DNS-01 needs no
-  inbound port. Try `--acme-directory https://acme-staging-v02.api.letsencrypt.org/directory`
-  first: production rate-limits failed attempts. No Cloudflare? Bring any certificate with
-  `--tls-cert/--tls-key`; the files are re-read when they change.
-- A sprite's URL needs the API token as a bearer unless its `url_settings.auth` is `public`,
-  which is upstream's model and the default is the closed one. Anyone can wake a `public`
-  sprite, and it holds its RAM until it idles out again.
-- The API reports `https://<name>.widgets.wtf`; add `--public-port` if the router's outside
-  port is not 443. Connections are capped in total and per client (`--public-max-conns*`).
-- Proxying through Cloudflare (orange cloud) also works and hides your address: use an outside
-  port Cloudflare connects to (443, 8443, 2053...), SSL mode "Full (strict)", and
-  `--public-max-conns-per-client 0`, since every visitor then arrives from Cloudflare's addresses.
-- Outside 443 already taken by another reverse proxy? Have it pass the TLS through by SNI rather
-  than terminate it, so the certificate and the per-sprite auth stay here. In Traefik that is an
-  `IngressRouteTCP` on the HTTPS entrypoint matching ``HostSNIRegexp(`^[a-z0-9-]+\.widgets\.wtf$`)``
-  with `tls.passthrough: true`, pointing at this machine's 8443. It also needs
-  `--public-max-conns-per-client 0`: every visitor arrives from the proxy's address.
-- Not handled: updating the A record when a dynamic IP changes, and a port-80 redirect (a
-  reverse proxy in front can do the redirect).
-
-## Deliberate differences from the hosted product
-
-- **Durability is a backup tier, not continuous sync.** Without `--backup-bucket` a sprite
-  lives and dies with this machine's disk. With one, the recovery point is the last completed
-  upload — the sprite's last suspend, or `--backup-interval` for a long-running one. Upstream
-  keeps the local disk as a cache and syncs chunks continuously, so it can wake a sprite on a
-  different host without a full download; that tier is [#2](https://github.com/jhgaylor/mini-sprites/issues/2)'s second half and is not built.
-- Disk is 20 GB sparse by default (`SPRITE_DISK_GB` at image build) rather than 100 GB, and
-  Firecracker has no discard, so space freed in a guest is not returned to the host.
-- RAM is fixed per sprite (`--mem-mib`, `config.ram_mb`, or a resources policy); each warm
-  snapshot costs that much disk. There is no memory autoscale: `resources.memory.autoscale`
-  and `privileges.devices` are stored and returned but **not enforced**.
-- The memory cgroup is a guard rail, not a boundary: guest root can leave it unless
-  `noNewPrivileges` closes the sudo route. VM RAM is the hard bound. Privileges do not bind
-  the filesystem API, which acts as root.
-- Checkpoints are full-disk clones: a sparse copy (~0.5 s for the base image, VM paused
-  for it) on a plain directory, or an instant copy-on-write clone after
-  `sudo ./scripts/setup-storage.sh` (see below). IDs start at `v1`.
-  An automatic checkpoint is taken before every restore so that a restore can be undone, which
-  upstream does not do. Autos are kept to `--auto-checkpoint-keep` (3). Creating checkpoints
-  from inside is capped (`--guest-checkpoint-limit`, 20) so one guest cannot fill the host disk.
-- Restricted sprites are TCP-only (no QUIC, NTP or ping), and a denied destination connects
-  and is then reset, because a transparent proxy must accept before it can decide. The
-  `defaults` allowlist is our own.
-- Setting a policy returns 204 where upstream's docs say 200: the official SDKs require 204.
-- Firecracker runs as your user, not under upstream's jailer: there is no chroot and no
-  per-VM uid. Each VMM is instead confined with Landlock and a cgroup, without root; see
-  [How Firecracker is confined](#how-firecracker-is-confined) for exactly what that covers.
-
-### Issues in the official Go SDK that this server works around or documents
-
-- **`ProxyPorts` races on a control socket.** Over `/control` the SDK's pool reader and its
-  proxy handshake both read the one WebSocket, and the forward hangs whenever the pool reader
-  wins (about two times in three, measured), with no fallback. Nothing a server sends can
-  settle a race between two readers in the client, so spritesd answers *that SDK's* `/control`
-  probe (`User-Agent: sprites-go-sdk/`) with 404. It takes that to mean "no control channel"
-  and uses a socket per operation, which costs it nothing: it never reuses a control socket
-  anyway. The JS and Python SDKs, where control is opt-in and does multiplex, still get it.
-  `--control-for-go-sdk` offers it to the Go SDK too; `--control=false` turns it off for all.
-- **A control connection that dies mid-operation is never reported to the operation.**
-  spritesd terminates the `/control` WebSocket itself, so that when a VM goes away under a
-  running exec (a checkpoint restore does this by design) the client is told instead of
-  hanging until its context expires.
-- Over control the SDK does not send an initial TTY size; resize after start.
-
-## Development
-
-```sh
-make test     # unit tests, race detector. The vmm tests boot a real microVM; they skip without /dev/kvm.
-              # The ACME test runs against pebble if it is on PATH (go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest).
-make e2e      # official Sprites Go SDK against a running spritesd
-make initrd   # rebuild the agent and sprite-env; sprites pick them up on their next *cold* boot
-make netd     # build the network-policy helper that setup-host.sh installs
-
-./scripts/test-netpolicy-netns.sh     # the real nft ruleset + helper, in a rootless podman netns
-./scripts/verify-network-policy.sh    # network policy on the real host, from inside real guests
-./scripts/verify-backup.sh            # backs a sprite up, deletes its whole data directory, restores it
-```
-
-e2e knobs: `SPRITES_E2E_IDLE_TIMEOUT=<the daemon's --idle-timeout>` enables the lifecycle
-subtests (tasks, watch); `SPRITES_SDK_DEBUG=1` shows which connection mode the SDK used.
-`SPRITES_E2E_GO_CONTROL=1` (with a daemon started `--control-for-go-sdk`) runs the tests that
-drive `/control` with the Go SDK. `./scripts/probe-sdks.sh` runs the official JS and Python
-SDKs against a running daemon: exec with control mode off and on, port proxying, and an exec
-whose VM is restored away.
-The backup suite skips itself unless the daemon under test was started with a reachable
-`--backup-bucket`.
-
-Only one spritesd per host may own the tap pool. For extra dev/test stacks:
-
-```sh
-./scripts/dev-data.sh /tmp/ms-x            # keep it short: the dir holds unix sockets (108-byte limit)
-MINI_SPRITES_DATA=/tmp/ms-x ./scripts/build-initrd.sh
-./bin/spritesd --data /tmp/ms-x --listen 127.0.0.1:7801 --net=false
-```
+To serve them on the internet under your own domain, over HTTPS, without exposing the API:
+[public sprite URLs](docs/public-urls.md).
+
+## Documentation
+
+| | |
+|---|---|
+| [Host setup](docs/host-setup.md) | Guest networking and the reflink volume: the two optional steps that need root once |
+| [Operating it](docs/operations.md) | Running as a service, reboots, `spritesd status`, limits, disk pressure, what is not built |
+| [Lifecycle](docs/lifecycle.md) | `running` / `warm` / `cold`, what keeps a sprite awake, tasks |
+| [API coverage](docs/api.md) | What is implemented, and `sprite-env` for use from inside a sprite |
+| [Public sprite URLs](docs/public-urls.md) | A wildcard domain, automatic certificates, and the listener that serves only sprite URLs |
+| [Backups](docs/backups.md) | Incremental, deduplicated backups to any S3-compatible bucket, and restoring onto a new host |
+| [Security](docs/security.md) | How network policy is enforced, how each Firecracker is confined, and what neither covers |
+| [Differences from the hosted product](docs/differences.md) | Deliberate ones, and the official Go SDK issues this server works around |
+| [Development](docs/development.md) | Tests, the e2e suite against the official SDKs, extra dev stacks |
