@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jhgaylor/mini-sprites/internal/backup"
 	"github.com/jhgaylor/mini-sprites/internal/store"
 	"github.com/jhgaylor/mini-sprites/internal/vmm"
 )
@@ -40,6 +41,7 @@ type Server struct {
 
 	urlDomain string // sprite URLs are <name>.<urlDomain>
 	storage   *storage
+	backups   *backupManager // nil when no backup bucket is configured
 }
 
 func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org, urlDomain, port string) *Server {
@@ -54,6 +56,13 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	}
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		go s.autoCheckpoints()
+	}
+	if opts.Backup.Bucket != "" {
+		s.backups = newBackupManager(s, backup.Config{Endpoint: opts.Backup.Endpoint,
+			Bucket: opts.Backup.Bucket, Region: opts.Backup.Region,
+			CredentialsFile: opts.Backup.CredentialsFile, KeyFile: opts.Backup.KeyFile,
+			Parallel: opts.Backup.Parallel, RateLimit: opts.Backup.RateLimit, Log: log})
+		life.backups = s.backups
 	}
 	return s
 }
@@ -138,6 +147,10 @@ type spriteJSON struct {
 	UpdatedAt     time.Time         `json:"updated_at"`
 	LastRunningAt *time.Time        `json:"last_running_at,omitempty"`
 	LastWarmingAt *time.Time        `json:"last_warming_at,omitempty"`
+	// Backup is ours, not upstream's: where this sprite's durability stands. The
+	// SDKs ignore fields they do not know, and it is absent entirely when no bucket
+	// is configured.
+	Backup *backupState `json:"backup,omitempty"`
 }
 
 func (s *Server) render(sp store.Sprite) spriteJSON {
@@ -146,6 +159,7 @@ func (s *Server) render(sp store.Sprite) spriteJSON {
 		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name),
 		URLSettings: sp.URLSettings, Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
 		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt,
+		Backup: s.backups.State(sp.ID),
 	}
 }
 
@@ -301,6 +315,9 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 	}
 	s.life.Forget(sp.ID)
 	s.life.egress.forget(sp)
+	// Tombstone rather than delete: losing this machine and deleting a sprite must
+	// not look the same to the bucket. `spritesd backups prune` retires it later.
+	s.backups.MarkDeleted(sp)
 	s.log.Info("sprite deleted", "sprite", sp.Name)
 	w.WriteHeader(http.StatusNoContent)
 }

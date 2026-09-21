@@ -52,6 +52,27 @@ func probeReflink(dir string) bool {
 	return unix.IoctlFileClone(int(dst.Fd()), int(src.Fd())) == nil
 }
 
+// cloneReflink makes an instant copy-on-write clone, and fails rather than
+// falling back to a full copy: its caller (the backup tier's snapshot) holds the
+// sprite's lifecycle lock and cannot afford to copy 20 GB there.
+func cloneReflink(src, dst string) error {
+	s, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	d, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if err := unix.IoctlFileClone(int(d.Fd()), int(s.Fd())); err != nil {
+		os.Remove(dst)
+		return fmt.Errorf("reflink %s: %w", filepath.Base(src), err)
+	}
+	return nil
+}
+
 func device(path string) (uint64, error) {
 	var st syscall.Stat_t
 	if err := syscall.Stat(path, &st); err != nil {

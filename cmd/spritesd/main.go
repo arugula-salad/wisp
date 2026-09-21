@@ -48,6 +48,20 @@ func loadToken(path string) (string, error) {
 }
 
 func main() {
+	// Two offline subcommands live alongside the daemon (backups.go). A first
+	// argument that is not a flag selects one.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		switch cmd := os.Args[1]; cmd {
+		case "restore":
+			os.Exit(runRestore(os.Args[2:]))
+		case "backups":
+			os.Exit(runBackups(os.Args[2:]))
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command %q (want restore or backups; no command runs the daemon)\n", cmd)
+			os.Exit(2)
+		}
+	}
+
 	data := flag.String("data", defaultDataDir(), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7788", "API listen address")
 	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
@@ -63,6 +77,7 @@ func main() {
 	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
 	netdSocket := flag.String("netd-socket", "", "mini-sprites-netd socket, the root helper that backs restrictive network policies (default /run/mini-sprites/netd.sock)")
 	org := flag.String("org", "local", "organization name reported in API responses")
+	backupOpts := backupFlags(flag.CommandLine)
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -83,7 +98,7 @@ func main() {
 		},
 		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn, NoControl: !*control,
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
-		NetdSocket: *netdSocket,
+		NetdSocket: *netdSocket, Backup: backupOpts(),
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,

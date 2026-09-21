@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jhgaylor/mini-sprites/internal/store"
@@ -52,6 +53,27 @@ type Options struct {
 	GuestCheckpointLimit int
 	// NetdSocket is where mini-sprites-netd listens; empty means its default.
 	NetdSocket string
+	// Backup is the object-storage backup tier (internal/backup). An empty Bucket
+	// disables it entirely and nothing in the lifecycle changes.
+	Backup BackupOptions
+}
+
+// BackupOptions configures the object-storage backup tier.
+type BackupOptions struct {
+	Endpoint        string
+	Bucket          string
+	Region          string
+	CredentialsFile string
+	KeyFile         string
+	Parallel        int
+	RateLimit       int64
+	// Interval re-backs-up a sprite whose disk has changed since its last
+	// successful upload, and is the retry path for one that failed (0 = only on
+	// suspend).
+	Interval time.Duration
+	// Retention and Keep are defaults for `spritesd backups prune`.
+	Retention time.Duration
+	Keep      int
 }
 
 // runtime is the in-memory lifecycle state for one sprite.
@@ -60,6 +82,8 @@ type runtime struct {
 	mu  sync.Mutex
 	m   *vmm.Machine // nil unless running
 	tap string
+	// gen moves whenever a VM is about to open the disk; see diskGen.
+	gen atomic.Uint64
 	// guest is the running VM's channel to us (guestapi.go); set and cleared with m.
 	guest *guestChan
 
@@ -103,6 +127,9 @@ type Lifecycle struct {
 	// guestAPI builds the handler served on a VM's guest channel. Set by the Server.
 	guestAPI func(store.Sprite, *guestChan) http.Handler
 	egress   *egress
+	// backups is the backup tier, nil when no bucket is configured. A nil manager's
+	// methods are no-ops, so the lifecycle needs no conditionals.
+	backups *backupManager
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
@@ -260,6 +287,7 @@ func (l *Lifecycle) cleanupLocked(rt *runtime) {
 
 func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
 	start := time.Now()
+	rt.gen.Add(1)
 	dir := l.store.Dir(sp.ID)
 	tap, gateErr := l.tapFor(sp)
 	if gateErr != nil {
@@ -481,8 +509,18 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	now := time.Now()
 	l.store.Update(sp.Name, func(s *store.Sprite) { s.LastWarmingAt = &now })
 	l.log.Info("sprite suspended", "sprite", sp.Name, "took", time.Since(start).Round(time.Millisecond))
+	// The disk is quiescent exactly here: the guest has synced and the VM is
+	// paused. Enqueueing is non-blocking and cannot fail, so a bucket that is
+	// unreachable never turns a good suspend into a bad one.
+	l.backups.Enqueue(sp, "suspend")
 	return nil
 }
+
+// diskGen counts the VMs that have been started on a sprite's disk. A backup
+// reading that disk in place, because the volume has no reflink support, notes it
+// first and gives up when it moves: a wake never waits for an upload, so the
+// upload has to notice the wake. Lock-free for the same reason.
+func (l *Lifecycle) diskGen(id string) uint64 { return l.rt(id).gen.Load() }
 
 // Stop halts a sprite. With keepWarm it is suspended so it can resume later;
 // otherwise the VM is killed and memory state discarded.
