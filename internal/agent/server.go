@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -266,9 +267,17 @@ func (s *Session) input(f wsFrame) {
 	}
 }
 
-// handleExecPost runs a non-TTY command to completion. The upstream docs leave
-// the response body unspecified; we stream combined output as text and report
-// the exit code in the Sprite-Exit-Code trailer.
+// maxPostFrame keeps an HTTP exec frame well under every buffer between here
+// and the client, so no hop has a reason to split one.
+const maxPostFrame = 16 * 1024
+
+// handleExecPost runs a non-TTY command to completion over plain HTTP. The
+// body is upstream's format: frames of one stream-ID byte plus payload (stdout,
+// stderr, then an exit frame carrying the exit code), with NO length field —
+// each frame is exactly one HTTP chunk. That only survives hops that preserve
+// chunk boundaries, which a reverse proxy does not, so spritesd asks for
+// framing=length (ID, big-endian uint32 length, payload) on the vsock hop and
+// re-chunks for the client itself.
 func (s *Server) handleExecPost(w http.ResponseWriter, r *http.Request) {
 	opts, err := optsFromValues(r.URL.Query())
 	if err != nil {
@@ -303,9 +312,19 @@ func (s *Server) handleExecPost(w http.ResponseWriter, r *http.Request) {
 	sess.attach(c, 0, true)
 	defer sess.detach(c)
 	defer c.shutdown()
+	withLength := r.URL.Query().Get("framing") == "length"
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Trailer", "Sprite-Exit-Code")
 	fl, _ := w.(http.Flusher)
+	emit := func(stream byte, payload []byte) {
+		frame := []byte{stream}
+		if withLength {
+			frame = binary.BigEndian.AppendUint32(frame, uint32(len(payload)))
+		}
+		w.Write(append(frame, payload...))
+		if fl != nil {
+			fl.Flush() // one frame, one chunk
+		}
+	}
 	for {
 		select {
 		case <-c.notify:
@@ -323,16 +342,20 @@ func (s *Server) handleExecPost(w http.ResponseWriter, r *http.Request) {
 			c.qBytes -= len(m.data)
 			c.mu.Unlock()
 			if m.close {
-				_, code := sess.Exited()
-				w.Header().Set("Sprite-Exit-Code", strconv.Itoa(code))
 				return
 			}
-			if m.typ == websocket.BinaryMessage && len(m.data) > 1 &&
-				(m.data[0] == StreamStdout || m.data[0] == StreamStderr) {
-				w.Write(m.data[1:])
-				if fl != nil {
-					fl.Flush()
+			if m.typ != websocket.BinaryMessage || len(m.data) == 0 {
+				continue // session_info and the JSON exit notice are WebSocket-only
+			}
+			switch stream, payload := m.data[0], m.data[1:]; stream {
+			case StreamStdout, StreamStderr:
+				for len(payload) > 0 {
+					n := min(len(payload), maxPostFrame)
+					emit(stream, payload[:n])
+					payload = payload[n:]
 				}
+			case StreamExit:
+				emit(StreamExit, payload)
 			}
 		}
 	}

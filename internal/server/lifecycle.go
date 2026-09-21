@@ -37,6 +37,9 @@ type Options struct {
 	DefaultVCPUs  int
 	DefaultMemMiB int
 	DNS           string
+	// NoControl answers 404 on /control, which makes SDKs fall back to one
+	// WebSocket per operation.
+	NoControl bool
 	// NoNetwork boots every sprite without a NIC and leaves the shared tap pool
 	// alone, so several spritesd instances (dev, tests) can coexist on one host.
 	NoNetwork bool

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,9 +69,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /v1/sprites/{name}", s.updateSprite)
 	mux.HandleFunc("DELETE /v1/sprites/{name}", s.deleteSprite)
 	mux.HandleFunc("/v1/sprites/{name}/exec", s.proxyAgent)
+	mux.HandleFunc("POST /v1/sprites/{name}/exec", s.execPost)
 	mux.HandleFunc("/v1/sprites/{name}/exec/{rest...}", s.proxyAgent)
 	mux.HandleFunc("GET /v1/sprites/{name}/proxy", s.proxyAgent)
-	mux.HandleFunc("GET /v1/sprites/{name}/control", s.proxyAgentSocket)
+	if !s.opts.NoControl {
+		mux.HandleFunc("GET /v1/sprites/{name}/control", s.proxyAgentSocket)
+	}
 	mux.HandleFunc("GET /v1/sprites/{name}/ports/watch", s.proxyAgentSocket)
 	mux.HandleFunc("/v1/sprites/{name}/fs/{rest...}", s.proxyAgent)
 	mux.HandleFunc("/v1/sprites/{name}/services", s.proxyAgent)
@@ -299,6 +303,18 @@ func (s *Server) proxyAgent(w http.ResponseWriter, r *http.Request) { s.proxy(w,
 // suspend simply closes the socket.
 func (s *Server) proxyAgentSocket(w http.ResponseWriter, r *http.Request) { s.proxy(w, r, false) }
 
+// withSpriteEnv puts the sprite-level environment first so per-exec env can override it.
+func withSpriteEnv(q url.Values, sp store.Sprite) url.Values {
+	env := []string{}
+	for k, v := range sp.Environment {
+		env = append(env, k+"="+v)
+	}
+	if len(env) > 0 {
+		q["env"] = append(env, q["env"]...)
+	}
+	return q
+}
+
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 	sp, ok := s.lookup(w, r)
 	if !ok {
@@ -317,15 +333,8 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host, pr.Out.URL.Path = "http", "agent", path
 			pr.Out.Header.Del("Authorization")
-			if len(sp.Environment) > 0 && (path == "/exec" || path == "/control") {
-				// Sprite-level environment goes first so per-exec env can override it.
-				q := pr.Out.URL.Query()
-				env := []string{}
-				for k, v := range sp.Environment {
-					env = append(env, k+"="+v)
-				}
-				q["env"] = append(env, q["env"]...)
-				pr.Out.URL.RawQuery = q.Encode()
+			if path == "/exec" || path == "/control" {
+				pr.Out.URL.RawQuery = withSpriteEnv(pr.Out.URL.Query(), sp).Encode()
 			}
 		},
 		Transport: &http.Transport{DisableKeepAlives: true,

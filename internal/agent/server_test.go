@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -214,12 +215,42 @@ func TestKillEndpoint(t *testing.T) {
 
 func TestExecPost(t *testing.T) {
 	ts, _ := newTestServer(t)
-	resp, err := http.Post(ts.URL+"/exec?cmd=sh&cmd=-c&cmd="+url.QueryEscape("tr a-z A-Z; exit 4")+"&stdin=true", "", strings.NewReader("shout"))
+	u := ts.URL + "/exec?cmd=sh&cmd=-c&cmd=" + url.QueryEscape("tr a-z A-Z; echo warn >&2; exit 4") + "&stdin=true"
+
+	// Length framing: what spritesd consumes. Unambiguous however the bytes are chunked.
+	resp, err := http.Post(u+"&framing=length", "", strings.NewReader("shout"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if string(body) != "SHOUT" || resp.Trailer.Get("Sprite-Exit-Code") != "4" {
-		t.Fatalf("body=%q trailer=%q", body, resp.Trailer.Get("Sprite-Exit-Code"))
+	var stdout, stderr []byte
+	exit := -1
+	for len(body) > 0 {
+		n := int(binary.BigEndian.Uint32(body[1:5]))
+		payload := body[5 : 5+n]
+		switch body[0] {
+		case StreamStdout:
+			stdout = append(stdout, payload...)
+		case StreamStderr:
+			stderr = append(stderr, payload...)
+		case StreamExit:
+			exit = int(payload[0])
+		default:
+			t.Fatalf("unexpected frame type %d", body[0])
+		}
+		body = body[5+n:]
+	}
+	if string(stdout) != "SHOUT" || string(stderr) != "warn\n" || exit != 4 {
+		t.Fatalf("stdout=%q stderr=%q exit=%d", stdout, stderr, exit)
+	}
+
+	// Upstream framing: the last frame of the body is the two-byte exit frame.
+	resp, err = http.Post(u, "", strings.NewReader("shout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = io.ReadAll(resp.Body)
+	if len(body) < 2 || body[len(body)-2] != StreamExit || body[len(body)-1] != 4 || body[0] != StreamStdout {
+		t.Fatalf("upstream-framed body = %q", body)
 	}
 }
