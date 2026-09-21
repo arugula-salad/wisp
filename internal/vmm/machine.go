@@ -86,24 +86,42 @@ func HasSnapshot(dir string) bool {
 	return true
 }
 
+// SnapshotBytes is the disk space dir's suspend snapshot occupies.
+func SnapshotBytes(dir string) int64 {
+	var n int64
+	for _, f := range []string{snapState, snapMem} {
+		var st syscall.Stat_t
+		if syscall.Stat(filepath.Join(dir, f), &st) == nil {
+			n += st.Blocks * 512
+		}
+	}
+	return n
+}
+
+// PidOf returns the VMM recorded in dir's pid file, if that process is still a
+// Firecracker running there (pids get reused).
+func PidOf(dir string) (int, bool) {
+	b, err := os.ReadFile(filepath.Join(dir, pidFile))
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0, false
+	}
+	exe, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	cwd, _ := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
+	return pid, strings.Contains(filepath.Base(exe), "firecracker") && cwd == dir
+}
+
 // ReapOrphan kills a Firecracker left behind in dir by a previous spritesd that
 // died without cleaning up. Its memory state is unrecoverable, so the sprite goes cold.
 func ReapOrphan(dir string) {
-	b, err := os.ReadFile(filepath.Join(dir, pidFile))
-	if err != nil {
-		return
-	}
-	defer os.Remove(filepath.Join(dir, pidFile))
-	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-	if err != nil {
-		return
-	}
 	// Guard against pid reuse: only signal it if it really is a firecracker in this dir.
-	exe, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
-	cwd, _ := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
-	if strings.Contains(filepath.Base(exe), "firecracker") && cwd == dir {
+	if pid, ok := PidOf(dir); ok {
 		syscall.Kill(pid, syscall.SIGKILL)
 	}
+	os.Remove(filepath.Join(dir, pidFile))
 }
 
 // DiscardSnapshot drops suspended memory state, turning a warm sprite cold.
@@ -327,6 +345,12 @@ func ListenGuest(dir string, port uint32) (net.Listener, error) {
 	os.Remove(path) // left behind by a spritesd that died
 	return net.Listen("unix", path)
 }
+
+// Pid is the VMM process.
+func (m *Machine) Pid() int { return m.cmd.Process.Pid }
+
+// MemMiB is the guest RAM, which is also the size of a suspend snapshot.
+func (m *Machine) MemMiB() int { return m.cfg.MemMiB }
 
 // Exited is closed when the VMM process ends (guest reboot/poweroff, crash, or Kill).
 func (m *Machine) Exited() <-chan struct{} { return m.exited }

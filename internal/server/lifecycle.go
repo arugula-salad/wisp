@@ -52,6 +52,13 @@ type Options struct {
 	GuestCheckpointLimit int
 	// NetdSocket is where mini-sprites-netd listens; empty means its default.
 	NetdSocket string
+	// Operator ceilings (limits.go); 0 means no limit.
+	MaxSprites int // sprites that may exist
+	MaxRunning int // VMs that may run at once
+	// The disk guard (diskguard.go): bytes that creates, checkpoints and restores
+	// must leave free, and the share of the volume below which the log warns.
+	DiskReserve     int64
+	DiskWarnPercent int
 }
 
 // runtime is the in-memory lifecycle state for one sprite.
@@ -98,15 +105,18 @@ type Lifecycle struct {
 	mu       sync.Mutex
 	runtimes map[string]*runtime // by sprite ID
 	freeTaps []string
+	taps     int    // size of the pool, free or not
+	running  int    // VMs started or starting, counted against MaxRunning
 	gateway  net.IP // the bridge's address; sprites live in its /16. nil = no networking
 
 	// guestAPI builds the handler served on a VM's guest channel. Set by the Server.
 	guestAPI func(store.Sprite, *guestChan) http.Handler
 	egress   *egress
+	disk     *diskGuard
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
-	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}}
+	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log)}
 	if opts.NoNetwork {
 		log.Info("guest networking disabled by --net=false")
 	} else if gw, err := bridgeAddr(); err != nil {
@@ -120,6 +130,7 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 			}
 		}
 	}
+	l.taps = len(l.freeTaps)
 	if len(l.freeTaps) == 0 && !opts.NoNetwork {
 		log.Warn("no tap devices found: sprites will boot without networking (run scripts/setup-host.sh once)")
 	} else if !opts.NoNetwork {
@@ -256,9 +267,22 @@ func (l *Lifecycle) cleanupLocked(rt *runtime) {
 	rt.guest = nil
 	l.returnTap(rt.tap)
 	rt.tap = ""
+	l.releaseRun()
 }
 
+// startLocked boots or resumes the sprite, within the MaxRunning ceiling.
 func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
+	if err := l.reserveRun(); err != nil {
+		return err
+	}
+	if err := l.bootLocked(ctx, sp, rt); err != nil {
+		l.releaseRun()
+		return err
+	}
+	return nil
+}
+
+func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
 	start := time.Now()
 	dir := l.store.Dir(sp.ID)
 	tap, gateErr := l.tapFor(sp)
@@ -316,7 +340,7 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 		// Close before recursing: the retry listens on the same socket path, and
 		// closing this listener later would unlink the new one's socket.
 		guest.close()
-		return l.startLocked(ctx, sp, rt)
+		return l.bootLocked(ctx, sp, rt)
 	}
 	rt.m, rt.tap, rt.guest = m, tap, guest
 	if cur, err := l.store.Get(sp.Name); err == nil {
@@ -474,6 +498,15 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	if err := agentCall(ctx, rt.m, http.MethodPost, path, nil, nil); err != nil {
 		return err
 	}
+	// A snapshot that does not fit would fail half-written and leave the VM
+	// running for good. The guest has just synced, so stopping it cold instead
+	// is no worse than the warm -> cold drop every sprite gets eventually.
+	if need := int64(rt.m.MemMiB())<<20 + snapshotSlack; !l.makeRoom(sp, need) {
+		rt.m.Kill()
+		l.cleanupLocked(rt)
+		l.log.Warn("no room for a memory snapshot even with every other sprite cold; sprite stopped cold instead", "sprite", sp.Name, "needed", mib(need))
+		return nil
+	}
 	if err := rt.m.Suspend(ctx); err != nil {
 		return err
 	}
@@ -531,6 +564,7 @@ func (l *Lifecycle) Shutdown() {
 // janitor turns long-suspended sprites cold by dropping their memory snapshot.
 func (l *Lifecycle) janitor() {
 	for range time.Tick(30 * time.Second) {
+		l.disk.watch()
 		for _, sp := range l.store.List("") {
 			if sp.LastWarmingAt == nil || time.Since(*sp.LastWarmingAt) < l.opts.WarmTTL {
 				continue

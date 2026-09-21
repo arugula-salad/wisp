@@ -48,6 +48,17 @@ func loadToken(path string) (string, error) {
 }
 
 func main() {
+	// A first argument that is not a flag selects a subcommand; none runs the daemon.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
+		switch cmd := os.Args[1]; cmd {
+		case "status":
+			os.Exit(runStatus(os.Args[2:]))
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command %q (want status; no command runs the daemon)\n", cmd)
+			os.Exit(2)
+		}
+	}
+
 	data := flag.String("data", defaultDataDir(), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7788", "API listen address")
 	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
@@ -63,6 +74,10 @@ func main() {
 	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
 	netdSocket := flag.String("netd-socket", "", "mini-sprites-netd socket, the root helper that backs restrictive network policies (default /run/mini-sprites/netd.sock)")
 	org := flag.String("org", "local", "organization name reported in API responses")
+	maxSprites := flag.Int("max-sprites", 0, "most sprites that may exist; creating another is refused (0 = no limit)")
+	maxRunning := flag.Int("max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
+	diskReserve := flag.Int64("disk-reserve-mib", 2048, "free space (MiB) a create, checkpoint or restore must leave on the sprite volume, or it is refused (0 = never refuse)")
+	diskWarn := flag.Int("disk-warn-percent", 10, "warn in the log while less than this share of the sprite volume is free (0 = never)")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -84,6 +99,7 @@ func main() {
 		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn, NoControl: !*control,
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
 		NetdSocket: *netdSocket,
+		MaxSprites: *maxSprites, MaxRunning: *maxRunning, DiskReserve: *diskReserve << 20, DiskWarnPercent: *diskWarn,
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,
@@ -98,6 +114,13 @@ func main() {
 		f.Close()
 	}
 
+	// First, because it doubles as the lock on the data directory.
+	statusLn, err := listenStatus(abs)
+	if err != nil {
+		fatal(log, err)
+	}
+	defer statusLn.Close() // which also removes the socket
+
 	token, err := loadToken(filepath.Join(abs, "token"))
 	if err != nil {
 		fatal(log, err)
@@ -109,8 +132,9 @@ func main() {
 	life := server.NewLifecycle(opts, st, log)
 
 	_, port, _ := net.SplitHostPort(*listen)
-	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second,
-		Handler: server.New(opts, st, life, log, token, *org, *urlDomain, port).Handler()}
+	api := server.New(opts, st, life, log, token, *org, *urlDomain, port)
+	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
+	go http.Serve(statusLn, api.StatusHandler(*listen))
 
 	go func() {
 		log.Info("spritesd listening", "addr", *listen, "data", abs, "token_file", filepath.Join(abs, "token"))

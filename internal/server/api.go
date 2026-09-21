@@ -177,6 +177,20 @@ func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_name", "name must be 1-63 chars of lowercase letters, digits and hyphens")
 		return
 	}
+	if limit, n := s.opts.MaxSprites, len(s.store.List("")); limit > 0 && n >= limit {
+		writeLimitErr(w, &LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
+			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)})
+		return
+	}
+	base, err := s.storage.base(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
+		return
+	}
+	if err := s.life.disk.admit("a new sprite", s.cloneCost(base)); err != nil {
+		writeNoRoom(w, err)
+		return
+	}
 	now := time.Now().UTC()
 	sp := &store.Sprite{ID: store.NewID(), Name: req.Name, Environment: req.Environment, Labels: req.Labels,
 		URLSettings: store.URLSettings{Auth: "sprite"}, CreatedAt: now, UpdatedAt: now}
@@ -199,11 +213,7 @@ func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	disk := filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile)
-	base, err := s.storage.base(r.Context())
-	if err == nil {
-		err = cloneFile(r.Context(), base, disk)
-	}
-	if err != nil {
+	if err := cloneFile(r.Context(), base, disk); err != nil {
 		s.store.Delete(sp.Name)
 		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
 		return
@@ -233,9 +243,10 @@ func (s *Server) listSprites(w http.ResponseWriter, r *http.Request) {
 	after := q.Get("continuation_token")
 	resp := struct {
 		Sprites               []spriteJSON `json:"sprites"`
+		Org                   orgJSON      `json:"org"`
 		HasMore               bool         `json:"has_more"`
 		NextContinuationToken string       `json:"next_continuation_token,omitempty"`
-	}{Sprites: []spriteJSON{}}
+	}{Sprites: []spriteJSON{}, Org: s.orgInfo()}
 	for _, sp := range s.store.List(q.Get("prefix")) {
 		if sp.Name <= after {
 			continue
@@ -335,8 +346,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 	}
 	m, release, err := s.life.Acquire(r.Context(), sp)
 	if err != nil {
-		s.log.Error("wake failed", "sprite", sp.Name, "err", err)
-		writeErr(w, http.StatusServiceUnavailable, "wake_failed", err.Error())
+		s.writeWakeErr(w, sp.Name, err)
 		return
 	}
 	defer release()
