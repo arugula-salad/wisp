@@ -5,12 +5,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +24,9 @@ import (
 
 // AgentPort is the vsock port spritesd dials.
 const AgentPort = 1024
+
+// hostAPIPort is the vsock port spritesd answers on for this sprite (guestAPIPort there).
+const hostAPIPort = 1025
 
 func main() {
 	log.SetFlags(0)
@@ -72,6 +77,17 @@ func serve(args []string) {
 				log.Printf("reboot: %v", err)
 			}
 		},
+	}
+	// The in-guest API needs the host channel, which only exists over vsock.
+	if *listen == "vsock" {
+		sock := filepath.Join(*stateDir, "api.sock")
+		if gl, err := agent.ListenGuestAPI(sock); err != nil {
+			log.Printf("%s: %v", sock, err)
+		} else {
+			dialHost := func(context.Context) (net.Conn, error) { return vsock.Dial(vsock.Host, hostAPIPort, nil) }
+			gs := &http.Server{Handler: srv.GuestAPI(dialHost), ReadHeaderTimeout: 10 * time.Second}
+			go func() { log.Fatal(gs.Serve(gl)) }()
+		}
 	}
 	log.Printf("serving on %s", *listen)
 	hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}

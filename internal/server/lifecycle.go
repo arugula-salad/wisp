@@ -40,6 +40,13 @@ type Options struct {
 	// NoNetwork boots every sprite without a NIC and leaves the shared tap pool
 	// alone, so several spritesd instances (dev, tests) can coexist on one host.
 	NoNetwork bool
+	// Automatic checkpoints (checkpoints.go): the background interval (0 = only
+	// before restores) and how many to keep per sprite (0 = none at all).
+	AutoCheckpointInterval time.Duration
+	AutoCheckpointKeep     int
+	// GuestCheckpointLimit caps the manual checkpoints a sprite can hold when the
+	// request to create one comes from inside it (0 = no limit).
+	GuestCheckpointLimit int
 }
 
 // runtime is the in-memory lifecycle state for one sprite.
@@ -48,6 +55,8 @@ type runtime struct {
 	mu  sync.Mutex
 	m   *vmm.Machine // nil unless running
 	tap string
+	// guest is the running VM's channel to us (guestapi.go); set and cleared with m.
+	guest *guestChan
 
 	useMu    sync.Mutex
 	inflight int
@@ -85,6 +94,9 @@ type Lifecycle struct {
 	runtimes map[string]*runtime // by sprite ID
 	freeTaps []string
 	gateway  net.IP // the bridge's address; sprites live in its /16. nil = no networking
+
+	// guestAPI builds the handler served on a VM's guest channel. Set by the Server.
+	guestAPI func(store.Sprite, *guestChan) http.Handler
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
@@ -232,6 +244,8 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 
 func (l *Lifecycle) cleanupLocked(rt *runtime) {
 	rt.m = nil
+	rt.guest.close()
+	rt.guest = nil
 	l.returnTap(rt.tap)
 	rt.tap = ""
 }
@@ -244,8 +258,19 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
+	// The guest may call the host as soon as it runs, so its channel comes first.
+	guest, err := l.openGuestChan(sp)
+	if err != nil {
+		l.returnTap(tap)
+		return fmt.Errorf("guest channel: %w", err)
+	}
+	defer func() {
+		if rt.guest != guest {
+			guest.close() // the VM did not come up
+		}
+	}()
+
 	var m *vmm.Machine
-	var err error
 	mode := "cold"
 	if vmm.HasSnapshot(dir) && sp.BootIP != cfg.IPCIDR {
 		// The guest configured its address at boot; a snapshot from before the
@@ -273,7 +298,7 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 		l.returnTap(tap)
 		return fmt.Errorf("guest agent did not come up: %w%s", err, consoleTail(dir))
 	}
-	rt.m, rt.tap = m, tap
+	rt.m, rt.tap, rt.guest = m, tap, guest
 	rt.useMu.Lock()
 	rt.lastUse = time.Now()
 	rt.useMu.Unlock()

@@ -66,6 +66,7 @@ func pivotToDisk() map[string]string {
 	if err != nil {
 		log.Fatalf("mount %s: %v", dev, err)
 	}
+	installTools("/newroot")
 	if err := unix.Mount("/dev", "/newroot/dev", "", unix.MS_MOVE, ""); err != nil {
 		log.Printf("move /dev: %v", err)
 	}
@@ -79,6 +80,35 @@ func pivotToDisk() map[string]string {
 	must("chroot", unix.Chroot("."))
 	must("chdir /", unix.Chdir("/"))
 	return p
+}
+
+// installTools copies the in-guest CLI from the initramfs onto the sprite's
+// disk. It has to happen before the pivot, after which the initramfs is out of
+// reach, and on every boot, so the CLI always matches the running agent even on
+// a disk restored from an old checkpoint. /usr/local/bin is on every PATH the
+// agent hands out (and sudo's secure_path); a user's own file there is left alone.
+func installTools(root string) {
+	const bin = "/.sprite/bin/sprite-env"
+	b, err := os.ReadFile("/sprite-env")
+	if err != nil {
+		log.Printf("sprite-env not in initramfs: %v", err)
+		return
+	}
+	dst := root + bin
+	os.MkdirAll(root+"/.sprite/bin", 0o755)
+	// Rename into place: a VM killed mid-copy must not leave half a binary behind.
+	if err := os.WriteFile(dst+".tmp", b, 0o755); err != nil {
+		log.Printf("install sprite-env: %v", err)
+		return
+	}
+	if err := os.Rename(dst+".tmp", dst); err != nil {
+		log.Printf("install sprite-env: %v", err)
+		return
+	}
+	os.MkdirAll(root+"/usr/local/bin", 0o755)
+	if err := os.Symlink(bin, root+"/usr/local/bin/sprite-env"); err != nil && !os.IsExist(err) {
+		log.Printf("link sprite-env: %v", err)
+	}
 }
 
 func runInit() {

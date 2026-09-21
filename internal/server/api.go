@@ -41,8 +41,23 @@ type Server struct {
 }
 
 func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org, urlDomain, port string) *Server {
-	return &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
+	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
 		urlDomain: urlDomain, urlFmt: "http://%s." + urlDomain + ":" + port}
+	life.guestAPI = s.guestAPI
+	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
+		go s.autoCheckpoints()
+	}
+	return s
+}
+
+// named adapts a handler that takes its sprite as an argument to the public
+// API, where the sprite comes from {name}. (The in-guest channel supplies it differently.)
+func (s *Server) named(h func(http.ResponseWriter, *http.Request, store.Sprite, *guestChan)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if sp, ok := s.lookup(w, r); ok {
+			h(w, r, sp, nil)
+		}
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -58,10 +73,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/sprites/{name}/fs/{rest...}", s.proxyAgent)
 	mux.HandleFunc("/v1/sprites/{name}/services", s.proxyAgent)
 	mux.HandleFunc("/v1/sprites/{name}/services/{rest...}", s.proxyAgent)
-	mux.HandleFunc("POST /v1/sprites/{name}/checkpoint", s.createCheckpoint)
-	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints", s.listCheckpoints)
-	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints/{id}", s.getCheckpoint)
-	mux.HandleFunc("POST /v1/sprites/{name}/checkpoints/{id}/restore", s.restoreCheckpoint)
+	mux.HandleFunc("POST /v1/sprites/{name}/checkpoint", s.named(s.createCheckpoint))
+	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints", s.named(s.listCheckpoints))
+	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints/{id}", s.named(s.getCheckpoint))
+	mux.HandleFunc("DELETE /v1/sprites/{name}/checkpoints/{id}", s.named(s.deleteCheckpoint))
+	mux.HandleFunc("POST /v1/sprites/{name}/checkpoints/{id}/restore", s.named(s.restoreCheckpoint))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Includes /v1/sprites/{name}/control: the SDK treats 404 there as
 		// "no multiplexed control channel" and falls back to direct WebSockets.
