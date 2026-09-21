@@ -62,6 +62,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints", s.listCheckpoints)
 	mux.HandleFunc("GET /v1/sprites/{name}/checkpoints/{id}", s.getCheckpoint)
 	mux.HandleFunc("POST /v1/sprites/{name}/checkpoints/{id}/restore", s.restoreCheckpoint)
+	s.registerTasks(mux)
+	s.registerPolicyLimits(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Includes /v1/sprites/{name}/control: the SDK treats 404 there as
 		// "no multiplexed control channel" and falls back to direct WebSockets.

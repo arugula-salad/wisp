@@ -58,6 +58,9 @@ type Sprite struct {
 	BootIP         string       `json:"boot_ip,omitempty"`
 	Checkpoints    []Checkpoint `json:"checkpoints,omitempty"`
 	NextCheckpoint int          `json:"next_checkpoint"`
+	// A nil policy is upstream's default: unrestricted.
+	Privileges *PrivilegesPolicy `json:"privileges_policy,omitempty"`
+	Resources  *ResourcesPolicy  `json:"resources_policy,omitempty"`
 }
 
 type Store struct {

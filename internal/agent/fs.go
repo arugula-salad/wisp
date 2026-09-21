@@ -38,6 +38,7 @@ func (s *Server) registerFS(mux *http.ServeMux) {
 	mux.HandleFunc("POST /fs/copy", s.fsCopy)
 	mux.HandleFunc("POST /fs/chmod", s.fsChmod)
 	mux.HandleFunc("POST /fs/chown", s.fsChown)
+	mux.HandleFunc("GET /fs/watch", s.fsWatch)
 }
 
 func fsFail(w http.ResponseWriter, path string, err error) {

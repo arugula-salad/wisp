@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/creack/pty v1.1.24
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/mdlayher/vsock v1.3.0
 	github.com/superfly/sprites-go v0.2.1

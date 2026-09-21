@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +63,12 @@ func serve(args []string) {
 		log.Fatalf("listen: %v", err)
 	}
 
+	// Before the supervisor exists: it starts services, and they must be confined too.
+	boot := cmdline()
+	memLimit, _ := strconv.Atoi(boot["memlimit"])
+	agent.InitPolicy(agent.Policy{Profile: boot["profile"], NoNewPrivs: boot["nnp"] == "1", MemoryLimitMB: memLimit},
+		"/run/sprite-policy.json")
+
 	srv := &agent.Server{
 		Sessions: agent.NewManager(),
 		Services: agent.NewSupervisor(*stateDir, *runDir),
@@ -73,6 +81,11 @@ func serve(args []string) {
 			}
 		},
 	}
+	go func() {
+		if err := srv.ServeGuestAPI(filepath.Join(*stateDir, "api.sock")); err != nil {
+			log.Printf("guest API socket: %v", err)
+		}
+	}()
 	log.Printf("serving on %s", *listen)
 	hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(hs.Serve(ln))
