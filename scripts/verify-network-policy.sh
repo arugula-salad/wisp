@@ -29,13 +29,16 @@ fail() { fails=$((fails + 1)); printf 'FAIL  %s\n      %s\n' "$1" "${2:-}"; }
 skip() { skips=$((skips + 1)); printf 'SKIP  %s\n      %s\n' "$1" "${2:-}"; }
 
 # guest <sprite> <shell script>: runs it in the guest; output in $OUT, status returned.
+# HTTP exec answers in frames (a stream-ID byte, then payload; the last frame is the exit
+# code as a raw byte). A shell cannot parse that reliably, so the script reports its own
+# status as text and the frame bytes are simply stripped.
 guest() {
   local raw
   raw=$(api -X POST -G "$API/v1/sprites/$1/exec" --data-urlencode cmd=sh --data-urlencode cmd=-c \
-    --data-urlencode "cmd=( $2 ) 2>&1; echo __rc=\$?") || { OUT="exec transport failed: $raw"; return 125; }
-  OUT=$(printf '%s' "$raw" | sed '/^__rc=[0-9]*$/d' | tr '\n' ' ' | cut -c1-300)
+    --data-urlencode "cmd=( $2 ) 2>&1; __s=\$?; echo; echo __rc=\$__s" | tr -d '\000-\010') || { OUT="exec transport failed: $raw"; return 125; }
+  OUT=$(printf '%s' "$raw" | sed '/__rc=[0-9]*$/d' | tr '\n' ' ' | cut -c1-300)
   local rc
-  rc=$(printf '%s\n' "$raw" | sed -n 's/^__rc=\([0-9]*\)$/\1/p' | tail -1)
+  rc=$(printf '%s\n' "$raw" | sed -n 's/^.*__rc=\([0-9][0-9]*\)$/\1/p' | tail -1)
   [ -n "$rc" ] || { OUT="no exit status from guest: $OUT"; return 125; }
   return "$rc"
 }
