@@ -5,6 +5,10 @@ hardware-isolated Linux environments on Firecracker microVMs that suspend when i
 and wake on the next request. The official `sprite` CLI and SDKs work against it
 unmodified.
 
+This is an independent, unofficial project. It is not affiliated with or endorsed by Fly.io;
+"Sprites" is their product, and this only implements a compatible API for running on your
+own machine.
+
 ```
 client (sprite CLI / SDK / curl)
    │  REST + WebSocket, Bearer token              http://<name>.sprites.localhost:7788
