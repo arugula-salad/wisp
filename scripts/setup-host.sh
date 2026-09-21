@@ -24,6 +24,7 @@
 #
 #   ./scripts/setup-host.sh --print-rules   # show the nftables ruleset; needs no root
 set -euo pipefail
+trap 'echo "setup-host.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 BR=msbr0
 TAP_PREFIX=mstap
@@ -160,7 +161,9 @@ apply() {
   # Re-applying replaces the whole table. Carry restricted4's members over within the
   # same transaction: an empty set would un-restrict running sprites until spritesd's
   # next push.
-  KEEP=$(nft list set inet mini_sprites restricted4 2>/dev/null | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p')
+  # On a first run the set does not exist and nft fails; under pipefail + set -e that
+  # would end the script without a word, so the failure is absorbed here.
+  KEEP=$(nft list set inet mini_sprites restricted4 2>/dev/null | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p' || true)
   ruleset | nft -f -
 }
 
