@@ -61,10 +61,15 @@ func TestGuestAPISurface(t *testing.T) {
 		t.Errorf("restore relayed as %q", body)
 	}
 
+	// The sprites this one created are the host's to answer for (403 without a spawn policy).
+	if _, body := do(http.MethodDelete, "/v1/sprites/game-1", ""); body != "host saw DELETE /v1/sprites/game-1" {
+		t.Errorf("sprite delete relayed as %q", body)
+	}
+
 	// Everything else the agent can do stays on the vsock side, and nothing but
-	// checkpoints reaches the host.
+	// checkpoints and sprites reaches the host.
 	for _, path := range []string{"/exec", "/v1/exec", "/healthz", "/fs/read?path=/etc/shadow", "/v1/fs/read?path=/etc/shadow",
-		"/proxy", "/internal/poweroff", "/v1/internal/poweroff", "/services", "/v1/sprites", "/v1/checkpointsx"} {
+		"/proxy", "/internal/poweroff", "/v1/internal/poweroff", "/services", "/v1/spritesx", "/sprites", "/v1/checkpointsx"} {
 		for _, method := range []string{http.MethodGet, http.MethodPost} {
 			if code, body := do(method, path, ""); code != http.StatusNotFound || strings.Contains(body, "host saw") {
 				t.Errorf("%s %s: %d %q, want a local 404", method, path, code, body)

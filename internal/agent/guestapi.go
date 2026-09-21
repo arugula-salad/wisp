@@ -12,8 +12,9 @@ import (
 // The guest API is what processes inside the sprite (sprite-env, agents, curl)
 // reach on /.sprite/api.sock, with no token: being in the sprite is the
 // credential. It is deliberately much smaller than the vsock API spritesd
-// uses. Services are handled here; checkpoints are a host operation, so they
-// are relayed to spritesd over a channel that can only ever mean "this sprite".
+// uses. Services are handled here; checkpoints, and the sprites this one may
+// create, are host operations, so they are relayed to spritesd over a channel
+// that can only ever mean "this sprite is asking".
 // Exec, the filesystem API, the TCP proxy and /internal/* stay off it: they run
 // things as root or on spritesd's behalf, and nothing inside needs them.
 
@@ -46,6 +47,9 @@ func (s *Server) GuestAPI(hostDial func(ctx context.Context) (net.Conn, error)) 
 		mux.Handle("/v1/checkpoint", host)
 		mux.Handle("/v1/checkpoints", host)
 		mux.Handle("/v1/checkpoints/", host)
+		// Sprites this one created. spritesd answers 403 unless its spawn policy allows it.
+		mux.Handle("/v1/sprites", host)
+		mux.Handle("/v1/sprites/", host)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")

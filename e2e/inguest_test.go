@@ -78,7 +78,8 @@ func TestInGuestAPI(t *testing.T) {
 	t.Run("the socket reaches nothing else", func(t *testing.T) {
 		out := sh(t, `for p in /exec /v1/exec /fs/read?path=/etc/shadow /internal/poweroff /v1/sprites /v1/sprites/`+name+`/checkpoints; do
 			curl -s --unix-socket /.sprite/api.sock -o /dev/null -w '%{http_code} ' http://sprite$p; done`)
-		if out != "404 404 404 404 404 404 " {
+		// /v1/sprites exists but is refused: this sprite has no spawn policy (spawn_test.go).
+		if out != "404 404 404 404 403 404 " {
 			t.Fatalf("got %q", out)
 		}
 	})
