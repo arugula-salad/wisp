@@ -300,6 +300,10 @@ func consoleTail(dir string) string {
 	return "\n--- console ---\n" + string(b)
 }
 
+// errGuestBusy is the agent declining an idle suspend: work arrived over a
+// socket spritesd does not pin (a control channel) after the last activity check.
+var errGuestBusy = errors.New("guest became active")
+
 // agentCall makes one HTTP request to the guest agent over a fresh vsock stream.
 func agentCall(ctx context.Context, m *vmm.Machine, method, path string, body any, out any) error {
 	var rd io.Reader
@@ -318,6 +322,9 @@ func agentCall(ctx context.Context, m *vmm.Machine, method, path string, body an
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return errGuestBusy
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("agent %s %s: %s", method, path, resp.Status)
 	}
@@ -386,22 +393,31 @@ func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 			rt.mu.Unlock()
 			continue
 		}
-		err = l.suspendLocked(sp, rt)
+		err = l.suspendLocked(sp, rt, true)
 		rt.mu.Unlock()
 		if err == nil {
 			return
+		}
+		if errors.Is(err, errGuestBusy) {
+			continue
 		}
 		l.log.Error("suspend failed; sprite left running", "sprite", sp.Name, "err", err)
 	}
 }
 
-func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime) error {
+// suspendLocked snapshots the sprite to disk. idle marks a suspend the guest may
+// still veto with errGuestBusy; one the operator asked for goes ahead regardless.
+func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	// Flush the guest page cache first so that dropping the snapshot later
 	// (warm -> cold) is no worse than a clean power cut after sync.
-	if err := agentCall(ctx, rt.m, http.MethodPost, "/internal/presuspend", nil, nil); err != nil {
+	path := "/internal/presuspend"
+	if idle {
+		path += "?idle=1"
+	}
+	if err := agentCall(ctx, rt.m, http.MethodPost, path, nil, nil); err != nil {
 		return err
 	}
 	if err := rt.m.Suspend(ctx); err != nil {
@@ -427,7 +443,7 @@ func (l *Lifecycle) Stop(sp store.Sprite, keepWarm bool) error {
 		return nil
 	}
 	if keepWarm {
-		return l.suspendLocked(sp, rt)
+		return l.suspendLocked(sp, rt, false)
 	}
 	rt.m.Kill()
 	l.cleanupLocked(rt)

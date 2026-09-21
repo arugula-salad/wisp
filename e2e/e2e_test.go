@@ -116,12 +116,19 @@ func TestSDKConformance(t *testing.T) {
 	})
 
 	t.Run("tty", func(t *testing.T) {
-		cmd := sp.CommandContext(ctx, "sh", "-c", "test -t 1 && stty size")
+		cmd := sp.CommandContext(ctx, "sh", "-c", "test -t 1 && sleep 0.5 && stty size")
 		cmd.SetTTY(true)
-		cmd.SetTTYSize(40, 120)
-		out, err := cmd.CombinedOutput()
-		if err != nil || !strings.Contains(string(out), "40 120") {
-			t.Fatalf("out=%q err=%v", out, err)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		// Resize once running: over a control channel the SDK has no way to send an initial size.
+		if err := cmd.SetTTYSize(40, 120); err != nil {
+			t.Fatal(err)
+		}
+		if err := cmd.Wait(); err != nil || !strings.Contains(out.String(), "40 120") {
+			t.Fatalf("out=%q err=%v", out.String(), err)
 		}
 	})
 
