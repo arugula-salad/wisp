@@ -55,8 +55,7 @@ func (s *Server) controlRelay(w http.ResponseWriter, r *http.Request) {
 	}
 	m, release, err := s.life.Acquire(r.Context(), sp)
 	if err != nil {
-		s.log.Error("wake failed", "sprite", sp.Name, "err", err)
-		writeErr(w, http.StatusServiceUnavailable, "wake_failed", err.Error())
+		s.writeWakeErr(w, sp.Name, err)
 		return
 	}
 	defer release()

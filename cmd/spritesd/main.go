@@ -57,16 +57,19 @@ func main() {
 		confine.RunShim(os.Args[2:])
 	}
 
-	// Two offline subcommands live alongside the daemon (backups.go). A first
-	// argument that is not a flag selects one.
+	// A first argument that is not a flag selects a subcommand; none runs the
+	// daemon. status asks a running daemon (status.go); restore and backups work
+	// offline against the bucket (backups.go).
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
 		switch cmd := os.Args[1]; cmd {
+		case "status":
+			os.Exit(runStatus(os.Args[2:]))
 		case "restore":
 			os.Exit(runRestore(os.Args[2:]))
 		case "backups":
 			os.Exit(runBackups(os.Args[2:]))
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (want restore or backups; no command runs the daemon)\n", cmd)
+			fmt.Fprintf(os.Stderr, "unknown command %q (want status, restore or backups; no command runs the daemon)\n", cmd)
 			os.Exit(2)
 		}
 	}
@@ -97,6 +100,10 @@ func main() {
 	publicConnsPer := flag.Int("public-max-conns-per-client", 64, "open connections allowed per IPv4 address or IPv6 /64 on --public-listen (0 = no limit; use 0 behind a CDN, where every client shares the CDN's addresses)")
 	confineMode := flag.String("confine", os.Getenv("MINI_SPRITES_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
 	backupOpts := backupFlags(flag.CommandLine)
+	maxSprites := flag.Int("max-sprites", 0, "most sprites that may exist; creating another is refused (0 = no limit)")
+	maxRunning := flag.Int("max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
+	diskReserve := flag.Int64("disk-reserve-mib", 2048, "free space (MiB) a create, checkpoint or restore must leave on the sprite volume, or it is refused (0 = never refuse)")
+	diskWarn := flag.Int("disk-warn-percent", 10, "warn in the log while less than this share of the sprite volume is free (0 = never)")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -118,6 +125,7 @@ func main() {
 		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn, NoControl: !*control, ControlForGoSDK: *controlGo,
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
 		NetdSocket: *netdSocket, Backup: backupOpts(),
+		MaxSprites: *maxSprites, MaxRunning: *maxRunning, DiskReserve: *diskReserve << 20, DiskWarnPercent: *diskWarn,
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,
@@ -131,6 +139,13 @@ func main() {
 	} else {
 		f.Close()
 	}
+
+	// First, because it doubles as the lock on the data directory.
+	statusLn, err := listenStatus(abs)
+	if err != nil {
+		fatal(log, err)
+	}
+	defer statusLn.Close() // which also removes the socket
 
 	mode, err := confine.ParseMode(*confineMode)
 	if err != nil {
@@ -185,6 +200,7 @@ func main() {
 			}
 		}()
 	}
+	go http.Serve(statusLn, api.StatusHandler(*listen))
 
 	go func() {
 		log.Info("spritesd listening", "addr", *listen, "data", abs, "token_file", filepath.Join(abs, "token"))

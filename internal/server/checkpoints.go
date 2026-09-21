@@ -95,6 +95,10 @@ func (s *Server) createCheckpointLocked(rt *runtime, name, comment string, auto 
 	if auto {
 		cp.ID, cp.IsAuto = fmt.Sprintf("auto-%d", sp.NextAuto+1), true
 	}
+	live := filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile)
+	if err := s.life.disk.admit("a checkpoint", s.cloneCost(live)); err != nil {
+		return cp, err
+	}
 	info("Creating checkpoint %s...", cp.ID)
 	dst := s.checkpointPath(sp.ID, cp.ID)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -114,7 +118,7 @@ func (s *Server) createCheckpointLocked(rt *runtime, name, comment string, auto 
 		}
 	}
 	start := time.Now()
-	err = cloneFile(ctx, filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile), dst)
+	err = cloneFile(ctx, live, dst)
 	if rt.m != nil {
 		if rerr := rt.m.Resume(ctx); rerr != nil {
 			s.log.Error("resume after checkpoint failed", "sprite", sp.Name, "err", rerr)
@@ -205,6 +209,10 @@ func (s *Server) restoreCheckpointLocked(rt *runtime, name, id string, info prog
 	}
 	// Upstream warns that a restore discards the current state for good. A full
 	// clone is cheap enough here to make every restore undoable instead.
+	// Checked before anything is stopped: the copy lands beside the disk it replaces.
+	if err := s.life.disk.admit("a restore", s.cloneCost(s.checkpointPath(sp.ID, id))); err != nil {
+		return err
+	}
 	if err := s.autoCheckpointLocked(rt, name, "before restore to "+id, id, info); err != nil {
 		return fmt.Errorf("save current state first: %w", err)
 	}
@@ -268,7 +276,8 @@ func (s *Server) autoCheckpoints() {
 			rt.mu.Lock()
 			err = s.autoCheckpointLocked(rt, sp.Name, "", "", func(string, ...any) {})
 			rt.mu.Unlock()
-			if err != nil {
+			// A full volume is already in the log (diskguard.go); not once per sprite per tick too.
+			if err != nil && !errors.Is(err, errNoRoom) {
 				s.log.Warn("auto checkpoint failed", "sprite", sp.Name, "err", err)
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -70,6 +71,11 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 		}
 	}
 	m, release, err := s.life.Acquire(r.Context(), sp)
+	var lim *LimitError
+	if errors.As(err, &lim) {
+		writeLimitErr(w, lim)
+		return
+	}
 	if err != nil {
 		s.log.Error("wake failed", "sprite", sp.Name, "err", err)
 		msg := "sprite failed to wake"
