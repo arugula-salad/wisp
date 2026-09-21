@@ -54,7 +54,8 @@ func (s *Server) spriteForHost(host string) (string, bool) {
 
 // serveSpriteURL handles requests to a sprite's own URL: wake it, then reverse
 // proxy to its HTTP port. The sprite stays pinned awake while requests are in flight.
-func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name string) {
+// public marks a request from the internet-facing listener, which is told less.
+func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name string, public bool) {
 	sp, err := s.store.Get(name)
 	if err != nil {
 		http.Error(w, "no such sprite", http.StatusNotFound)
@@ -71,7 +72,11 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 	m, release, err := s.life.Acquire(r.Context(), sp)
 	if err != nil {
 		s.log.Error("wake failed", "sprite", sp.Name, "err", err)
-		http.Error(w, "sprite failed to wake: "+err.Error(), http.StatusServiceUnavailable)
+		msg := "sprite failed to wake"
+		if !public {
+			msg += ": " + err.Error() // host paths and the guest console
+		}
+		http.Error(w, msg, http.StatusServiceUnavailable)
 		return
 	}
 	defer release()

@@ -42,9 +42,11 @@ type Server struct {
 	storage   *storage
 }
 
-func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org, urlDomain, port string) *Server {
+// New takes urlFmt, the pattern for the URL a sprite is reported to have: where
+// clients reach it, which only the operator knows once a router is involved.
+func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org, urlDomain, urlFmt string) *Server {
 	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
-		urlDomain: urlDomain, urlFmt: "http://%s." + urlDomain + ":" + port}
+		urlDomain: urlDomain, urlFmt: urlFmt}
 	life.guestAPI = s.guestAPI
 	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
 	if s.storage.reflink {
@@ -101,7 +103,7 @@ func (s *Server) Handler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if name, ok := s.spriteForHost(r.Host); ok {
-			s.serveSpriteURL(w, r, name)
+			s.serveSpriteURL(w, r, name, false)
 			return
 		}
 		w.Header().Set("Sprite-Version", apiVersion)

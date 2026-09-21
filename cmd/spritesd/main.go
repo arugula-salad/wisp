@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jhgaylor/mini-sprites/internal/certs"
 	"github.com/jhgaylor/mini-sprites/internal/server"
 	"github.com/jhgaylor/mini-sprites/internal/store"
 	"github.com/jhgaylor/mini-sprites/internal/vmm"
@@ -55,7 +56,7 @@ func main() {
 	vcpus := flag.Int("vcpus", 8, "default vCPUs per sprite")
 	mem := flag.Int("mem-mib", 2048, "default guest RAM per sprite (MiB); also the size of each warm snapshot on disk")
 	dns := flag.String("dns", "1.1.1.1,8.8.8.8", "nameservers handed to guests")
-	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are http://<name>.<url-domain>:<port>; point a wildcard DNS record here to serve them beyond this machine")
+	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are <name>.<url-domain>; to serve them beyond this machine, point a wildcard DNS record here and see --public-listen")
 	control := flag.Bool("control", true, "serve the multiplexed /control channel. The official Go SDK's ProxyPorts hangs once a server offers it (an SDK bug: two readers on one socket); --control=false makes SDKs fall back to per-operation WebSockets")
 	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one spritesd per host may own it, so run extra dev/test instances with --net=false")
 	autoEvery := flag.Duration("auto-checkpoint-interval", time.Hour, "take an automatic checkpoint of a sprite whose disk changed and whose newest checkpoint is older than this (0 = only before restores)")
@@ -63,6 +64,14 @@ func main() {
 	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
 	netdSocket := flag.String("netd-socket", "", "mini-sprites-netd socket, the root helper that backs restrictive network policies (default /run/mini-sprites/netd.sock)")
 	org := flag.String("org", "local", "organization name reported in API responses")
+	publicListen := flag.String("public-listen", "", "serve sprite URLs, and only sprite URLs, over HTTPS on this address; the one to forward a router port to. Needs --url-domain set to a real domain with a wildcard record, and a certificate: --tls-cert/--tls-key, or a Cloudflare token for an automatic one")
+	publicPort := flag.Int("public-port", 443, "the port clients reach --public-listen on (the router's side of the forward); used in the URLs the API reports")
+	tlsCert := flag.String("tls-cert", "", "PEM certificate chain for *.<url-domain>; re-read when it changes, so an external ACME client can renew it in place")
+	tlsKey := flag.String("tls-key", "", "PEM private key for --tls-cert")
+	acmeEmail := flag.String("acme-email", "", "contact address for the ACME account (optional)")
+	acmeDir := flag.String("acme-directory", certs.LetsEncrypt, "ACME directory used when no --tls-cert is given. A wildcard certificate is requested over DNS-01 through Cloudflare, with the API token read from $CLOUDFLARE_API_TOKEN or <data>/cloudflare-token (needs Zone:Read and DNS:Edit on the zone)")
+	publicConns := flag.Int("public-max-conns", 1024, "open connections allowed on --public-listen (0 = no limit)")
+	publicConnsPer := flag.Int("public-max-conns-per-client", 64, "open connections allowed per IPv4 address or IPv6 /64 on --public-listen (0 = no limit; use 0 behind a CDN, where every client shares the CDN's addresses)")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -109,8 +118,35 @@ func main() {
 	life := server.NewLifecycle(opts, st, log)
 
 	_, port, _ := net.SplitHostPort(*listen)
-	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second,
-		Handler: server.New(opts, st, life, log, token, *org, *urlDomain, port).Handler()}
+	urlFmt := "http://%s." + *urlDomain + ":" + port
+	if *publicListen != "" {
+		urlFmt = "https://%s." + *urlDomain
+		if *publicPort != 443 {
+			urlFmt += fmt.Sprintf(":%d", *publicPort)
+		}
+	}
+	api := server.New(opts, st, life, log, token, *org, *urlDomain, urlFmt)
+	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
+
+	var public *http.Server
+	if *publicListen != "" {
+		cs, err := publicCerts(abs, *urlDomain, *tlsCert, *tlsKey, *acmeEmail, *acmeDir, log)
+		if err != nil {
+			fatal(log, err)
+		}
+		ln, err := net.Listen("tcp", *publicListen)
+		if err != nil {
+			fatal(log, err)
+		}
+		public = server.NewPublicServer(api.PublicHandler(), cs.GetCertificate)
+		go func() {
+			log.Info("serving sprite URLs to the public", "addr", *publicListen, "urls", fmt.Sprintf(urlFmt, "<name>"))
+			err := public.ServeTLS(server.LimitListener(ln, *publicConns, *publicConnsPer), "", "")
+			if !errors.Is(err, http.ErrServerClosed) {
+				fatal(log, err)
+			}
+		}()
+	}
 
 	go func() {
 		log.Info("spritesd listening", "addr", *listen, "data", abs, "token_file", filepath.Join(abs, "token"))
@@ -125,9 +161,39 @@ func main() {
 	log.Info("shutting down: suspending running sprites")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if public != nil {
+		public.Close()
+	}
 	srv.Shutdown(ctx) // in-flight exec sessions are cut off; their sprites still suspend warm
 	srv.Close()
 	life.Shutdown()
+}
+
+// publicCerts is the certificate source for the public listener: the operator's
+// own PEM pair, or else one we keep current ourselves over ACME.
+func publicCerts(data, domain, certFile, keyFile, email, directory string, log *slog.Logger) (*certs.Store, error) {
+	if (certFile == "") != (keyFile == "") {
+		return nil, errors.New("--tls-cert and --tls-key go together")
+	}
+	if certFile != "" {
+		cs := certs.NewStore(certFile, keyFile, log)
+		return cs, cs.Load()
+	}
+	if domain == "localhost" || strings.HasSuffix(domain, ".localhost") {
+		return nil, fmt.Errorf("--public-listen needs --url-domain set to a domain you control, not %s", domain)
+	}
+	cfToken := os.Getenv("CLOUDFLARE_API_TOKEN")
+	if b, err := os.ReadFile(filepath.Join(data, "cloudflare-token")); cfToken == "" && err == nil {
+		cfToken = strings.TrimSpace(string(b))
+	}
+	if cfToken == "" {
+		return nil, fmt.Errorf("--public-listen needs a certificate: pass --tls-cert and --tls-key, or put a Cloudflare API token in $CLOUDFLARE_API_TOKEN or %s", filepath.Join(data, "cloudflare-token"))
+	}
+	mgr := &certs.Manager{Domain: domain, Email: email, Dir: filepath.Join(data, "acme"), DirectoryURL: directory,
+		DNS: &certs.Cloudflare{Token: cfToken}, Log: log}
+	cs := certs.NewStore(mgr.CertFile(), mgr.KeyFile(), log)
+	go mgr.Run(context.Background(), cs)
+	return cs, nil
 }
 
 func fatal(log *slog.Logger, err error) {
