@@ -501,7 +501,10 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	// A snapshot that does not fit would fail half-written and leave the VM
 	// running for good. The guest has just synced, so stopping it cold instead
 	// is no worse than the warm -> cold drop every sprite gets eventually.
-	if need := int64(rt.m.MemMiB())<<20 + snapshotSlack; !l.makeRoom(sp, need) {
+	need := int64(rt.m.MemMiB())<<20 + snapshotSlack
+	release, fits := l.makeRoom(sp, need)
+	defer release()
+	if !fits {
 		rt.m.Kill()
 		l.cleanupLocked(rt)
 		l.log.Warn("no room for a memory snapshot even with every other sprite cold; sprite stopped cold instead", "sprite", sp.Name, "needed", mib(need))

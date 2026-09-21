@@ -56,6 +56,10 @@ type diskGuard struct {
 	mu       sync.Mutex
 	low      bool
 	lastWarn time.Time
+	// claimed is space promised to snapshots still being written. Suspends run
+	// concurrently (every sprite at once on shutdown), and two that each fit
+	// would otherwise both be told yes to the same free bytes.
+	claimed int64
 }
 
 func newDiskGuard(opts Options, log *slog.Logger) *diskGuard {
@@ -141,9 +145,13 @@ func probeHeadroom(dir string) (Headroom, error) {
 // survives it. A probe that fails is not a reason to refuse work.
 func (g *diskGuard) admit(what string, need int64) error {
 	h, err := g.probe()
+	g.mu.Lock()
+	h.Free -= g.claimed
+	g.mu.Unlock()
 	if err != nil || g.reserve <= 0 || h.Free-need >= g.reserve {
 		return nil
 	}
+	go g.watch() // say so in the log now, not at the janitor's next round
 	where := "the sprite volume"
 	if h.Free < h.VolumeFree {
 		where = "the filesystem holding " + h.Image
@@ -193,12 +201,23 @@ func writeNoRoom(w http.ResponseWriter, err error) {
 
 // makeRoom is asked before a suspend writes need bytes of snapshot. When that
 // does not fit it turns warm sprites cold, longest-suspended first, which costs
-// them only memory state. It reports whether the snapshot now fits.
-func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) bool {
-	h, err := l.disk.probe()
-	if err != nil || h.Free >= need {
-		return true
+// them only memory state. It reports whether the snapshot now fits; if so the
+// space is claimed until the caller, done writing, calls release.
+func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) (release func(), fits bool) {
+	g := l.disk
+	// Held throughout: whoever asks next must see this claim, or this refusal's demotions.
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	claim := func() (func(), bool) {
+		g.claimed += need
+		return func() { g.mu.Lock(); g.claimed -= need; g.mu.Unlock() }, true
 	}
+	h, err := g.probe()
+	h.Free -= g.claimed
+	if err != nil || h.Free >= need {
+		return claim()
+	}
+	go g.watch()
 	warm := []store.Sprite{}
 	for _, o := range l.store.List("") {
 		if o.ID != sp.ID && o.LastWarmingAt != nil {
@@ -207,6 +226,14 @@ func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) bool {
 	}
 	sort.Slice(warm, func(i, j int) bool { return warm[i].LastWarmingAt.Before(*warm[j].LastWarmingAt) })
 	free := h.Free
+	// Nobody loses memory state to an attempt that cannot succeed anyway.
+	reach := free
+	for _, o := range warm {
+		reach += vmm.SnapshotBytes(l.store.Dir(o.ID))
+	}
+	if reach < need {
+		return func() {}, false
+	}
 	for _, o := range warm {
 		if free >= need {
 			break
@@ -224,5 +251,8 @@ func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) bool {
 		}
 		rt.mu.Unlock()
 	}
-	return free >= need
+	if free >= need {
+		return claim()
+	}
+	return func() {}, false
 }

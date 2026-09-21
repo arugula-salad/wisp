@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,21 +104,25 @@ func TestMaxRunningRefusesAWakeInUpstreamsShape(t *testing.T) {
 	}
 }
 
-// fakeVolume stands in for statfs: free space is whatever the test says.
-func fakeVolume(s *Server, free int64) {
+// fakeVolume stands in for statfs: free space is whatever the test last stored.
+// (The guard also probes from its own goroutines, hence the atomic.)
+func fakeVolume(s *Server) *atomic.Int64 {
+	free := new(atomic.Int64)
 	s.life.disk.probe = func() (Headroom, error) {
-		return Headroom{VolumeTotal: 40 << 30, VolumeFree: free, Free: free}, nil
+		return Headroom{VolumeTotal: 40 << 30, VolumeFree: free.Load(), Free: free.Load()}, nil
 	}
+	return free
 }
 
 func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
 	s, h := newOperatorServer(t, Options{DiskReserve: 2 << 30})
-	fakeVolume(s, 3<<30)
+	vol := fakeVolume(s)
+	vol.Store(3 << 30)
 	if resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"fits"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create with room: %d", resp.StatusCode)
 	}
 
-	fakeVolume(s, 1<<30)
+	vol.Store(1 << 30)
 	resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"full"}`)
 	if e := apiError(t, resp); e.StatusCode != http.StatusInsufficientStorage || e.ErrorCode != "insufficient_storage" {
 		t.Fatalf("create on a full volume = %+v", e)
@@ -137,6 +142,7 @@ func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
 
 func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
 	s, _ := newOperatorServer(t, Options{})
+	vol := fakeVolume(s)
 	const snap = 1 << 20
 	warmed := time.Now().Add(-time.Hour)
 	for i, name := range []string{"oldest", "older", "newest", "suspending"} {
@@ -161,27 +167,46 @@ func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
 	}
 	me, _ := s.store.Get("suspending")
 
-	fakeVolume(s, 10*snap)
-	if !s.life.makeRoom(me, 5*snap) || !warm("oldest") {
+	room := func(need int64) bool {
+		release, fits := s.life.makeRoom(me, need)
+		release()
+		return fits
+	}
+	vol.Store(10 * snap)
+	if !room(5*snap) || !warm("oldest") {
 		t.Fatal("a snapshot that fits should cost nobody anything")
+	}
+	// Two suspends at once may not both be promised the same free bytes.
+	release, fits := s.life.makeRoom(me, 9*snap)
+	if !fits || !warm("oldest") {
+		t.Fatal("9 of 10 free should fit")
+	}
+	vol.Store(10*snap + snap/2) // what a second suspend sees while the first still writes
+	other, _ := s.store.Get("newest")
+	if _, fits := s.life.makeRoom(other, 9*snap); fits {
+		t.Fatal("the same space was promised twice")
+	}
+	release()
+	if !warm("oldest") || !warm("older") {
+		t.Fatal("an attempt that could not succeed still cost sprites their memory state")
 	}
 
 	// Half a snapshot short: one demotion covers it, and it is the oldest that goes.
-	fakeVolume(s, snap)
-	if !s.life.makeRoom(me, snap+snap/2) {
+	vol.Store(snap)
+	if !room(snap + snap/2) {
 		t.Fatal("no room even after a demotion")
 	}
 	if warm("oldest") || !warm("older") || !warm("newest") {
 		t.Fatalf("warm after one demotion: oldest=%v older=%v newest=%v", warm("oldest"), warm("older"), warm("newest"))
 	}
 
-	// Hopeless: everyone goes cold, and the caller is told it still does not fit.
-	fakeVolume(s, snap)
-	if s.life.makeRoom(me, 100*snap) {
+	// Hopeless: the caller is told so, and nobody is turned cold for nothing.
+	vol.Store(snap)
+	if room(100 * snap) {
 		t.Fatal("reported room that is not there")
 	}
-	if warm("older") || warm("newest") {
-		t.Fatal("warm sprites were kept although the snapshot did not fit")
+	if !warm("older") || !warm("newest") {
+		t.Fatal("warm sprites were dropped for a snapshot that could never fit")
 	}
 }
 

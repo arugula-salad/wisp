@@ -1,7 +1,7 @@
 GO ?= go
 export MINI_SPRITES_DATA ?= $(HOME)/.local/share/mini-sprites
 
-.PHONY: all build netd deps image initrd run test e2e
+.PHONY: all build netd deps image initrd run install-service test e2e
 all: build initrd
 
 build:
@@ -21,6 +21,9 @@ initrd:          ## pack the guest agent; takes effect on each sprite's next col
 
 run: build initrd
 	./bin/spritesd
+
+install-service: build initrd   ## run spritesd as a systemd user service (no root); flags: scripts/install-service.sh -- <flags>
+	./scripts/install-service.sh
 
 test:
 	$(GO) vet ./...
