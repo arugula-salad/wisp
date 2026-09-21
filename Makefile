@@ -1,11 +1,14 @@
 GO ?= go
 export MINI_SPRITES_DATA ?= $(HOME)/.local/share/mini-sprites
 
-.PHONY: all build deps image initrd run test e2e
+.PHONY: all build netd deps image initrd run test e2e
 all: build initrd
 
 build:
 	$(GO) build -o bin/spritesd ./cmd/spritesd
+
+netd:            ## root helper behind restrictive network policies; scripts/setup-host.sh installs it
+	CGO_ENABLED=0 $(GO) build -o bin/mini-sprites-netd ./cmd/mini-sprites-netd
 
 deps:            ## download firecracker + guest kernel
 	./scripts/fetch-deps.sh

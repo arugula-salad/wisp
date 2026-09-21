@@ -40,6 +40,8 @@ type Options struct {
 	// NoNetwork boots every sprite without a NIC and leaves the shared tap pool
 	// alone, so several spritesd instances (dev, tests) can coexist on one host.
 	NoNetwork bool
+	// NetdSocket is where mini-sprites-netd listens; empty means its default.
+	NetdSocket string
 }
 
 // runtime is the in-memory lifecycle state for one sprite.
@@ -85,6 +87,7 @@ type Lifecycle struct {
 	runtimes map[string]*runtime // by sprite ID
 	freeTaps []string
 	gateway  net.IP // the bridge's address; sprites live in its /16. nil = no networking
+	egress   *egress
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
@@ -110,6 +113,7 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	for _, sp := range st.List("") {
 		vmm.ReapOrphan(st.Dir(sp.ID))
 	}
+	l.egress = newEgress(opts, st, log, l.gateway)
 	go l.janitor()
 	return l
 }
@@ -239,7 +243,10 @@ func (l *Lifecycle) cleanupLocked(rt *runtime) {
 func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
 	start := time.Now()
 	dir := l.store.Dir(sp.ID)
-	tap := l.takeTap()
+	tap, gateErr := l.tapFor(sp)
+	if gateErr != nil {
+		return gateErr
+	}
 	cfg := l.vmConfig(sp, tap)
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()

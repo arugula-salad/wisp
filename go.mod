@@ -6,6 +6,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/gorilla/websocket v1.5.3
 	github.com/mdlayher/vsock v1.3.0
+	github.com/miekg/dns v1.1.68
 	github.com/superfly/sprites-go v0.2.1
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/sys v0.48.0
@@ -24,8 +25,10 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/superfly/client-signals/go v0.4.4 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
+	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/tools v0.33.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )

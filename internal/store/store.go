@@ -32,6 +32,14 @@ type URLSettings struct {
 	Auth string `json:"auth,omitempty"`
 }
 
+// NetworkRule is one egress policy rule exactly as the API carries it: either a
+// domain with an action, or an include of a named bundle.
+type NetworkRule struct {
+	Domain  string `json:"domain,omitempty"`
+	Action  string `json:"action,omitempty"`
+	Include string `json:"include,omitempty"`
+}
+
 type Checkpoint struct {
 	ID         string    `json:"id"`
 	CreateTime time.Time `json:"create_time"`
@@ -58,6 +66,9 @@ type Sprite struct {
 	BootIP         string       `json:"boot_ip,omitempty"`
 	Checkpoints    []Checkpoint `json:"checkpoints,omitempty"`
 	NextCheckpoint int          `json:"next_checkpoint"`
+
+	// NetworkRules is the egress policy as the client wrote it. Empty means unrestricted.
+	NetworkRules []NetworkRule `json:"network_rules,omitempty"`
 }
 
 type Store struct {
