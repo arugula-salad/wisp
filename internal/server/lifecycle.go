@@ -128,6 +128,9 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	for _, sp := range st.List("") {
 		vmm.ReapOrphan(st.Dir(sp.ID))
 	}
+	// Only now: a cgroup that still holds a live orphan cannot be removed, so
+	// sweeping before the reaping above would leave every stale leaf behind.
+	opts.Host.Confine.SweepStale()
 	l.egress = newEgress(opts, st, log, l.gateway)
 	go l.janitor()
 	return l

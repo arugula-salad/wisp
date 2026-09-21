@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"net"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/jhgaylor/mini-sprites/internal/certs"
+	"github.com/jhgaylor/mini-sprites/internal/confine"
 	"github.com/jhgaylor/mini-sprites/internal/server"
 	"github.com/jhgaylor/mini-sprites/internal/store"
 	"github.com/jhgaylor/mini-sprites/internal/vmm"
@@ -49,6 +51,12 @@ func loadToken(path string) (string, error) {
 }
 
 func main() {
+	// The confinement shim: spritesd re-execs itself to put a Landlock domain
+	// on a VMM before exec'ing Firecracker (internal/confine). It never returns.
+	if len(os.Args) > 1 && os.Args[1] == confine.ShimArg {
+		confine.RunShim(os.Args[2:])
+	}
+
 	data := flag.String("data", defaultDataDir(), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7788", "API listen address")
 	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
@@ -72,6 +80,7 @@ func main() {
 	acmeDir := flag.String("acme-directory", certs.LetsEncrypt, "ACME directory used when no --tls-cert is given. A wildcard certificate is requested over DNS-01 through Cloudflare, with the API token read from $CLOUDFLARE_API_TOKEN or <data>/cloudflare-token (needs Zone:Read and DNS:Edit on the zone)")
 	publicConns := flag.Int("public-max-conns", 1024, "open connections allowed on --public-listen (0 = no limit)")
 	publicConnsPer := flag.Int("public-max-conns-per-client", 64, "open connections allowed per IPv4 address or IPv6 /64 on --public-listen (0 = no limit; use 0 behind a CDN, where every client shares the CDN's addresses)")
+	confineMode := flag.String("confine", os.Getenv("MINI_SPRITES_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -106,6 +115,19 @@ func main() {
 	} else {
 		f.Close()
 	}
+
+	mode, err := confine.ParseMode(*confineMode)
+	if err != nil {
+		fatal(log, err)
+	}
+	// One cgroup subtree per data directory, so a second spritesd (dev, tests)
+	// on the same host does not sweep away the first one's VM cgroups.
+	conf, err := confine.Open(mode, "mini-sprites-"+cgroupTag(abs))
+	if err != nil {
+		fatal(log, err)
+	}
+	opts.Host.Confine = conf
+	log.Info("vmm confinement", "detail", conf.Describe())
 
 	token, err := loadToken(filepath.Join(abs, "token"))
 	if err != nil {
@@ -194,6 +216,14 @@ func publicCerts(data, domain, certFile, keyFile, email, directory string, log *
 	cs := certs.NewStore(mgr.CertFile(), mgr.KeyFile(), log)
 	go mgr.Run(context.Background(), cs)
 	return cs, nil
+}
+
+// cgroupTag derives a stable, filesystem-safe suffix from the data directory,
+// so two spritesd instances on one host get separate cgroup subtrees.
+func cgroupTag(dataDir string) string {
+	h := fnv.New32a()
+	h.Write([]byte(dataDir))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func fatal(log *slog.Logger, err error) {

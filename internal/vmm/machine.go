@@ -19,6 +19,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/jhgaylor/mini-sprites/internal/confine"
 )
 
 // File names inside a machine directory. Firecracker runs with the directory
@@ -50,6 +52,30 @@ type Host struct {
 	Firecracker string
 	Kernel      string
 	Initrd      string
+	// Confine, when set, sandboxes every VMM: a Landlock domain that sees only
+	// its own machine directory, and a cgroup that caps CPU, memory and pids.
+	// nil runs Firecracker with just its own seccomp filter. See internal/confine.
+	Confine *confine.Confiner
+}
+
+// localtime is read by Firecracker to stamp its log lines; it is the only file
+// outside the data directory that a VMM opens (verified by strace of a cold
+// boot, a snapshot and a restore).
+const localtime = "/etc/localtime"
+
+// confineSpec is the set of paths this VM's VMM is allowed to touch.
+func confineSpec(h Host, cfg Config) confine.Spec {
+	spec := confine.Spec{
+		Dir:      cfg.Dir,
+		ReadOnly: []string{h.Kernel, h.Initrd, localtime},
+		Devices:  []string{"/dev/kvm"},
+	}
+	if cfg.Tap != "" {
+		// Firecracker opens /dev/net/tun and attaches by interface name. Landlock
+		// cannot narrow that to one tap; see the README's confinement table.
+		spec.Devices = append(spec.Devices, "/dev/net/tun")
+	}
+	return spec
 }
 
 // Config is the per-sprite VM shape.
@@ -70,6 +96,7 @@ type Machine struct {
 	host Host
 	cfg  Config
 	cmd  *exec.Cmd
+	cg   *confine.Cgroup // nil when unconfined; removed when the VMM exits
 	http *http.Client
 
 	exitOnce sync.Once
@@ -127,12 +154,22 @@ func launch(h Host, cfg Config) (*Machine, error) {
 	cmd.Stdout, cmd.Stderr = console, console
 	// Own process group so a ^C in spritesd's terminal doesn't hit the VMs directly.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Sandbox the VMM. The shim execs Firecracker, so the pid below stays the
+	// Firecracker pid and ReapOrphan keeps recognising it.
+	cg, err := h.Confine.Start(cmd, confineSpec(h, cfg), filepath.Base(cfg.Dir),
+		confine.Limits{VCPUs: cfg.VCPUs, MemMiB: cfg.MemMiB})
+	if err != nil {
+		return nil, fmt.Errorf("confine firecracker: %w", err)
+	}
 	if err := cmd.Start(); err != nil {
+		cg.Remove()
 		return nil, fmt.Errorf("start firecracker: %w", err)
 	}
+	// The cgroup itself outlives this fd; the VM is in it now.
+	cg.Close()
 	os.WriteFile(filepath.Join(cfg.Dir, pidFile), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 	sock := filepath.Join(cfg.Dir, apiSock)
-	m := &Machine{host: h, cfg: cfg, cmd: cmd, exited: make(chan struct{}),
+	m := &Machine{host: h, cfg: cfg, cmd: cmd, cg: cg, exited: make(chan struct{}),
 		http: &http.Client{Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				var d net.Dialer
@@ -140,7 +177,11 @@ func launch(h Host, cfg Config) (*Machine, error) {
 			},
 		}},
 	}
-	go func() { cmd.Wait(); m.exitOnce.Do(func() { close(m.exited) }) }()
+	go func() {
+		cmd.Wait()
+		cg.Remove()
+		m.exitOnce.Do(func() { close(m.exited) })
+	}()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
