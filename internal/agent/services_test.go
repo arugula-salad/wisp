@@ -152,10 +152,9 @@ func TestServiceValidation(t *testing.T) {
 func TestServicesStartInDependencyOrderOnBoot(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(dir+"/state/services", 0o755)
-	order := dir + "/order"
 	// Names sort opposite to the dependency order, so alphabetical startup would fail this.
 	for name, needs := range map[string]string{"a-app": `["m-cache"]`, "m-cache": `["z-db"]`, "z-db": `[]`} {
-		def := fmt.Sprintf(`{"name":%q,"cmd":"sh","args":["-c","echo %s >> %s; sleep 30"],"needs":%s}`, name, name, order, needs)
+		def := fmt.Sprintf(`{"name":%q,"cmd":"sleep","args":["30"],"needs":%s}`, name, needs)
 		os.WriteFile(dir+"/state/services/"+name+".json", []byte(def), 0o644)
 	}
 	sv := NewSupervisor(dir+"/state", dir+"/run") // what happens at cold boot
@@ -164,21 +163,17 @@ func TestServicesStartInDependencyOrderOnBoot(t *testing.T) {
 			sv.Stop(s.Name, time.Second)
 		}
 	})
-	var got string
-	waitFor(t, "all three services to start", func() bool {
-		b, _ := os.ReadFile(order)
-		got = string(b)
-		return strings.Count(got, "\n") == 3
-	})
-	// Spawn order is what we control; each writes its line immediately, but allow for scheduling jitter
-	// only between independent services. Here the chain is strict, so z-db must be spawned first.
-	list := sv.List()
-	byName := map[string]ServiceWithState{}
-	for _, s := range list {
-		byName[s.Name] = s
+	// Spawning is synchronous inside NewSupervisor, so the recorded start times
+	// are the order. Asserting on those (not on anything the children do) keeps
+	// this independent of how loaded the machine is.
+	started := map[string]time.Time{}
+	for _, s := range sv.List() {
+		if s.State.Status != "running" || s.State.StartedAt == nil {
+			t.Fatalf("%s not running after boot: %+v", s.Name, s.State)
+		}
+		started[s.Name] = *s.State.StartedAt
 	}
-	if !(byName["z-db"].State.StartedAt.Before(*byName["m-cache"].State.StartedAt) &&
-		byName["m-cache"].State.StartedAt.Before(*byName["a-app"].State.StartedAt)) {
-		t.Fatalf("start order wrong: %s", got)
+	if !(started["z-db"].Before(started["m-cache"]) && started["m-cache"].Before(started["a-app"])) {
+		t.Fatalf("start order wrong: %v", started)
 	}
 }
