@@ -40,6 +40,8 @@ type Options struct {
 	// NoControl answers 404 on /control, which makes SDKs fall back to one
 	// WebSocket per operation.
 	NoControl bool
+	// ControlForGoSDK offers /control to the official Go SDK too. See offersControl.
+	ControlForGoSDK bool
 	// NoNetwork boots every sprite without a NIC and leaves the shared tap pool
 	// alone, so several spritesd instances (dev, tests) can coexist on one host.
 	NoNetwork bool
