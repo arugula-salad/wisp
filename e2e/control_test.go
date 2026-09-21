@@ -30,6 +30,18 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// needGoSDKControl skips a test that drives the control channel with the official Go
+// SDK. By default spritesd answers that SDK's /control probe with 404, because its
+// ProxyPorts races on a control socket; these tests need a daemon started with
+// --control-for-go-sdk, and SPRITES_E2E_GO_CONTROL=1 to say so. The raw-socket
+// tests below cover the channel itself either way.
+func needGoSDKControl(t *testing.T) {
+	t.Helper()
+	if os.Getenv("SPRITES_E2E_GO_CONTROL") == "" {
+		t.Skip("daemon not started with --control-for-go-sdk (set SPRITES_E2E_GO_CONTROL=1 when it is)")
+	}
+}
+
 // dialSprite opens one of a sprite's WebSocket endpoints through spritesd.
 func dialSprite(t *testing.T, sprite, endpoint string) *websocket.Conn {
 	t.Helper()
@@ -104,6 +116,7 @@ func TestControlChannel(t *testing.T) {
 	sp := c.Sprite(name)
 
 	t.Run("the SDK picks the control channel on its own", func(t *testing.T) {
+		needGoSDKControl(t)
 		for i := 0; i < 5; i++ {
 			cmd := sp.CommandContext(ctx, "sh", "-c", "echo $FROM_SPRITE "+fmt.Sprint(i))
 			out, err := cmd.Output()
@@ -117,6 +130,7 @@ func TestControlChannel(t *testing.T) {
 	})
 
 	t.Run("many concurrent SDK execs", func(t *testing.T) {
+		needGoSDKControl(t)
 		const n = 40
 		var wg sync.WaitGroup
 		errs := make(chan error, n)
@@ -148,6 +162,7 @@ func TestControlChannel(t *testing.T) {
 	})
 
 	t.Run("attach by id over control replays output", func(t *testing.T) {
+		needGoSDKControl(t)
 		owner := sp.CommandContext(ctx, "sh", "-c", "echo first; sleep 2; echo second")
 		var ownerOut bytes.Buffer
 		owner.Stdout = &ownerOut

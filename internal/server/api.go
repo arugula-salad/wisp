@@ -82,7 +82,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/sprites/{name}/exec/{rest...}", s.proxyAgent)
 	mux.HandleFunc("GET /v1/sprites/{name}/proxy", s.proxyAgent)
 	if !s.opts.NoControl {
-		mux.HandleFunc("GET /v1/sprites/{name}/control", s.controlRelay)
+		mux.HandleFunc("GET /v1/sprites/{name}/control", func(w http.ResponseWriter, r *http.Request) {
+			if !s.offersControl(r) {
+				writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
+				return
+			}
+			s.controlRelay(w, r)
+		})
 	}
 	mux.HandleFunc("GET /v1/sprites/{name}/ports/watch", s.proxyAgentSocket)
 	mux.HandleFunc("/v1/sprites/{name}/fs/{rest...}", s.proxyAgent)

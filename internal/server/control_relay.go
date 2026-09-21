@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -17,6 +18,25 @@ var controlUpgrader = websocket.Upgrader{
 	ReadBufferSize:  64 * 1024,
 	WriteBufferSize: 64 * 1024,
 	CheckOrigin:     func(*http.Request) bool { return true },
+}
+
+// goSDKUserAgent is what the official Go SDK sends on every WebSocket it dials.
+const goSDKUserAgent = "sprites-go-sdk/"
+
+// offersControl decides whether this client gets the control channel. Everyone
+// does except, by default, the official Go SDK: it is the only client that
+// switches to control on its own (the JS and Python SDKs are opt-in, and the
+// sprite CLI disables it), and its port proxy is broken there. Over control
+// its pool reader and its proxy handshake both read the one socket, so
+// ProxyPorts hangs whenever the pool reader wins the race, about two times in
+// three, with no fallback. Nothing the server sends can avoid a race between
+// two readers in the client. A 404 can: the SDK takes it to mean "no control
+// channel here" and uses a socket per operation for everything, which costs it
+// nothing, since it never reuses a control socket anyway.
+//
+// Remove this once the SDK routes proxy reads through its pool reader.
+func (s *Server) offersControl(r *http.Request) bool {
+	return s.opts.ControlForGoSDK || !strings.HasPrefix(r.UserAgent(), goSDKUserAgent)
 }
 
 // controlRelay serves /control by terminating the WebSocket here and relaying

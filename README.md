@@ -281,9 +281,14 @@ the same listener as the API. To put the URLs on the internet without putting th
 
 ### Issues in the official Go SDK that this server works around or documents
 
-- **`ProxyPorts` hangs once a server offers `/control`** (two readers on one socket). Use the
-  SDK's `WithDisableControl()`, or run spritesd with `--control=false`. The `sprite` CLI never
-  uses control and is unaffected.
+- **`ProxyPorts` races on a control socket.** Over `/control` the SDK's pool reader and its
+  proxy handshake both read the one WebSocket, and the forward hangs whenever the pool reader
+  wins (about two times in three, measured), with no fallback. Nothing a server sends can
+  settle a race between two readers in the client, so spritesd answers *that SDK's* `/control`
+  probe (`User-Agent: sprites-go-sdk/`) with 404. It takes that to mean "no control channel"
+  and uses a socket per operation, which costs it nothing: it never reuses a control socket
+  anyway. The JS and Python SDKs, where control is opt-in and does multiplex, still get it.
+  `--control-for-go-sdk` offers it to the Go SDK too; `--control=false` turns it off for all.
 - **A control connection that dies mid-operation is never reported to the operation.**
   spritesd terminates the `/control` WebSocket itself, so that when a VM goes away under a
   running exec (a checkpoint restore does this by design) the client is told instead of
@@ -305,6 +310,10 @@ make netd     # build the network-policy helper that setup-host.sh installs
 
 e2e knobs: `SPRITES_E2E_IDLE_TIMEOUT=<the daemon's --idle-timeout>` enables the lifecycle
 subtests (tasks, watch); `SPRITES_SDK_DEBUG=1` shows which connection mode the SDK used.
+`SPRITES_E2E_GO_CONTROL=1` (with a daemon started `--control-for-go-sdk`) runs the tests that
+drive `/control` with the Go SDK. `./scripts/probe-sdks.sh` runs the official JS and Python
+SDKs against a running daemon: exec with control mode off and on, port proxying, and an exec
+whose VM is restored away.
 
 Only one spritesd per host may own the tap pool. For extra dev/test stacks:
 
