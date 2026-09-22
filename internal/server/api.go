@@ -42,13 +42,15 @@ type Server struct {
 	urlDomain string // sprite URLs are <name>.<urlDomain>
 	storage   *storage
 	backups   *backupManager // nil when no backup bucket is configured
+	metrics   *metrics       // history for the web UI (ui.go)
+	started   time.Time
 }
 
 // New takes urlFmt, the pattern for the URL a sprite is reported to have: where
 // clients reach it, which only the operator knows once a router is involved.
 func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org, urlDomain, urlFmt string) *Server {
 	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
-		urlDomain: urlDomain, urlFmt: urlFmt}
+		urlDomain: urlDomain, urlFmt: urlFmt, started: time.Now()}
 	life.guestAPI = s.guestAPI
 	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
 	if s.storage.reflink {
@@ -56,6 +58,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	} else {
 		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
 	}
+	s.metrics = newMetrics(s)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		go s.autoCheckpoints()
 	}
@@ -116,15 +119,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
+	ui := s.uiHandler()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if name, ok := s.spriteForHost(r.Host); ok {
 			s.serveSpriteURL(w, r, name, false)
 			return
 		}
+		if r.URL.Path == "/" || r.URL.Path == "/ui" || strings.HasPrefix(r.URL.Path, "/ui/") {
+			ui.ServeHTTP(w, r)
+			return
+		}
 		w.Header().Set("Sprite-Version", apiVersion)
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 && !s.uiAuthorized(r) {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token")
 			return
 		}
@@ -424,6 +432,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host, pr.Out.URL.Path = "http", "agent", path
 			pr.Out.Header.Del("Authorization")
+			pr.Out.Header.Del("Cookie") // the web UI's session is ours too
 			if path == "/exec" || path == "/control" {
 				pr.Out.URL.RawQuery = withSpriteEnv(pr.Out.URL.Query(), sp).Encode()
 			}

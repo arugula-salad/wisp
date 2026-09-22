@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mini-sprites</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2" class="b1"/><rect x="13" y="3" width="8" height="8" rx="2" class="b2"/><rect x="3" y="13" width="8" height="8" rx="2" class="b3"/><rect x="13" y="13" width="8" height="8" rx="2" class="b1"/></svg><span>mini-sprites</span></a>
+  <nav>
+    <a href="#/" data-nav="overview">Overview</a>
+    <a href="#/sprites" data-nav="sprites">Sprites</a>
+    <a href="#/host" data-nav="host">Host</a>
+  </nav>
+  <div class="top-right">
+    <span id="live" class="live" title="Refreshes every 5 seconds"><i></i><span>live</span></span>
+    <button id="theme" class="ghost icon" title="Toggle theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+    <button id="logout" class="ghost" hidden>Sign out</button>
+  </div>
+</header>
+<main id="view" aria-live="polite"></main>
+<div id="toasts" role="status"></div>
+
+<dialog id="login">
+  <form method="dialog" id="login-form">
+    <h2>Sign in</h2>
+    <p class="muted">Paste this host's API token. It is in <code>&lt;data&gt;/token</code>, e.g.<br><code>cat ~/.local/share/mini-sprites/token</code></p>
+    <input id="login-token" type="password" autocomplete="current-password" placeholder="msprite_…" required>
+    <p id="login-err" class="err" hidden></p>
+    <div class="row end"><button class="primary" type="submit">Sign in</button></div>
+  </form>
+</dialog>
+
+<dialog id="modal"><form method="dialog" id="modal-form"></form></dialog>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

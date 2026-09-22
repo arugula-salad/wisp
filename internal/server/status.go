@@ -126,6 +126,7 @@ type proc struct {
 	pid, ppid int
 	exe, cwd  string
 	rss       int64
+	cpuTicks  int64 // utime + stime, in clock ticks
 }
 
 func readProc(pid int) (p proc, ok bool) {
@@ -147,6 +148,9 @@ func readProc(pid int) (p proc, ok bool) {
 	p.ppid, _ = strconv.Atoi(f[1])
 	pages, _ := strconv.ParseInt(f[21], 10, 64)
 	p.rss = pages * int64(os.Getpagesize())
+	ut, _ := strconv.ParseInt(f[11], 10, 64)
+	st, _ := strconv.ParseInt(f[12], 10, 64)
+	p.cpuTicks = ut + st
 	p.exe, _ = os.Readlink(dir + "/exe")
 	p.cwd, _ = os.Readlink(dir + "/cwd")
 	return p, true
