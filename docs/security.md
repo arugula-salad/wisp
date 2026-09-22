@@ -35,7 +35,7 @@ itself as a small shim that applies a Landlock domain and then `execve`s Firecra
 | TCP | cannot bind or connect | Landlock ABI 4+ |
 | Signals, abstract unix sockets | cannot signal spritesd or another VMM, or reach an abstract socket outside its domain | Landlock ABI 6+ |
 | CPU | `cpu.max` = vCPUs + 1 core (the extra core is the VMM's own I/O threads) | cgroup v2 |
-| Memory | `memory.high` = guest RAM + 192 MiB, `memory.max` 256 MiB above that, so a busy sprite is reclaimed rather than OOM-killed | cgroup v2 |
+| Memory | `memory.high` = guest RAM + 192 MiB, `memory.max` 256 MiB above that, so a busy sprite is reclaimed rather than OOM-killed. Sized for the full RAM even under memory autoscale: the balloon is a cooperative guest driver, so the host bound must not depend on it | cgroup v2 |
 | Processes | `pids.max` = 32 + 4 per vCPU | cgroup v2 |
 
 The limits come from the VM's shape, so a resources policy that sizes the guest also sizes the

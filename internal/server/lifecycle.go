@@ -99,6 +99,9 @@ type runtime struct {
 	gen atomic.Uint64
 	// guest is the running VM's channel to us (guestapi.go); set and cleared with m.
 	guest *guestChan
+	// grantMiB is the guest RAM memory autoscale grants (autoscale.go); 0 when
+	// not autoscaling. It survives a suspend, as the memory state does.
+	grantMiB int
 
 	useMu    sync.Mutex
 	inflight int
@@ -397,6 +400,10 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 		guest.close()
 		return l.bootLocked(ctx, sp, rt)
 	}
+	if mode == "cold" {
+		rt.grantMiB = 0
+	}
+	l.setBalloon(ctx, sp, rt, m, mode == "warm")
 	rt.m, rt.tap, rt.guest = m, tap, guest
 	if cur, err := l.store.Get(sp.Name); err == nil {
 		l.publishNetworkPolicy(ctx, m, cur) // it may have changed while the sprite slept
@@ -420,6 +427,7 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 	}
 	l.emit(sp, "sprite.woke", woke)
 	go l.watch(sp, rt, m)
+	go l.autoscale(sp, rt, m)
 	return nil
 }
 
@@ -563,7 +571,9 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	// A snapshot that does not fit would fail half-written and leave the VM
 	// running for good. The guest has just synced, so stopping it cold instead
 	// is no worse than the warm -> cold drop every sprite gets eventually.
-	need := int64(rt.m.MemMiB())<<20 + snapshotSlack
+	// Firecracker writes the whole RAM, and the sparse copy of it can take up
+	// to half as much again before the whole-RAM file is deleted.
+	need := int64(rt.m.MemMiB())<<20*3/2 + snapshotSlack
 	release, fits := l.makeRoom(sp, need)
 	defer release()
 	if !fits {
@@ -573,15 +583,22 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 		l.emit(sp, "sprite.stopped", map[string]any{"reason": "no room for a memory snapshot"})
 		return nil
 	}
+	// Balloon the guest's free memory so that it is a hole in the snapshot, not
+	// zeros on disk. Best effort: an old VM may have no balloon.
+	if _, err := rt.m.Squeeze(ctx); err != nil && !errors.Is(err, vmm.ErrNoBalloon) {
+		l.log.Warn("could not squeeze free memory before suspend", "sprite", sp.Name, "err", err)
+	}
 	if err := rt.m.Suspend(ctx); err != nil {
+		l.setBalloon(ctx, sp, rt, rt.m, true) // it is running on: give the memory back
 		return err
 	}
 	l.cleanupLocked(rt)
 	now := time.Now()
 	l.store.Update(sp.Name, func(s *store.Sprite) { s.LastWarmingAt = &now })
 	took := time.Since(start)
-	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond))
-	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle})
+	snap := vmm.SnapshotBytes(l.store.Dir(sp.ID))
+	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond), "snapshot", mib(snap))
+	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap})
 	// The disk is quiescent exactly here: the guest has synced and the VM is
 	// paused. Enqueueing is non-blocking and cannot fail, so a bucket that is
 	// unreachable never turns a good suspend into a bad one.

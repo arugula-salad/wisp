@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -158,5 +159,66 @@ func TestReapOrphanKillsOnlyAFirecrackerInThatDir(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		cmd.Process.Kill()
 		t.Fatal("orphaned firecracker was not killed")
+	}
+}
+
+// A suspend squeezes the guest's free memory into the balloon and the memory
+// file keeps only what the guest uses; the resumed guest gets it all back.
+func TestBalloonSqueezeMakesSnapshotSparse(t *testing.T) {
+	h, base := testHost(t)
+	dir := t.TempDir()
+	if out, err := exec.Command("cp", "--reflink=auto", "--sparse=always", base, filepath.Join(dir, DiskFile)).CombinedOutput(); err != nil {
+		t.Fatalf("clone disk: %v: %s", err, out)
+	}
+	cfg := Config{Dir: dir, Hostname: "vmmtest", VCPUs: 2, MemMiB: 1024, AgentPort: 1024}
+	ctx := context.Background()
+	m, err := Boot(ctx, h, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Kill() })
+	waitAgent(t, m)
+	st, err := m.Balloon(ctx)
+	if err != nil {
+		t.Fatalf("balloon statistics: %v", err)
+	}
+	if st.TotalMemory == 0 {
+		time.Sleep(1500 * time.Millisecond) // the first statistics arrive after an interval
+	}
+	got, err := m.Squeeze(ctx)
+	if err != nil {
+		t.Fatalf("squeeze: %v", err)
+	}
+	if got < cfg.MemMiB/2 {
+		t.Errorf("an idle guest gave up only %d of %d MiB", got, cfg.MemMiB)
+	}
+	if err := m.Suspend(ctx); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	var fst syscall.Stat_t
+	syscall.Stat(filepath.Join(dir, snapMem), &fst)
+	used := fst.Blocks * 512 >> 20
+	t.Logf("memory file: %d MiB on disk for %d MiB of RAM (balloon %d MiB)", used, cfg.MemMiB, got)
+	if used > int64(cfg.MemMiB-got+64) {
+		t.Errorf("memory file holds %d MiB; the guest was using at most %d", used, cfg.MemMiB-got)
+	}
+
+	m2, err := Restore(ctx, h, cfg)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	t.Cleanup(func() { m2.Kill() })
+	waitAgent(t, m2)
+	if err := m2.SetBalloon(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		if st, err = m2.Balloon(ctx); err == nil && st.ActualMiB == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("balloon did not deflate after resume: %+v %v", st, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

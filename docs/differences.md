@@ -7,9 +7,13 @@
   different host without a full download; that tier is [#2](https://github.com/jhgaylor/mini-sprites/issues/2)'s second half and is not built.
 - Disk is 20 GB sparse by default (`SPRITE_DISK_GB` at image build) rather than 100 GB, and
   Firecracker has no discard, so space freed in a guest is not returned to the host.
-- RAM is fixed per sprite (`--mem-mib`, `config.ram_mb`, or a resources policy); each warm
-  snapshot costs that much disk. There is no memory autoscale: `resources.memory.autoscale`
-  and `privileges.devices` are stored and returned but **not enforced**.
+- RAM is set per sprite (`--mem-mib`, `config.ram_mb`, or a resources policy), but a running
+  sprite and a warm snapshot cost roughly what the guest uses (an idle 2 GiB sprite's
+  snapshot is ~120 MiB), through a balloon with free page reporting. `resources.memory.autoscale`
+  is enforced with that balloon: the guest boots with the limit as its RAM and is held to a
+  1 GiB grant that grows under pressure. Unlike a grown VM, the guest's `MemTotal` shows the
+  limit throughout. See [what a sprite costs](lifecycle.md#what-a-sprite-costs-in-memory-and-disk).
+  `privileges.devices` is stored and returned but **not enforced**.
 - The memory cgroup is a guard rail, not a boundary: guest root can leave it unless
   `noNewPrivileges` closes the sudo route. VM RAM is the hard bound. Privileges do not bind
   the filesystem API, which acts as root.

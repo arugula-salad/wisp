@@ -19,9 +19,9 @@ import (
 // sprite cannot rewrite its own policy); the guest agent enforces them on the
 // processes it launches, and the memory limit also sizes the VM.
 //
-// Enforced: the capability profile, noNewPrivileges, memory.limit_mb.
-// Stored and returned but not enforced: devices (there is no device cgroup
-// filter in the guest) and memory.autoscale (guest RAM is fixed at boot).
+// Enforced: the capability profile, noNewPrivileges, memory.limit_mb, and
+// memory.autoscale (by the balloon; see autoscale.go). Stored and returned but
+// not enforced: devices (there is no device cgroup filter in the guest).
 
 const (
 	// vmHeadroomMiB is guest RAM beyond the workload's limit, for the kernel and
@@ -91,9 +91,6 @@ func (s *Server) setResources(w http.ResponseWriter, r *http.Request) {
 		if max := hostMemMiB() - vmHeadroomMiB; m.LimitMB < 1 || m.LimitMB > max {
 			writeErr(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("memory.limit_mb must be between 1 and %d on this host", max))
 			return
-		}
-		if m.Autoscale {
-			s.log.Warn("resources policy asks for memory autoscale, which is stored but not enforced", "sprite", r.PathValue("name"))
 		}
 	}
 	s.storePolicy(w, r, "resources", func(sp *store.Sprite) { sp.Resources = &p })

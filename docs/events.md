@@ -26,7 +26,7 @@ for a sprite created from inside another. `detail` is small and depends on the t
 | `sprite.deleted` | deleted | |
 | `sprite.woke` | booted or resumed | `mode` (`cold`/`warm`), `ms` (time to a running agent), `warm_discarded` (why a warm sprite booted cold, if it did) |
 | `sprite.wake_failed` | a wake failed | `error` |
-| `sprite.suspended` | snapshotted to disk (warm) | `ms`, `idle` (idle timeout, or the operator) |
+| `sprite.suspended` | snapshotted to disk (warm) | `ms`, `idle` (idle timeout, or the operator), `snapshot_bytes` (disk the memory snapshot takes) |
 | `sprite.cold` | memory state dropped | `reason`: `warm ttl`, `operator`, `disk space` (+ `for`) |
 | `sprite.stopped` | VM killed without a snapshot | `reason` when it was for lack of room |
 | `sprite.exited` | the VM exited without being asked (guest reboot or poweroff, a crash) | |

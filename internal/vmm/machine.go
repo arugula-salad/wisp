@@ -33,6 +33,7 @@ const (
 	consoleLog = "console.log"
 	snapState  = "snap.vmstate"
 	snapMem    = "snap.mem"
+	sparseMem  = "snap.mem.sparse" // being copied from snap.mem.tmp by Suspend
 	pidFile    = "fc.pid"
 	emptyDrive = "empty.img"
 )
@@ -56,6 +57,9 @@ type Host struct {
 	// its own machine directory, and a cgroup that caps CPU, memory and pids.
 	// nil runs Firecracker with just its own seccomp filter. See internal/confine.
 	Confine *confine.Confiner
+	// NoFreePageReporting boots VMs whose balloon does not report freed pages
+	// (see balloon.go). It is part of the device, so it changes at a cold boot.
+	NoFreePageReporting bool
 }
 
 // localtime is read by Firecracker to stamp its log lines; it is the only file
@@ -155,6 +159,7 @@ func ReapOrphan(dir string) {
 func DiscardSnapshot(dir string) {
 	os.Remove(filepath.Join(dir, snapState))
 	os.Remove(filepath.Join(dir, snapMem))
+	os.Remove(filepath.Join(dir, sparseMem)) // left by a spritesd that died mid-suspend
 }
 
 func launch(h Host, cfg Config) (*Machine, error) {
@@ -265,6 +270,7 @@ func Boot(ctx context.Context, h Host, cfg Config) (*Machine, error) {
 		{"/machine-config", obj{"vcpu_count": cfg.VCPUs, "mem_size_mib": cfg.MemMiB}},
 		{"/vsock", obj{"guest_cid": 3, "uds_path": vsockSock}},
 		{"/entropy", obj{}},
+		{"/balloon", balloonConfig(!h.NoFreePageReporting)},
 	}
 	// A drive needs a backing file even when it holds nothing yet.
 	if f, err := os.OpenFile(filepath.Join(cfg.Dir, emptyDrive), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
@@ -346,8 +352,11 @@ func (m *Machine) Suspend(ctx context.Context) error {
 		return err
 	}
 	tmpState, tmpMem := snapState+".tmp", snapMem+".tmp"
+	// Firecracker would fsync the whole-RAM memory file, zeros and all; the
+	// files are synced below instead, once the memory file is sparse.
 	err := m.api(ctx, http.MethodPut, "/snapshot/create", obj{
 		"snapshot_type": "Full", "snapshot_path": tmpState, "mem_file_path": tmpMem,
+		"sync_snapshot_files": false,
 	})
 	if err != nil {
 		os.Remove(filepath.Join(m.cfg.Dir, tmpState))
@@ -358,11 +367,34 @@ func (m *Machine) Suspend(ctx context.Context) error {
 		return err
 	}
 	m.Kill()
+	// Keep what the guest was using, not its RAM (see sparseCopy). The copy
+	// reads the same as the original, so when it cannot be made the original
+	// is published instead and only disk space is lost. Deleting the original
+	// unsynced drops its zeros before they reach the disk.
+	mem := filepath.Join(m.cfg.Dir, tmpMem)
+	if _, err := sparseCopy(mem, filepath.Join(m.cfg.Dir, sparseMem)); err == nil {
+		os.Remove(mem)
+		mem = filepath.Join(m.cfg.Dir, sparseMem)
+	} else if err := syncFile(mem); err != nil {
+		return err
+	}
+	if err := syncFile(filepath.Join(m.cfg.Dir, tmpState)); err != nil {
+		return err
+	}
 	// Publish only a complete snapshot, so a crash mid-write reads as cold, not corrupt.
-	if err := os.Rename(filepath.Join(m.cfg.Dir, tmpMem), filepath.Join(m.cfg.Dir, snapMem)); err != nil {
+	if err := os.Rename(mem, filepath.Join(m.cfg.Dir, snapMem)); err != nil {
 		return err
 	}
 	return os.Rename(filepath.Join(m.cfg.Dir, tmpState), filepath.Join(m.cfg.Dir, snapState))
+}
+
+func syncFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
 }
 
 // Kill stops the VMM immediately. Guest state that was not synced is lost.
@@ -390,7 +422,8 @@ func ListenGuest(dir string, port uint32) (net.Listener, error) {
 // Pid is the VMM process.
 func (m *Machine) Pid() int { return m.cmd.Process.Pid }
 
-// MemMiB is the guest RAM, which is also the size of a suspend snapshot.
+// MemMiB is the guest RAM: the most a suspend snapshot keeps, and what it writes
+// before it is made sparse.
 func (m *Machine) MemMiB() int { return m.cfg.MemMiB }
 
 // Exited is closed when the VMM process ends (guest reboot/poweroff, crash, or Kill).

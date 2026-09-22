@@ -28,7 +28,8 @@
   - `policy/privileges`: capability profiles (`minimal`, `standard`, `privileged`) and
     `noNewPrivileges`, applied to processes started after the change.
   - `policy/resources`: a memory limit, as a guest cgroup immediately and as VM RAM of
-    `limit_mb + 128` from the next cold boot.
+    `limit_mb + 128` from the next cold boot. `autoscale` holds the sprite to a grant below
+    that, which grows under pressure; it applies live. See [memory autoscale](lifecycle.md#memory-autoscale).
   - `policy/spawn` (ours): lets the sprite create sprites of its own from inside. See
     [Sprites that create sprites](#sprites-that-create-sprites).
 - **Proxy / URLs**: the TCP proxy, and per-sprite URLs with `sprite`/`public` auth (see
