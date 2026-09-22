@@ -146,7 +146,8 @@ curl -H "Authorization: Bearer $SPRITE_TOKEN" http://dev.sprites.localhost:7788/
 ```
 
 To serve them on the internet under your own domain, over HTTPS, without exposing the API:
-[public sprite URLs](docs/public-urls.md).
+[public sprite URLs](docs/public-urls.md). A sprite can also answer at custom domains of its
+own (`game.example.com`), each with its own certificate: [custom domains](docs/public-urls.md#custom-domains).
 
 ## Documentation
 
@@ -158,7 +159,7 @@ To serve them on the internet under your own domain, over HTTPS, without exposin
 | [Web UI](docs/web-ui.md) | The browser dashboard: what it shows, how it signs in, reaching it from another machine |
 | [API coverage](docs/api.md) | What is implemented, and `sprite-env` for use from inside a sprite |
 | [Events and webhooks](docs/events.md) | Our own addition: a live event stream (SSE) of everything that happens to sprites, and signed webhooks |
-| [Public sprite URLs](docs/public-urls.md) | A wildcard domain, automatic certificates, and the listener that serves only sprite URLs |
+| [Public sprite URLs](docs/public-urls.md) | A wildcard domain, automatic certificates, the listener that serves only sprite URLs, and custom domains |
 | [Backups](docs/backups.md) | Incremental, deduplicated backups to any S3-compatible bucket, and restoring onto a new host |
 | [Security](docs/security.md) | How network policy is enforced, how each Firecracker is confined, and what neither covers |
 | [Differences from the hosted product](docs/differences.md) | Deliberate ones, and the official Go SDK issues this server works around |

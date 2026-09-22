@@ -34,6 +34,9 @@
 - **Events** (ours): a server-sent event stream at `GET /mini-sprites/v1/events` of
   lifecycle, checkpoint, service, policy, limit and disk events, with filters and
   `Last-Event-ID` resume, and signed webhooks. See [Events and webhooks](events.md).
+- **Custom domains** (ours): `GET|POST /v1/sprites/{name}/domains`, `GET|DELETE
+  /v1/sprites/{name}/domains/{domain}` attach names like `game.example.com` to a sprite, each
+  with a certificate of its own. See [Custom domains](public-urls.md#custom-domains).
 
 ## From inside a sprite
 

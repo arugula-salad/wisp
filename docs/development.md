@@ -10,6 +10,7 @@ make netd     # build the network-policy helper that setup-host.sh installs
 ./scripts/test-netpolicy-netns.sh     # the real nft ruleset + helper, in a rootless podman netns
 ./scripts/verify-network-policy.sh    # network policy on the real host, from inside real guests
 ./scripts/verify-backup.sh            # backs a sprite up, deletes its whole data directory, restores it
+./scripts/verify-custom-domains.sh /tmp/ms-x   # custom domain + TLS-ALPN-01 against a local pebble; E2E_RUN=. for the whole suite
 ```
 
 e2e knobs: `SPRITES_E2E_IDLE_TIMEOUT=<the daemon's --idle-timeout>` enables the lifecycle

@@ -885,9 +885,23 @@ function SpriteOverview(root, name) {
     <div class="grid two">
       <section class="card"><header><h2>Details</h2></header><dl class="kv" id="so-kv"></dl></section>
       <section class="card"><header><h2>Environment &amp; labels</h2></header><div id="so-env"></div></section>
-    </div>`;
+    </div>
+    <section class="card" style="margin-top:16px"><header><h2>Custom domains</h2><span class="note">certificates for names that point at this sprite</span></header><div id="so-dom"></div></section>`;
+  let domainsAt = 0;
+  const loadDomains = async () => {
+    try {
+      const { domains } = await api(`/v1/sprites/${encodeURIComponent(name)}/domains`);
+      const box = $('#so-dom');
+      if (!box) return;
+      box.innerHTML = String(domains.length ? html`<dl class="kv">${domains.map((d) => html`<dt class="mono">${d.domain}</dt>
+        <dd><span class="pill ${d.status === 'issued' ? 'good' : d.status === 'error' ? 'bad' : ''}">${d.status}</span>
+        ${d.reason ? html` <span class="faint">${d.reason}</span>` : ''}${d.not_after ? html` <span class="faint">· expires ${new Date(d.not_after).toLocaleDateString()}</span>` : ''}</dd>`)}</dl>`
+        : html`<p class="faint" style="margin:0">None. Attach one with <span class="mono">POST /v1/sprites/${name}/domains {"domain": "…"}</span>.</p>`);
+    } catch {}
+  };
   return {
     update(s) {
+      if (Date.now() - domainsAt > 10000) { domainsAt = Date.now(); loadDomains(); }
       const pts = data.metrics.points, times = data.times, interval = data.metrics.interval_seconds * 1000;
       const cpu = spriteSeries(name, 'cpu_cores'), mem = spriteSeries(name, 'rss_bytes');
       const cfg = s.api.config || {};

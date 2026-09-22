@@ -48,6 +48,7 @@ type Server struct {
 	// guestEvents limits the events a guest may report about itself (guestevents.go).
 	guestEvents *rateLimiter
 	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
+	domains     *domains      // custom domains (domains.go); nil without a public listener
 	started     time.Time
 }
 
@@ -124,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerTasks(mux)
 	s.registerPolicyLimits(mux)
 	s.registerSpawnPolicy(mux)
+	s.registerDomains(mux)
 	// Ours, outside /v1 (events.go, webhooks.go).
 	mux.HandleFunc("GET "+eventsPath, s.serveAPIEvents)
 	mux.HandleFunc("GET /mini-sprites/v1/webhooks", s.serveWebhookStatus)
@@ -421,6 +423,7 @@ func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
 	}
 	s.life.Forget(sp.ID)
 	s.life.egress.forget(sp)
+	s.syncDomains() // its custom domains go with it
 	// Tombstone rather than delete: losing this machine and deleting a sprite must
 	// not look the same to the bucket. `spritesd backups prune` retires it later.
 	s.backups.MarkDeleted(sp)

@@ -221,9 +221,18 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-// TestObtainAgainstPebble runs the whole DNS-01 flow against Let's Encrypt's
-// test CA. Install it with: go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
-func TestObtainAgainstPebble(t *testing.T) {
+// startPebble runs Let's Encrypt's test CA, resolving names through dnsAddr and
+// probing TLS-ALPN-01 challenges on tlsPort, and returns its directory URL and
+// a client that trusts it. It skips the test when pebble is not installed.
+func startPebble(t *testing.T, dnsAddr string, tlsPort int) (string, *http.Client) {
+	directory, _, hc := startPebbleMgmt(t, dnsAddr, tlsPort)
+	return directory, hc
+}
+
+// startPebbleMgmt is startPebble that also returns the management API's base
+// URL, which serves the roots issued certificates chain to (/roots/0).
+func startPebbleMgmt(t *testing.T, dnsAddr string, tlsPort int) (string, string, *http.Client) {
+	t.Helper()
 	pebble := os.Getenv("PEBBLE_BIN")
 	if pebble == "" {
 		pebble, _ = exec.LookPath("pebble")
@@ -231,9 +240,46 @@ func TestObtainAgainstPebble(t *testing.T) {
 	if pebble == "" {
 		t.Skip("pebble not found (set PEBBLE_BIN or put it on PATH)")
 	}
+	dir := t.TempDir()
+	caCert, caKey := selfSigned(t, dir, "127.0.0.1", "localhost")
+	port, mgmt := freePort(t), freePort(t)
+	cfg, _ := json.Marshal(map[string]any{"pebble": map[string]any{
+		"listenAddress": fmt.Sprintf("127.0.0.1:%d", port), "managementListenAddress": fmt.Sprintf("127.0.0.1:%d", mgmt),
+		"certificate": caCert, "privateKey": caKey, "httpPort": 5002, "tlsPort": tlsPort,
+		"ocspResponderURL": "", "externalAccountBindingRequired": false,
+	}})
+	cfgFile := filepath.Join(dir, "pebble.json")
+	os.WriteFile(cfgFile, cfg, 0o644)
+	cmd := exec.Command(pebble, "-config", cfgFile, "-dnsserver", dnsAddr)
+	cmd.Env = append(os.Environ(), "PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0")
+	if testing.Verbose() {
+		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
 
-	zone := &txtServer{txt: map[string]string{}}
-	// Pebble asks over TCP, and falls back between the two; serve one port on both.
+	pool := x509.NewCertPool()
+	b, _ := os.ReadFile(caCert)
+	pool.AppendCertsFromPEM(b)
+	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	directory := fmt.Sprintf("https://127.0.0.1:%d/dir", port)
+	for start := time.Now(); ; time.Sleep(50 * time.Millisecond) {
+		if resp, err := hc.Get(directory); err == nil {
+			resp.Body.Close()
+			break
+		} else if time.Since(start) > 10*time.Second {
+			t.Fatalf("pebble did not come up: %v", err)
+		}
+	}
+	return directory, fmt.Sprintf("https://127.0.0.1:%d", mgmt), hc
+}
+
+// serveDNS serves zone on one port over both UDP and TCP (Pebble asks over TCP
+// and falls back between the two) and returns the address.
+func serveDNS(t *testing.T, zone dns.Handler) string {
+	t.Helper()
 	var pc net.PacketConn
 	var tl net.Listener
 	for try := 0; ; try++ {
@@ -251,45 +297,20 @@ func TestObtainAgainstPebble(t *testing.T) {
 	}
 	dnsSrv := &dns.Server{PacketConn: pc, Handler: zone}
 	go dnsSrv.ActivateAndServe()
-	defer dnsSrv.Shutdown()
+	t.Cleanup(func() { dnsSrv.Shutdown() })
 	tcpSrv := &dns.Server{Listener: tl, Handler: zone}
 	go tcpSrv.ActivateAndServe()
-	defer tcpSrv.Shutdown()
+	t.Cleanup(func() { tcpSrv.Shutdown() })
+	return pc.LocalAddr().String()
+}
 
+// TestObtainAgainstPebble runs the whole DNS-01 flow against Let's Encrypt's
+// test CA. Install it with: go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
+func TestObtainAgainstPebble(t *testing.T) {
+	zone := &txtServer{txt: map[string]string{}}
+	dnsAddr := serveDNS(t, zone)
 	dir := t.TempDir()
-	caCert, caKey := selfSigned(t, dir, "127.0.0.1", "localhost")
-	port := freePort(t)
-	cfg, _ := json.Marshal(map[string]any{"pebble": map[string]any{
-		"listenAddress": fmt.Sprintf("127.0.0.1:%d", port), "managementListenAddress": fmt.Sprintf("127.0.0.1:%d", freePort(t)),
-		"certificate": caCert, "privateKey": caKey, "httpPort": 5002, "tlsPort": 5001,
-		"ocspResponderURL": "", "externalAccountBindingRequired": false,
-	}})
-	cfgFile := filepath.Join(dir, "pebble.json")
-	os.WriteFile(cfgFile, cfg, 0o644)
-	cmd := exec.Command(pebble, "-config", cfgFile, "-dnsserver", pc.LocalAddr().String())
-	cmd.Env = append(os.Environ(), "PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0")
-	if testing.Verbose() {
-		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { cmd.Process.Kill(); cmd.Wait() }()
-
-	pool := x509.NewCertPool()
-	b, _ := os.ReadFile(caCert)
-	pool.AppendCertsFromPEM(b)
-	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
-	directory := fmt.Sprintf("https://127.0.0.1:%d/dir", port)
-	for start := time.Now(); ; time.Sleep(50 * time.Millisecond) {
-		if resp, err := hc.Get(directory); err == nil {
-			resp.Body.Close()
-			break
-		} else if time.Since(start) > 10*time.Second {
-			t.Fatalf("pebble did not come up: %v", err)
-		}
-	}
-
+	directory, hc := startPebble(t, dnsAddr, 5001)
 	mgr := &Manager{Domain: "widgets.test", Email: "ops@widgets.test", Dir: filepath.Join(dir, "acme"), DirectoryURL: directory,
 		DNS: zone, Log: quiet, HTTPClient: hc,
 		WaitDNS: func(context.Context, string, string) error { return nil }}
