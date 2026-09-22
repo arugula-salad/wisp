@@ -31,6 +31,9 @@
     [Sprites that create sprites](#sprites-that-create-sprites).
 - **Proxy / URLs**: the TCP proxy, and per-sprite URLs with `sprite`/`public` auth (see
   [Public sprite URLs](public-urls.md) for serving them to the internet).
+- **Custom domains** (ours): `GET|POST /v1/sprites/{name}/domains`, `GET|DELETE
+  /v1/sprites/{name}/domains/{domain}` attach names like `game.example.com` to a sprite, each
+  with a certificate of its own. See [Custom domains](public-urls.md#custom-domains).
 
 ## From inside a sprite
 
