@@ -36,6 +36,63 @@ const (
 	stableRunTime      = 10 * time.Second // a run this long resets the crash backoff
 )
 
+// Service output is appended to <stateDir>/logs/services/<name>.log, which lives
+// on the sprite's disk and therefore on the volume every sprite on the host
+// shares. Nothing used to bound it: one service printing a line per request
+// filled the disk, and deleting the service kept its log for ever. Rotation by
+// size, with a bounded number of rotations, caps a service's output at
+// MaxBytes*(Keep+1) bytes however chatty it is, without asking it to cooperate.
+//
+// The default is generous per file and shallow in history, because what people
+// actually read is the last few minutes of a service that just misbehaved, and
+// they read it through the logs API, which tails the live file.
+const (
+	defaultLogMaxBytes = 8 << 20 // 8 MiB live, 24 MiB per service in total
+	defaultLogKeep     = 2
+	maxLogKeep         = 20 // a ceiling on the configured depth: the point is to bound the disk
+)
+
+// LogRotation bounds one service's log. It is read once, when the agent starts,
+// from <stateDir>/logrotate.json ({"max_bytes":8388608,"keep":2}), so a sprite
+// that wants a longer window says so on its own disk and the setting travels
+// with its checkpoints like the service definitions do. There is no daemon-side
+// flag, because the disk the limit protects is the sprite's own.
+type LogRotation struct {
+	// MaxBytes rotates the live log once it has grown past this. 0 disables
+	// rotation entirely, which is the explicit opt-out: the log grows unbounded again.
+	MaxBytes int64 `json:"max_bytes"`
+	// Keep is how many rotated files (<name>.log.1 .. .log.N, 1 newest) are kept
+	// beside the live one. 0 throws the old log away at each rotation.
+	Keep int `json:"keep"`
+}
+
+// logFileRE matches a service's live log and its rotations: "<name>.log[.<n>]".
+var logFileRE = regexp.MustCompile(`^(.+)\.log(?:\.[0-9]+)?$`)
+
+// loadLogRotation prefers the defaults to anything it cannot make sense of: a
+// truncated or hand-edited file must not be a way to end up unbounded again.
+func loadLogRotation(stateDir string) LogRotation {
+	r := LogRotation{MaxBytes: defaultLogMaxBytes, Keep: defaultLogKeep}
+	b, err := os.ReadFile(filepath.Join(stateDir, "logrotate.json"))
+	if err != nil {
+		return r
+	}
+	var got struct {
+		MaxBytes *int64 `json:"max_bytes"`
+		Keep     *int   `json:"keep"`
+	}
+	if json.Unmarshal(b, &got) != nil {
+		return r
+	}
+	if got.MaxBytes != nil && *got.MaxBytes >= 0 {
+		r.MaxBytes = *got.MaxBytes
+	}
+	if got.Keep != nil && *got.Keep >= 0 {
+		r.Keep = min(*got.Keep, maxLogKeep)
+	}
+	return r
+}
+
 type ServiceDef struct {
 	Name     string            `json:"name"`
 	Cmd      string            `json:"cmd"`
@@ -93,6 +150,7 @@ type service struct {
 	exited      chan struct{} // closed when the current process has been reaped
 	subs        map[chan ServiceEvent]struct{}
 	logFile     *os.File
+	logBytes    int64 // what logFile holds, so rotation needs no stat per line
 }
 
 type Supervisor struct {
@@ -105,6 +163,7 @@ type Supervisor struct {
 
 	mu       sync.Mutex
 	services map[string]*service
+	logRot   LogRotation
 }
 
 // NewSupervisor loads definitions and starts every service in dependency order.
@@ -115,11 +174,12 @@ func NewSupervisor(stateDir, runDir string) *Supervisor {
 // NewReportingSupervisor is NewSupervisor with report set before the first
 // service starts, so the starts at boot are reported too.
 func NewReportingSupervisor(stateDir, runDir string, report func(ServiceReport)) *Supervisor {
-	sv := &Supervisor{stateDir: stateDir, runDir: runDir, services: map[string]*service{}, report: report}
+	sv := &Supervisor{stateDir: stateDir, runDir: runDir, services: map[string]*service{}, report: report,
+		logRot: loadLogRotation(stateDir)}
 	os.MkdirAll(sv.defsDir(), 0o755)
 	os.MkdirAll(sv.logsDir(), 0o755)
 	os.MkdirAll(runDir, 0o755)
-	entries, _ := os.ReadDir(sv.defsDir())
+	entries, defsErr := os.ReadDir(sv.defsDir())
 	for _, e := range entries {
 		b, err := os.ReadFile(filepath.Join(sv.defsDir(), e.Name()))
 		if err != nil || !strings.HasSuffix(e.Name(), ".json") {
@@ -133,6 +193,9 @@ func NewReportingSupervisor(stateDir, runDir string, report func(ServiceReport))
 	}
 	sv.mu.Lock()
 	defer sv.mu.Unlock()
+	if defsErr == nil {
+		sv.sweepOrphanLogsLocked() // logs left by an older agent, which kept a deleted service's for ever
+	}
 	for _, name := range sv.sortedNames() {
 		sv.killStale(name)
 		sv.startLocked(name, map[string]bool{})
@@ -149,6 +212,125 @@ func (sv *Supervisor) logsDir() string         { return filepath.Join(sv.stateDi
 func (sv *Supervisor) LogPath(n string) string { return filepath.Join(sv.logsDir(), n+".log") }
 func (sv *Supervisor) pidPath(n string) string { return filepath.Join(sv.runDir, n+".pid") }
 func (sv *Supervisor) defPath(n string) string { return filepath.Join(sv.defsDir(), n+".json") }
+
+// SetLogRotation replaces the limits while the agent runs. A lowered MaxBytes
+// applies from the next line written, so it does not wait for a restart.
+func (sv *Supervisor) SetLogRotation(r LogRotation) {
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	if r.Keep > maxLogKeep {
+		r.Keep = maxLogKeep
+	}
+	sv.logRot = r
+}
+
+// LogRotationSettings reports the limits in force.
+func (sv *Supervisor) LogRotationSettings() LogRotation {
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	return sv.logRot
+}
+
+// rotationPath is where the nth-newest rotated log lives: <name>.log.1 is the
+// one just retired, .log.2 the one before it, and so on up to Keep.
+func (sv *Supervisor) rotationPath(name string, n int) string {
+	return sv.LogPath(name) + "." + strconv.Itoa(n)
+}
+
+// openLogLocked attaches a service to its log file, picking up a log that
+// earlier runs left behind (the file is appended to across restarts, so its
+// size carries over) and rotating straight away if that is already over the limit.
+func (sv *Supervisor) openLogLocked(s *service) error {
+	f, err := os.OpenFile(sv.LogPath(s.def.Name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	s.logFile, s.logBytes = f, 0
+	if st, err := f.Stat(); err == nil {
+		s.logBytes = st.Size()
+	}
+	sv.rotateIfFullLocked(s)
+	return nil
+}
+
+func (sv *Supervisor) rotateIfFullLocked(s *service) {
+	if sv.logRot.MaxBytes > 0 && s.logBytes >= sv.logRot.MaxBytes {
+		sv.rotateLocked(s)
+	}
+}
+
+// rotateLocked retires the live log and starts a new one. It renames rather
+// than truncates on purpose: a reader that already has the file open (the logs
+// API tailing it, a shell inside the sprite) keeps reading the inode it opened,
+// sees a complete file and never a half-erased one. The service's own handle is
+// swapped here under sv.mu, which is the lock every writer in emitLocked holds,
+// so no line is written to a file that has just been rotated away.
+func (sv *Supervisor) rotateLocked(s *service) {
+	name := s.def.Name
+	if s.logFile != nil {
+		s.logFile.Close()
+		s.logFile = nil
+	}
+	if keep := sv.logRot.Keep; keep <= 0 {
+		os.Remove(sv.LogPath(name)) // no history wanted: the old log goes
+	} else {
+		os.Remove(sv.rotationPath(name, keep)) // the oldest falls off the end
+		for i := keep - 1; i >= 1; i-- {
+			os.Rename(sv.rotationPath(name, i), sv.rotationPath(name, i+1))
+		}
+		os.Rename(sv.LogPath(name), sv.rotationPath(name, 1))
+	}
+	f, err := os.OpenFile(sv.LogPath(name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return // logging stops until the next start; the service itself is untouched
+	}
+	s.logFile, s.logBytes = f, 0
+}
+
+// removeLogsLocked deletes a service's live log and every rotation of it. A
+// deleted service's logs go with it: the logs API asks the supervisor for the
+// service before it opens the file, so nothing can read them back afterwards,
+// and keeping them is the unbounded case this rotation exists to remove. A
+// reader that already has one open still finishes what it was reading.
+func (sv *Supervisor) removeLogsLocked(name string) {
+	for _, f := range sv.logFilesFor(name) {
+		os.Remove(filepath.Join(sv.logsDir(), f))
+	}
+}
+
+// logFilesFor lists the log files on disk belonging to name, whatever depth of
+// rotation an earlier setting may have left behind.
+func (sv *Supervisor) logFilesFor(name string) []string {
+	var out []string
+	entries, _ := os.ReadDir(sv.logsDir())
+	for _, e := range entries {
+		if m := logFileRE.FindStringSubmatch(e.Name()); m != nil && m[1] == name {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// sweepOrphanLogsLocked drops logs that belong to no definition: a service
+// deleted by an older agent, which kept its log for ever, or one whose
+// definition was removed by hand. They are unreachable through the API and pure
+// occupancy on the sprite's disk. It runs at start, where the caller has just
+// loaded every definition and knows the read succeeded.
+func (sv *Supervisor) sweepOrphanLogsLocked() {
+	entries, err := os.ReadDir(sv.logsDir())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		m := logFileRE.FindStringSubmatch(e.Name())
+		if m == nil || e.IsDir() {
+			continue
+		}
+		if _, live := sv.services[m[1]]; !live {
+			os.Remove(filepath.Join(sv.logsDir(), e.Name()))
+		}
+	}
+}
 
 func (sv *Supervisor) sortedNames() []string {
 	names := make([]string, 0, len(sv.services))
@@ -280,8 +462,13 @@ func (sv *Supervisor) Delete(name string) error {
 		}
 	}
 	sv.stopLocked(s, defaultStopTimeout)
+	if s.logFile != nil {
+		s.logFile.Close()
+		s.logFile, s.logBytes = nil, 0
+	}
 	delete(sv.services, name)
-	return os.Remove(sv.defPath(name)) // logs are kept
+	sv.removeLogsLocked(name) // the logs go with the service; see removeLogsLocked
+	return os.Remove(sv.defPath(name))
 }
 
 func (sv *Supervisor) Start(name string) error {
@@ -339,7 +526,7 @@ func (sv *Supervisor) spawnLocked(s *service) {
 		errR, errW, err = os.Pipe()
 	}
 	if err == nil && s.logFile == nil {
-		s.logFile, err = os.OpenFile(sv.LogPath(s.def.Name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		err = sv.openLogLocked(s)
 	}
 	var cmd *exec.Cmd
 	if err == nil {
@@ -401,7 +588,17 @@ func (sv *Supervisor) emitLocked(s *service, ev ServiceEvent) {
 	now := time.Now().UTC()
 	ev.Timestamp = now.UnixMilli()
 	if s.logFile != nil && (ev.Type == "stdout" || ev.Type == "stderr") {
-		fmt.Fprintf(s.logFile, "%s [%s] %s\n", now.Format("2006-01-02T15:04:05.000Z"), ev.Type, ev.Data)
+		line := fmt.Sprintf("%s [%s] %s\n", now.Format("2006-01-02T15:04:05.000Z"), ev.Type, ev.Data)
+		// Rotate before the line that would cross the limit, never in the middle
+		// of one, and never after it: the live log is what the logs API tails, so
+		// it should always hold the newest output rather than start out empty.
+		if sv.logRot.MaxBytes > 0 && s.logBytes > 0 && s.logBytes+int64(len(line)) > sv.logRot.MaxBytes {
+			sv.rotateLocked(s)
+		}
+		if s.logFile != nil { // a rotation that could not reopen leaves nothing to write to
+			n, _ := fmt.Fprint(s.logFile, line)
+			s.logBytes += int64(n)
+		}
 	}
 	for ch := range s.subs {
 		select {

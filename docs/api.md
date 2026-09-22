@@ -19,6 +19,19 @@
   to and starts on demand (otherwise the URL goes to port 8080). Definitions live on the
   sprite's disk in `/.sprite/services/`, logs in `/.sprite/logs/services/<name>.log`, so both
   travel with checkpoints. Every service starts on a cold boot.
+  **Logs are bounded** (ours): the live log is rotated once it passes 8 MiB and two rotations
+  are kept beside it (`<name>.log.1`, `.log.2`), so one service costs at most ~24 MiB whatever
+  it prints — it is the sprite's disk, and that disk is on the volume every sprite shares. A
+  sprite can choose its own limits in `/.sprite/logrotate.json`
+  (`{"max_bytes": 8388608, "keep": 2}`; `max_bytes: 0` turns rotation off, `keep: 0` keeps no
+  history), read when the agent starts, so it travels with the disk like the definitions do.
+  Rotation renames rather than truncates, so a reader tailing the file keeps reading a whole
+  one. **Deleting a service now deletes its logs** with it, and logs left by services that no
+  longer exist are swept at the next cold boot: nothing could read them back through the API,
+  so keeping them was only a leak. `GET /v1/services/<name>/logs` tails the live file; output
+  older than the last rotation is in `<name>.log.1` on the sprite's disk. The rotation lives in
+  the guest agent, which ships in the initramfs (`make initrd`), so it reaches a sprite at that
+  sprite's next **cold** boot — a warm resume still runs the agent it was snapshotted with.
 - **Filesystem**: read, write (atomic), list, delete, rename, copy, chmod, chown, and `watch`
   (recursive, including directories created later; bounded, and a slow reader is told how many
   events it missed rather than stalling the agent). New files belong to the `sprite` user.
@@ -33,7 +46,9 @@
   - `policy/spawn` (ours): lets the sprite create sprites of its own from inside. See
     [Sprites that create sprites](#sprites-that-create-sprites).
 - **Proxy / URLs**: the TCP proxy, and per-sprite URLs with `sprite`/`public` auth (see
-  [Public sprite URLs](public-urls.md) for serving them to the internet).
+  [Public sprite URLs](public-urls.md) for serving them to the internet). A URL request to a
+  sprite whose app has not bound its port yet is held for a few seconds and then answered
+  `503` with `Retry-After`, instead of failing at once; the proxy and exec paths are not gated.
 - **Events** (ours): a server-sent event stream at `GET /mini-sprites/v1/events` of
   lifecycle, checkpoint, service, policy, limit and disk events, with filters and
   `Last-Event-ID` resume, and signed webhooks. See [Events and webhooks](events.md).

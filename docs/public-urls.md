@@ -24,6 +24,17 @@ the same listener as the API. To put the URLs on the internet without putting th
 - A sprite's URL needs the API token as a bearer unless its `url_settings.auth` is `public`,
   which is upstream's model and the default is the closed one. Anyone can wake a `public`
   sprite, and it holds its RAM until it idles out again.
+- **A visitor waits for the app, briefly.** A request to a sleeping sprite wakes it, and the VM
+  is back long before the app inside has bound its port; the visitor used to get a proxy error
+  on a sprite that was about to work. The URL proxy now retries the guest port for up to 10
+  seconds (`MINI_SPRITES_URL_READY_WAIT`, a Go duration; `0` fails on the first refused
+  connection as before, and 60s is the hard ceiling whatever is set) before answering `503`
+  with `Retry-After: 5` and a body saying the sprite is starting — honest and temporary, where
+  the old `502` said the site was broken. The wait is bounded and lives inside the request: it
+  runs under the keep-awake hold the request already has, a visitor who gives up ends it, and
+  it never keeps an idle sprite up on its own. Only sprite URLs are gated; the API's own proxy
+  and exec paths are unchanged. If the sprite's `http_port` service owns the port, the agent
+  also waits for it inside the guest, so the two waits overlap rather than add up.
 - The API reports `https://<name>.widgets.wtf`; add `--public-port` if the router's outside
   port is not 443. Connections are capped in total and per client (`--public-max-conns*`).
 - Proxying through Cloudflare (orange cloud) also works and hides your address: use an outside
