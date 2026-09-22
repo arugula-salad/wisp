@@ -48,6 +48,7 @@ func gone(t *testing.T, name string, within time.Duration) {
 }
 
 func TestLeases(t *testing.T) {
+	client(t) // skips the suite when no daemon is configured, as every other test does
 	n := time.Now().UnixNano() % 1e9
 	keeper, leased := fmt.Sprintf("e2e-keep-%d", n), fmt.Sprintf("e2e-lease-%d", n)
 	t.Cleanup(func() {
