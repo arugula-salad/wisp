@@ -340,5 +340,9 @@ func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseReq
 	}
 	s.leases.forget(cur.ID)
 	s.log.Info("lease set", "sprite", cur.Name, "expires_at", cur.ExpiresAt, "protected", cur.Protected)
+	// forget cleared the mark for the old deadline; warn re-earns it for the new
+	// one straight away, because a lease set to less than --lease-warning (or to
+	// less than a janitor tick) would otherwise expire unannounced.
+	s.leases.warn(cur, time.Now())
 	return cur, true
 }

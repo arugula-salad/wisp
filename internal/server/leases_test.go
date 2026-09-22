@@ -229,9 +229,12 @@ func TestLeasesThatRanOutWhileTheDaemonWasDown(t *testing.T) {
 
 func TestTheExpiringWarningGoesOutOncePerDeadline(t *testing.T) {
 	s, h := newOperatorServer(t, Options{LeaseWarning: 10 * time.Minute})
+	// Subscribed before the creates: a sprite born inside the warning window is
+	// warned about at once rather than at the first sweep, since with a short
+	// enough lease there may not be a sweep before it expires.
+	sub := leaseEvents(s)
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"soon","ttl_seconds":300}`), http.StatusCreated)
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"later","ttl_seconds":3600}`), http.StatusCreated)
-	sub := leaseEvents(s)
 
 	s.leases.sweep()
 	s.leases.sweep()

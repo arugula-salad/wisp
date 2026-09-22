@@ -374,6 +374,11 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	}
 	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", cloned, "image", sp.Image)
 	s.life.emit(*sp, "sprite.created", detail)
+	// A sprite can be born already inside the warning window -- a lobby child with
+	// a two-minute lease, say, under a five-minute --lease-warning. The janitor
+	// would never get to warn about it, so the warning is evaluated here too,
+	// after sprite.created, keeping the stream's order honest.
+	s.leases.warn(*sp, time.Now())
 	writeJSON(w, http.StatusCreated, s.render(*sp))
 }
 
