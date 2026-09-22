@@ -162,6 +162,12 @@ func (g *diskGuard) admit(sp store.Sprite, what string, need int64) error {
 		errNoRoom, what, mib(need), where, mib(h.Free), mib(g.reserve))
 }
 
+// admitHost is admit for an operation that belongs to no sprite (an image
+// build), so a refusal is reported as a host-wide disk.refused event.
+func (g *diskGuard) admitHost(what string, need int64) error {
+	return g.admit(store.Sprite{}, what, need)
+}
+
 func mib(n int64) string { return fmt.Sprintf("%d MiB", n>>20) }
 
 // watch logs when headroom drops below the warning share, again every ten

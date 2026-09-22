@@ -19,6 +19,8 @@ subtests (tasks, watch); `SPRITES_SDK_DEBUG=1` shows which connection mode the S
 drive `/control` with the Go SDK. `./scripts/probe-sdks.sh` runs the official JS and Python
 SDKs against a running daemon: exec with control mode off and on, port proxying, and an exec
 whose VM is restored away.
+`SPRITES_E2E_IMAGES=1` runs `TestCreateFromImage`, which pulls alpine from Docker Hub (the
+daemon's user needs working rootless podman and e2fsprogs >= 1.47.1).
 The backup suite skips itself unless the daemon under test was started with a reachable
 `--backup-bucket`.
 

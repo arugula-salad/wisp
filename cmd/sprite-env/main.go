@@ -42,10 +42,11 @@ const usage = `sprite-env manages this sprite from the inside.
   sprite-env checkpoints mount <id>       read-only, at /.sprite/checkpoints/<id>; copy files out without restoring
   sprite-env checkpoints unmount <id>
 
-  sprite-env sprites create <name> [--from <sprite>[@<checkpoint>]] [--public] [--env K=v,...] [--labels a,b]
+  sprite-env sprites create <name> [--from <sprite>[@<checkpoint>] | --image <ref>] [--public] [--env K=v,...] [--labels a,b]
   sprite-env sprites list | get <name> | delete <name>
                                           sprites this one created; needs a spawn policy, set from outside.
-                                          --from clones a checkpoint ("." is this sprite, no @ is its newest)
+                                          --from clones a checkpoint ("." is this sprite, no @ is its newest);
+                                          --image starts from a container image already in the host's image cache
   sprite-env sprites events [--sprite a,b] [--type sprite.,service.] [--all] [--count N]
                                           follow what happens to the sprites this one created, one JSON
                                           event per line; --all starts with the events still buffered.
@@ -63,6 +64,10 @@ func socketPath() string {
 }
 
 func main() {
+	// Installed setuid as sudo on disks without one (sudo.go); nothing else runs then.
+	if sudoMode() {
+		os.Exit(runSudo(os.Args[1:]))
+	}
 	if len(os.Args) < 3 {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -244,11 +249,18 @@ func sprites(verb string, args []string) error {
 		public := fs.Bool("public", false, "serve the new sprite's URL without authentication")
 		env := fs.String("env", "", "comma-separated KEY=value environment variables")
 		labels := fs.String("labels", "", "comma-separated labels")
+		image := fs.String("image", "", "start from this container image (it must be in the host's image cache)")
 		pos, err := parse(fs, args, 1)
 		if err != nil {
 			return err
 		}
+		if *from != "" && *image != "" {
+			return usageErr("--from and --image do not go together")
+		}
 		body := map[string]any{"name": pos[0]}
+		if *image != "" {
+			body["from"] = map[string]string{"image": *image}
+		}
 		if *from != "" {
 			sprite, checkpoint, _ := strings.Cut(*from, "@")
 			if sprite == "." {

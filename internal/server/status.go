@@ -63,6 +63,23 @@ type HostStatus struct {
 	// Limits of 0 mean none is configured.
 	MaxRunning int `json:"max_running"`
 	MaxSprites int `json:"max_sprites"`
+	// Images is the cache of disks built from container images (images.go).
+	Images ImageCacheStatus `json:"images"`
+}
+
+type ImageCacheStatus struct {
+	Count int `json:"count"`
+	// Bytes is what the cached disks occupy on the sprite volume.
+	Bytes int64 `json:"bytes"`
+}
+
+func imageCacheStatus(vmRoot string) ImageCacheStatus {
+	var st ImageCacheStatus
+	for _, f := range imageDisks(vmRoot) {
+		st.Count++
+		st.Bytes += allocated(f)
+	}
+	return st
 }
 
 type HelperStatus struct {
@@ -100,6 +117,8 @@ type SpriteStatus struct {
 	PolicyRestricted bool       `json:"policy_restricted"`
 	LastRunningAt    *time.Time `json:"last_running_at,omitempty"`
 	LastWarmingAt    *time.Time `json:"last_warming_at,omitempty"`
+	// Image is the container image the disk was made from, if any.
+	Image string `json:"image,omitempty"`
 }
 
 type VMProcess struct {
@@ -241,9 +260,12 @@ func diskUsage(st *store.Store, vmRoot string, sprites []SpriteStatus) {
 	if !mapped {
 		return // no extent maps here, hence no sharing to account for either
 	}
-	// The base image's mirror shares blocks with every disk cloned from it.
-	if spans, ok := fileSpans(filepath.Join(vmRoot, localBaseName)); ok {
-		owners = append(owners, merge(spans))
+	// The base image's mirror shares blocks with every disk cloned from it, and
+	// a cached image disk with every sprite made from that image.
+	for _, f := range append([]string{filepath.Join(vmRoot, localBaseName)}, imageDisks(vmRoot)...) {
+		if spans, ok := fileSpans(f); ok {
+			owners = append(owners, merge(spans))
+		}
 	}
 	for i, own := range exclusive(owners)[:len(sprites)] {
 		sprites[i].DiskUsed, sprites[i].DiskExclusive = total(owners[i]), own
@@ -252,7 +274,7 @@ func diskUsage(st *store.Store, vmRoot string, sprites []SpriteStatus) {
 
 func spriteBase(sp store.Sprite) SpriteStatus {
 	return SpriteStatus{Name: sp.Name, ID: sp.ID, Checkpoints: len(sp.Checkpoints), MountedCheckpoints: sp.Mounts,
-		NetIndex: sp.NetIndex, LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt}
+		NetIndex: sp.NetIndex, LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, Image: sp.Image}
 }
 
 func (h *HostStatus) count(state string) {
@@ -280,6 +302,7 @@ func OfflineStatus(dataDir, netdSocket string) (Status, error) {
 	}
 	out := Status{Host: HostStatus{DataDir: dataDir, Reflink: probeReflink(vmRoot)}, Sprites: []SpriteStatus{}}
 	out.Host.Volume, _ = probeHeadroom(vmRoot)
+	out.Host.Images = imageCacheStatus(vmRoot)
 	if netdSocket == "" {
 		netdSocket = netd.DefaultSocket
 	}
@@ -338,6 +361,7 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 			MaxRunning: s.opts.MaxRunning, MaxSprites: s.opts.MaxSprites},
 		Sprites: []SpriteStatus{}}
 	out.Host.Volume, _ = l.disk.probe()
+	out.Host.Images = imageCacheStatus(vmRoot)
 	l.mu.Lock()
 	out.Host.TapsTotal, out.Host.TapsUsed = l.taps, l.taps-len(l.freeTaps)
 	l.mu.Unlock()
@@ -394,5 +418,6 @@ func (s *Server) StatusHandler(listen string) http.Handler {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.status(r.Context(), started, listen))
 	})
+	s.registerImageOps(mux)
 	return mux
 }

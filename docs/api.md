@@ -4,6 +4,8 @@
   Ours: `"from": {"sprite": "template", "checkpoint": "v1"}` on create starts the sprite as a
   clone of that checkpoint (newest manual one when omitted) instead of the base image, with
   the source's config and policies. With a reflink volume the clone is instant.
+  Also ours: `"from": {"image": "node:22"}` starts it from a container image, pulled with
+  rootless podman and cached as a disk; see [sprites from container images](images.md).
 - **Exec**: WebSocket TTY/non-TTY, detach/reattach with output replay,
   `max_run_after_disconnect`, signals, session list, kill, and HTTP POST exec in upstream's
   frame format.
@@ -81,6 +83,7 @@ curl -X POST $SPRITES_API_URL/v1/sprites/lobby/policy/spawn -H "Authorization: B
 
 # from inside "lobby", no token
 sprite-env sprites create game-42 --from game-template --public    # prints the sprite, url included
+sprite-env sprites create tool-1 --image node:22                    # an image already in the host's cache
 sprite-env sprites list
 sprite-env sprites delete game-42
 # or: curl --unix-socket /.sprite/api.sock http://sprite/v1/sprites -d '{"name":"game-42","from":{"sprite":"game-template"},"url_settings":{"auth":"public"}}'
@@ -97,6 +100,8 @@ What a spawner can and cannot do:
 - It sees and deletes only the sprites it created (`parent_id` on the sprite); everything else is 404.
 - It holds at most `max_children` of them (default 10); `--max-sprites` and the disk guard still apply.
 - It may clone its own checkpoints, its children's, and those of the sprites in `sources`.
+- It may start a child from a container image only if the image is already in the host's
+  cache (`spritesd images pull`); a guest can never make the host pull. See [images](images.md).
 - A child always runs under the spawner's network policy, so spawning is no way out of one. It
   gets the spawner's config and other policies, or the source's when it is a clone; `config`
   in the request is ignored. It may choose `public` URL auth, environment and labels.

@@ -161,6 +161,9 @@ func printStatus(w io.Writer, st server.Status) {
 		}
 		fmt.Fprintf(w, "image      %s; %s free on its filesystem%s\n", v.Image, size(v.HostFree), note)
 	}
+	if h.Images.Count > 0 {
+		fmt.Fprintf(w, "images     %d cached disk(s) from container images, %s on the volume (spritesd images list)\n", h.Images.Count, size(h.Images.Bytes))
+	}
 	fmt.Fprintf(w, "sprites    %d running (%s), %d warm, %d cold; %d in all (%s)\n",
 		h.Running, limit(h.MaxRunning), h.Warm, h.Cold, len(st.Sprites), limit(h.MaxSprites))
 	if st.Daemon != nil {

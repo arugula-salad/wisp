@@ -327,7 +327,9 @@ func (sv *Supervisor) spawnLocked(s *service) {
 	path := s.def.Cmd
 	var err error
 	if !strings.Contains(path, "/") {
-		path, err = exec.LookPath(path)
+		if path, err = lookPath(path, env); err != nil {
+			err = fmt.Errorf("executable %q not found in PATH", s.def.Cmd)
+		}
 	}
 	var outR, outW, errR, errW *os.File
 	if err == nil {
