@@ -157,6 +157,7 @@ To serve them on the internet under your own domain, over HTTPS, without exposin
 | [Lifecycle](docs/lifecycle.md) | `running` / `warm` / `cold`, what keeps a sprite awake, tasks |
 | [Web UI](docs/web-ui.md) | The browser dashboard: what it shows, how it signs in, reaching it from another machine |
 | [API coverage](docs/api.md) | What is implemented, and `sprite-env` for use from inside a sprite |
+| [Container images](docs/images.md) | Creating a sprite from any image (`"from": {"image": "node:22"}`), the image cache, odd userlands |
 | [Public sprite URLs](docs/public-urls.md) | A wildcard domain, automatic certificates, and the listener that serves only sprite URLs |
 | [Backups](docs/backups.md) | Incremental, deduplicated backups to any S3-compatible bucket, and restoring onto a new host |
 | [Security](docs/security.md) | How network policy is enforced, how each Firecracker is confined, and what neither covers |

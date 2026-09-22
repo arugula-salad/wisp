@@ -73,6 +73,8 @@ scripted against (`internal/server/status.go`).
   `du`, which counts a shared block once per clone. These come from the files' extent maps:
   DISK is what the sprite's disk and checkpoints occupy with every shared block counted once,
   OWN the part nothing else shares, i.e. what deleting the sprite gives back.
+- **images** (shown when there are any) counts the disks cached from container images and
+  what they occupy; `spritesd images list` has the detail. See [images](images.md).
 - **HOLDS** is the number of live tasks keeping a sprite awake: the answer to "why is this
   VM still running".
 - **Orphans** are Firecracker processes of your user whose parent is not a running spritesd:
@@ -94,7 +96,9 @@ what bounds warm sprites here is the disk, below).
 
 ## Disk pressure
 
-The volume holds sprite disks, checkpoints and one guest-RAM-sized snapshot per warm sprite.
+The volume holds sprite disks, checkpoints, one guest-RAM-sized snapshot per warm sprite, and
+the disks cached from [container images](images.md) (building one is refused like a create
+when it would eat into the reserve; `spritesd images rm` gives the space back).
 When it is the loop-mounted image from `setup-storage.sh`, filling it, or the host filesystem
 under the sparse image, does not produce a clean ENOSPC but I/O errors inside guests. So:
 

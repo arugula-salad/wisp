@@ -1,6 +1,7 @@
 # Security: network policy and VMM confinement
 
-How the two host-side boundaries are enforced, and exactly what they do not cover.
+How the two host-side boundaries are enforced, and exactly what they do not cover; and what
+creating sprites from [container images](#container-images) exposes.
 
 ## How network policy is enforced
 
@@ -60,3 +61,28 @@ the kernel and host support and logs the rest, `strict` refuses to start without
 (with signal scoping) and a delegated cgroup, `off` runs Firecracker as before. Measured on the
 development host (kernel 7.0, Landlock ABI 8; median of 15, `scripts/measure-confine-latency.sh`):
 cold boot 222 ms off / 226 ms confined, warm wake 23.5 ms off / 26.5 ms confined.
+
+## Container images
+
+Creating a sprite from a container image ([images](images.md)) puts registry content through
+the host, so:
+
+- **Only API callers can make the host pull.** The API token is the whole API anyway. From
+  inside a sprite (the spawn routes on the guest channel) only images already in the cache are
+  accepted; an uncached reference is a 404 and nothing is fetched.
+- **References are parsed, not passed through.** They must be registry references and are
+  rebuilt in one canonical form before they reach podman, always as an argument vector after
+  `--`, never through a shell. Transports that name host files (`oci:`, `dir:`,
+  `containers-storage:`...) cannot be expressed. `localhost/` names the daemon user's own podman
+  storage, which an API caller can therefore use.
+- **The image's files never land on the host filesystem.** `podman export` streams a tar that
+  spritesd rewrites (names are cleaned, so `..` cannot climb out) and that mke2fs writes into
+  the new ext4 image. What does run on the host is the tar parsing, in spritesd and in mke2fs,
+  as the daemon's user and unconfined: a hostile image is input to those parsers. Nothing from
+  the image is executed on the host.
+- **The sudo stand-in is a setuid-root binary inside the guest.** It lets only the `sprite`
+  user become root, which that user may anyway in any sprite; a setuid copy runs nothing but
+  the sudo code, whatever name it is invoked under, and `noNewPrivileges` disables it. It is
+  never on the host.
+- The disk guard bounds the cache on the sprite volume; podman's own storage, where layers
+  sit during a pull, is outside it.

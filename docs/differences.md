@@ -19,6 +19,9 @@
   An automatic checkpoint is taken before every restore so that a restore can be undone, which
   upstream does not do. Autos are kept to `--auto-checkpoint-keep` (3). Creating checkpoints
   from inside is capped (`--guest-checkpoint-limit`, 20) so one guest cannot fill the host disk.
+- Ours, not upstream's: `"from": {"image": ...}` creates a sprite from a container image
+  (pulled with rootless podman, cached as a disk; [images](images.md)), and `from.sprite` clones
+  a checkpoint. Neither exists upstream, and the official SDKs cannot send `from`.
 - Restricted sprites are TCP-only (no QUIC, NTP or ping), and a denied destination connects
   and is then reset, because a transparent proxy must accept before it can decide. The
   `defaults` allowlist is our own.
