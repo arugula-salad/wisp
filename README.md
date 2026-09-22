@@ -111,6 +111,19 @@ token. It shows every sprite and the host at a glance, with an hour of CPU, memo
 state history, and lets you open a terminal in any sprite, browse its files, take and restore
 checkpoints, and edit its policies ([web UI](docs/web-ui.md)).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
+  <img alt="The dashboard's overview: sprites by state, CPU and memory in use, the sprite volume, charts of state, CPU and memory over time, and a lane per sprite showing when it was running, warm or cold" src="docs/images/dashboard-light.png">
+</picture>
+
+<table><tr>
+<td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/sprite-dark.png">
+  <img alt="One sprite's page: current CPU, memory, disk and checkpoints, with its CPU and memory over time" src="docs/images/sprite-light.png">
+</picture></td>
+<td width="50%"><img alt="A terminal in the browser, running a shell inside a sprite" src="docs/images/terminal.png"></td>
+</tr></table>
+
 ### With the `sprite` CLI
 
 It reads the two variables above:

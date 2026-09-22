@@ -1,5 +1,10 @@
 # Web UI
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/dashboard-dark.png">
+  <img alt="The dashboard's overview: sprites by state, CPU and memory in use, the sprite volume, charts of state, CPU and memory over time, and a lane per sprite showing when it was running, warm or cold" src="images/dashboard-light.png">
+</picture>
+
 spritesd serves a dashboard from the API listener, at `/ui/` (the bare `/` redirects there).
 With the defaults that is <http://127.0.0.1:7788/>. It is plain HTML, CSS and JavaScript
 embedded in the binary (`internal/webui`), with a vendored xterm.js for the terminal: no build

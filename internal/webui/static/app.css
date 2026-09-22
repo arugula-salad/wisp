@@ -134,6 +134,7 @@ label.field { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
 .stat .value small { font-size: 14px; font-weight: 500; color: var(--ink-2); margin-left: 4px; letter-spacing: 0; }
 .stat .foot { color: var(--muted); font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
 .stat .spark { margin-top: 8px; height: 32px; }
+.stat .spark svg { display: block; width: 100%; height: 100%; }
 .stat .foot .meter, .stat .foot .legend { flex-basis: 100%; }
 .stat .foot .meter { margin: 2px 0 2px; }
 .stat.hero .value { font-size: 44px; }

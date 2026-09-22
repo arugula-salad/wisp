@@ -361,7 +361,8 @@ function Overview(root) {
           foot: html`${meter([{ label: 'Used', value: volUsed, color: volUsed / h.volume.volume_total_bytes > 0.9 ? 'var(--critical)' : 'var(--s-running)' }, { label: 'Free', value: h.volume.volume_free_bytes, color: 'transparent' }])}
             <span>${fmtBytes(volUsed)} of ${fmtBytes(h.volume.volume_total_bytes)}</span><span class="pill ${h.reflink ? 'good' : ''}">${h.reflink ? '✓ reflink clones' : 'full copies'}</span>` }),
         stat({ label: 'Network', value: h.networking ? `${h.taps_used}` : 'off', unit: h.networking ? `of ${h.taps_total} taps` : '',
-          foot: html`<span class="pill ${h.policy_helper.reachable ? 'good' : 'bad'}">${h.policy_helper.reachable ? '✓ policy helper' : '✕ policy helper'}</span>${h.max_running ? html`<span>max ${h.max_running} running</span>` : ''}` }),
+          // Without guest networking the policy helper is not used, which is not a fault.
+          foot: html`${!h.networking ? html`<span class="pill">no guest network</span>` : html`<span class="pill ${h.policy_helper.reachable ? 'good' : 'bad'}">${h.policy_helper.reachable ? '✓ policy helper' : '✕ policy helper'}</span>`}${h.max_running ? html`<span>max ${h.max_running} running</span>` : ''}` }),
       ].join('');
       putSpark('sp-cpu', recent(series((p) => p.cpu_cores), 120), 'var(--s-running)');
       putSpark('sp-mem', recent(series((p) => p.vmm_rss_bytes), 120), 'var(--s-running)');
