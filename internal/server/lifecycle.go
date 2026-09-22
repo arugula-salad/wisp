@@ -627,16 +627,32 @@ func (l *Lifecycle) janitor() {
 	for range time.Tick(30 * time.Second) {
 		l.disk.watch()
 		for _, sp := range l.store.List("") {
-			if sp.LastWarmingAt == nil || time.Since(*sp.LastWarmingAt) < l.opts.WarmTTL {
-				continue
+			if l.warmExpired(sp) {
+				l.coolIfExpired(sp)
 			}
-			rt := l.rt(sp.ID)
-			rt.mu.Lock()
-			if rt.m == nil && vmm.HasSnapshot(l.store.Dir(sp.ID)) {
-				vmm.DiscardSnapshot(l.store.Dir(sp.ID))
-				l.log.Info("sprite went cold", "sprite", sp.Name)
-			}
-			rt.mu.Unlock()
 		}
+	}
+}
+
+func (l *Lifecycle) warmExpired(sp store.Sprite) bool {
+	return sp.LastWarmingAt != nil && time.Since(*sp.LastWarmingAt) >= l.opts.WarmTTL
+}
+
+// coolIfExpired drops the snapshot of a sprite that has been warm longer than
+// the TTL. sp is only a candidate from an earlier read: waiting for the lock
+// can outlast a suspend in flight, which renews LastWarmingAt, so the decision
+// is taken again on a fresh record. Deciding on the old one threw away snapshots
+// seconds old, every sprite's at once when a daemon stopped.
+func (l *Lifecycle) coolIfExpired(sp store.Sprite) {
+	rt := l.rt(sp.ID)
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	cur, err := l.store.Get(sp.Name)
+	if err != nil || cur.ID != sp.ID || !l.warmExpired(cur) {
+		return
+	}
+	if rt.m == nil && vmm.HasSnapshot(l.store.Dir(sp.ID)) {
+		vmm.DiscardSnapshot(l.store.Dir(sp.ID))
+		l.log.Info("sprite went cold", "sprite", sp.Name)
 	}
 }
