@@ -100,7 +100,10 @@ func newMetrics(s *Server) *metrics {
 
 // StartMetrics begins sampling for the web UI's charts. The daemon calls it;
 // tests take samples by hand instead.
-func (s *Server) StartMetrics() { go s.metrics.run() }
+func (s *Server) StartMetrics() {
+	go s.metrics.run()
+	go s.runHTTPStats()
+}
 
 func (m *metrics) run() {
 	m.sample(time.Now())

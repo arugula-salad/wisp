@@ -286,9 +286,14 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 		}
 	}
 	if rt.m == nil {
+		from, start := "cold", time.Now()
+		if vmm.HasSnapshot(l.store.Dir(sp.ID)) {
+			from = "warm"
+		}
 		if err := l.startLocked(ctx, sp, rt); err != nil {
 			return nil, nil, err
 		}
+		noteWake(ctx, time.Since(start), from)
 	}
 	rt.begin()
 	var once sync.Once
