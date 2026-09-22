@@ -922,6 +922,9 @@ function SpriteOverview(root, name) {
         <dt>Last running</dt><dd>${s.state === 'running' ? 'now' : ago(s.api.last_running_at)}</dd>
         <dt>IP</dt><dd class="mono">${s.ip || '—'}${s.tap ? html` <span class="faint">on ${s.tap}</span>` : ''}</dd>
         <dt>Network policy</dt><dd>${s.policy_restricted ? 'restricted egress' : 'open egress'}</dd>
+        <dt>Lease</dt><dd>${s.api.expires_at
+          ? html`expires ${new Date(s.api.expires_at).toLocaleString()}${s.api.protected ? html` <span class="pill">protected</span>` : ''}`
+          : 'none — this sprite is kept until it is deleted'}</dd>
         <dt>Task holds</dt><dd>${s.task_holds ?? '—'}</dd>
         <dt>API calls in flight</dt><dd>${s.api_inflight ?? 0}</dd>
         ${s.api.parent_id ? html`<dt>Parent</dt><dd class="mono">${s.api.parent_id}</dd>` : ''}
