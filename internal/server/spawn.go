@@ -33,6 +33,9 @@ type cloneFrom struct {
 	Sprite string `json:"sprite"`
 	// Checkpoint defaults to the source's newest manual checkpoint.
 	Checkpoint string `json:"checkpoint"`
+	// Image starts the sprite from a container image instead (images.go). From
+	// inside a sprite it must already be in the host's image cache.
+	Image string `json:"image,omitempty"`
 }
 
 type createError struct {

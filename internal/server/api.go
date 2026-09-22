@@ -41,6 +41,7 @@ type Server struct {
 
 	urlDomain string // sprite URLs are <name>.<urlDomain>
 	storage   *storage
+	images    *imageCache    // disks built from container images (images.go)
 	backups   *backupManager // nil when no backup bucket is configured
 	metrics   *metrics       // history for the web UI (ui.go)
 	httpStats *httpStats     // request counts and latency for the web UI (httpstats.go)
@@ -59,6 +60,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	} else {
 		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
 	}
+	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admit, log)
 	s.metrics = newMetrics(s)
 	s.httpStats = newHTTPStats()
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
@@ -180,6 +182,8 @@ type spriteJSON struct {
 	LastWarmingAt *time.Time        `json:"last_warming_at,omitempty"`
 	// ParentID is ours: the sprite that created this one from inside.
 	ParentID string `json:"parent_id,omitempty"`
+	// SourceImage is ours: the container image the sprite was created from.
+	SourceImage string `json:"source_image,omitempty"`
 	// Backup is ours, not upstream's: where this sprite's durability stands. The
 	// SDKs ignore fields they do not know, and it is absent entirely when no bucket
 	// is configured.
@@ -192,7 +196,7 @@ func (s *Server) render(sp store.Sprite) spriteJSON {
 		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name),
 		URLSettings: sp.URLSettings, Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
 		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, ParentID: sp.ParentID,
-		Backup: s.backups.State(sp.ID),
+		SourceImage: sp.Image, Backup: s.backups.State(sp.ID),
 	}
 }
 
@@ -215,7 +219,8 @@ type createRequest struct {
 	Environment map[string]string  `json:"environment"`
 	Labels      []string           `json:"labels"`
 	URLSettings *store.URLSettings `json:"url_settings"`
-	// From starts the sprite as a clone of a checkpoint instead of the base image.
+	// From starts the sprite as a clone of a checkpoint, or from a container
+	// image, instead of the base image.
 	From *cloneFrom `json:"from"`
 }
 
@@ -257,7 +262,31 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	}
 
 	var image string
-	if req.From != nil {
+	cloned := false
+	switch {
+	case req.From != nil && req.From.Image != "":
+		if req.From.Sprite != "" || req.From.Checkpoint != "" {
+			writeErr(w, http.StatusBadRequest, "bad_request", "from: give either image, or sprite and checkpoint, not both")
+			return
+		}
+		// Checked again by the store; this only saves a pull that would be for nothing.
+		if _, err := s.store.Get(req.Name); err == nil {
+			writeErr(w, http.StatusBadRequest, "name_taken", "a sprite with that name already exists")
+			return
+		}
+		disk, img, ref, release, err := s.imageSource(r.Context(), req.From.Image, parent != nil)
+		if err != nil {
+			writeErr(w, err.status, err.code, err.msg)
+			return
+		}
+		// Held until the disk is cloned, so the cached image cannot be removed under the copy.
+		defer release()
+		image = disk
+		sp.Image = ref.Name() + "@" + img.Digest
+		if img.Digest == "" {
+			sp.Image = ref.String()
+		}
+	case req.From != nil:
 		src, cp, unlock, err := s.cloneSource(*req.From, parent)
 		if err != nil {
 			writeErr(w, err.status, err.code, err.msg)
@@ -268,7 +297,9 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		image = s.checkpointPath(src.ID, cp)
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
-	} else {
+		sp.Image = src.Image // the disk still descends from it
+		cloned = true
+	default:
 		base, err := s.storage.base(r.Context())
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
@@ -277,7 +308,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		image = base
 	}
 	if parent != nil {
-		inherit(sp, *parent, req.From != nil)
+		inherit(sp, *parent, cloned)
 	} else if req.Config != nil {
 		sp.Config = *req.Config
 	}
@@ -299,7 +330,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
 		return
 	}
-	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", req.From != nil)
+	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", cloned, "image", sp.Image)
 	writeJSON(w, http.StatusCreated, s.render(*sp))
 }
 

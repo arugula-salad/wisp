@@ -75,6 +75,10 @@ type Sprite struct {
 	// the live filesystem was last saved as or restored from, then its ancestors.
 	Lineage []string `json:"lineage,omitempty"`
 
+	// Image is the container image the sprite's disk was made from, pinned
+	// by digest where the registry gave one; empty for the base image or a clone.
+	Image string `json:"image,omitempty"`
+
 	// Mounts maps a checkpoint slot to the checkpoint whose image backs it, for as
 	// long as the VM (or its warm snapshot, which records the drive paths) lives.
 	Mounts map[int]string `json:"mounts,omitempty"`
