@@ -399,10 +399,12 @@ function Overview(root) {
       $('#disk-note').textContent = h.reflink ? 'disk + checkpoints, shared blocks counted once' : 'disk + checkpoints';
 
       const ev = data.metrics.events.slice(-40).reverse();
-      $('#feed').innerHTML = ev.length ? ev.map((e) => String(html`<li><time>${fmtTime(e.t)}</time>
+      const feed = $('#feed'), feedTop = feed.scrollTop; // the feed scrolls on its own; keep its place
+      feed.innerHTML = ev.length ? ev.map((e) => String(html`<li><time>${fmtTime(e.t)}</time>
         <a class="mono" href="#/s/${encodeURIComponent(e.name)}">${e.name}</a>
         ${e.from ? stateBadge(e.from) : html`<span class="pill">created</span>`}<span class="arrow">→</span>${e.to ? stateBadge(e.to) : html`<span class="pill bad">deleted</span>`}</li>`)).join('')
         : '<li class="faint">No changes yet. Transitions show up here as sprites wake and sleep.</li>';
+      feed.scrollTop = feedTop;
     },
   };
 }
