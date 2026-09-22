@@ -30,7 +30,9 @@ only, never the dashboard.
 - **Sprite**: the same figures for one sprite, and tabs for a **terminal** (a login shell over
   the exec WebSocket), **files** (browse, view, download), **checkpoints** (create, restore,
   delete, clone into a new sprite), **services** (start, stop, restart), **policies** (network,
-  privileges, resources, spawn, as JSON) and the raw API and operator records.
+  privileges, resources, spawn, as JSON) and the raw API and operator records. Its overview
+  also lists the sprite's [custom domains](public-urls.md#custom-domains) with each one's
+  certificate status (read-only: attach and detach them through the API).
 - **Traffic**: who visits sprite URLs, like a small web analytics page: unique visitors, page
   views, requests, data sent and errors, each against the span before; visitors, views and
   requests over time; top pages, sprites, referrers, and browsers, bots and tools. Filter by
