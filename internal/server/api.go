@@ -46,6 +46,7 @@ type Server struct {
 	metrics   *metrics       // history for the web UI (ui.go)
 	httpStats *httpStats     // request counts and latency for the web UI (httpstats.go)
 	webhooks  []*webhook     // webhooks.go
+	leases    *leases        // expiring workspaces (leases.go)
 	// guestEvents limits the events a guest may report about itself (guestevents.go).
 	guestEvents *rateLimiter
 	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
@@ -80,6 +81,11 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 			Parallel: opts.Backup.Parallel, RateLimit: opts.Backup.RateLimit, Log: log})
 		life.backups = s.backups
 	}
+	s.leases = newLeases(s)
+	life.setLeases(s.leases)
+	// Once here, before anything is served: a lease that ran out while the
+	// daemon was down has still run out, and the sprite should not come back.
+	s.leases.sweep()
 	return s
 }
 
@@ -128,7 +134,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerPolicyLimits(mux)
 	s.registerSpawnPolicy(mux)
 	s.registerDomains(mux)
-	// Ours, outside /v1 (events.go, webhooks.go).
+	// Ours, outside /v1 (events.go, webhooks.go, leases.go).
+	s.registerLeases(mux)
 	mux.HandleFunc("GET "+eventsPath, s.serveAPIEvents)
 	mux.HandleFunc("GET /mini-sprites/v1/webhooks", s.serveWebhookStatus)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +202,10 @@ type spriteJSON struct {
 	ParentID string `json:"parent_id,omitempty"`
 	// SourceImage is ours: the container image the sprite was created from.
 	SourceImage string `json:"source_image,omitempty"`
+	// ExpiresAt and Protected are ours: the workspace lease (leases.go). Absent
+	// on the sprites that have none, which is most of them.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Protected bool       `json:"protected,omitempty"`
 	// Backup is ours, not upstream's: where this sprite's durability stands. The
 	// SDKs ignore fields they do not know, and it is absent entirely when no bucket
 	// is configured.
@@ -208,6 +219,7 @@ func (s *Server) render(sp store.Sprite) spriteJSON {
 		URLSettings: sp.URLSettings, Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
 		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, ParentID: sp.ParentID,
 		SourceImage: sp.Image, Backup: s.backups.State(sp.ID),
+		ExpiresAt: sp.ExpiresAt, Protected: sp.Protected,
 	}
 }
 
@@ -233,6 +245,8 @@ type createRequest struct {
 	// From starts the sprite as a clone of a checkpoint, or from a container
 	// image, instead of the base image.
 	From *cloneFrom `json:"from"`
+	// The workspace lease, ours (leases.go); no lease without one of its fields.
+	leaseRequest
 }
 
 func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) { s.create(w, r, nil) }
@@ -280,6 +294,10 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		URLSettings: store.URLSettings{Auth: "sprite"}, CreatedAt: now, UpdatedAt: now}
 	if req.URLSettings != nil && req.URLSettings.Auth != "" {
 		sp.URLSettings = *req.URLSettings
+	}
+	if msg := req.apply(sp, now); msg != "" {
+		writeErr(w, http.StatusBadRequest, "bad_request", msg)
+		return
 	}
 
 	var image string
@@ -413,6 +431,9 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 		URLSettings *store.URLSettings `json:"url_settings"`
 		Labels      []string           `json:"labels"`
 		ClearLabels bool               `json:"clear_labels"`
+		// The lease, ours (leases.go). It is not written here: it goes through
+		// the one path that is serialized against the reaper.
+		leaseRequest
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
@@ -421,6 +442,13 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 	if req.URLSettings != nil && !validAuth(req.URLSettings.Auth) {
 		writeErr(w, http.StatusBadRequest, "bad_request", `url_settings.auth must be "sprite" or "public"`)
 		return
+	}
+	// The lease first: a sprite the reaper has taken is not one to relabel
+	// either, and this is where that is noticed.
+	if req.touchesExpiry() || req.Protected != nil {
+		if _, ok := s.applyLease(w, r, req.leaseRequest); !ok {
+			return
+		}
 	}
 	sp, err := s.store.Update(r.PathValue("name"), func(sp *store.Sprite) {
 		if req.URLSettings != nil {
@@ -448,10 +476,21 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
-	s.life.Stop(sp, false)
-	if err := s.store.Delete(sp.Name); err != nil {
+	if err := s.destroy(sp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// destroy is the deletion itself, with no request behind it: an expiring lease
+// (leases.go) frees exactly what a DELETE frees — net index, tap, disk,
+// checkpoints, domains — because it is the same code and not a second copy of
+// the list.
+func (s *Server) destroy(sp store.Sprite) error {
+	s.life.Stop(sp, false)
+	if err := s.store.Delete(sp.Name); err != nil {
+		return err
 	}
 	s.life.Forget(sp.ID)
 	s.life.egress.forget(sp)
@@ -461,7 +500,7 @@ func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
 	s.backups.MarkDeleted(sp)
 	s.log.Info("sprite deleted", "sprite", sp.Name)
 	s.life.emit(sp, "sprite.deleted", nil)
-	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // proxyAgent wakes the sprite and forwards the request (HTTP or WebSocket) to
