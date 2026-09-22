@@ -99,6 +99,16 @@ type Sprite struct {
 	// Domains are custom hostnames served as this sprite's URL (domains.go). A
 	// domain belongs to at most one sprite; clones do not inherit them.
 	Domains []string `json:"domains,omitempty"`
+
+	// ExpiresAt is the workspace lease: when it passes, the sprite is deleted,
+	// disk and all. nil is the default and means the sprite lives until someone
+	// deletes it, because losing a workspace to an expiry nobody asked for would
+	// be worse than leaving a stale one on the volume. Persisted like the rest,
+	// so a lease outlives the daemon that granted it.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// Protected holds off that deletion without forgetting the deadline, for the
+	// sprite somebody turns out to still be using.
+	Protected bool `json:"protected,omitempty"`
 }
 
 type Store struct {
