@@ -27,7 +27,7 @@ the same listener as the API. To put the URLs on the internet without putting th
 - **A visitor waits for the app, briefly.** A request to a sleeping sprite wakes it, and the VM
   is back long before the app inside has bound its port; the visitor used to get a proxy error
   on a sprite that was about to work. The URL proxy now retries the guest port for up to 10
-  seconds (`MINI_SPRITES_URL_READY_WAIT`, a Go duration; `0` fails on the first refused
+  seconds (`--url-ready-wait`, a Go duration; `0` fails on the first refused
   connection as before, and 60s is the hard ceiling whatever is set) before answering `503`
   with `Retry-After: 5` and a body saying the sprite is starting — honest and temporary, where
   the old `502` said the site was broken. The wait is bounded and lives inside the request: it

@@ -123,6 +123,32 @@ func size(n int64) string {
 	return "0"
 }
 
+// lease renders a workspace lease for the table: nothing for the persistent
+// sprites, which are still the default, and a countdown for the rest.
+func lease(expires *time.Time, protected bool) string {
+	if expires == nil {
+		return "-"
+	}
+	d := time.Until(*expires)
+	switch {
+	case protected:
+		return "held"
+	case d <= 0:
+		return "due"
+	case d < time.Hour:
+		return d.Round(time.Second).String()
+	}
+	return d.Round(time.Minute).String()
+}
+
+// limitMiB is limit() for the memory budget, which is counted in MiB.
+func limitMiB(n int) string {
+	if n <= 0 {
+		return "no limit"
+	}
+	return fmt.Sprintf("%d MiB", n)
+}
+
 func limit(n int) string {
 	if n == 0 {
 		return "no limit"
@@ -167,6 +193,15 @@ func printStatus(w io.Writer, st server.Status) {
 	fmt.Fprintf(w, "sprites    %d running (%s), %d warm, %d cold; %d in all (%s)\n",
 		h.Running, limit(h.MaxRunning), h.Warm, h.Cold, len(st.Sprites), limit(h.MaxSprites))
 	if st.Daemon != nil {
+		// Reserved memory is tracked whether or not a budget is set, so it answers
+		// "what would a budget have to be to hold what is running now?".
+		fmt.Fprintf(w, "memory     %d MiB reserved by running sprites of %s", h.ReservedMemoryMiB, limitMiB(h.MaxRunningMemoryMiB))
+		if h.MaxConcurrentBoots > 0 || h.BootsInFlight > 0 {
+			fmt.Fprintf(w, "; %d cold boot(s) in flight (%s)", h.BootsInFlight, limit(h.MaxConcurrentBoots))
+		}
+		fmt.Fprintln(w)
+	}
+	if st.Daemon != nil {
 		if h.Networking {
 			fmt.Fprintf(w, "network    %d of %d taps in use\n", h.TapsUsed, h.TapsTotal)
 		} else {
@@ -186,7 +221,7 @@ func printStatus(w io.Writer, st server.Status) {
 		fmt.Fprintln(w, "no sprites")
 	} else {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "NAME\tID\tSTATE\tPID\tRSS\tDISK\tOWN\tSNAP\tCKPTS\tHOLDS\tIP\tPOLICY")
+		fmt.Fprintln(tw, "NAME\tID\tSTATE\tPID\tRSS\tDISK\tOWN\tSNAP\tCKPTS\tHOLDS\tLEASE\tIP\tPOLICY")
 		for _, s := range st.Sprites {
 			state := s.State
 			if s.Busy {
@@ -214,13 +249,14 @@ func printStatus(w io.Writer, st server.Status) {
 				sort.Strings(slots)
 				ckpts += " (mounted " + strings.Join(slots, ",") + ")"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.ID, state, pid, rss,
-				size(s.DiskUsed), size(s.DiskExclusive), size(s.SnapshotBytes), ckpts, holds, ip, policy)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.ID, state, pid, rss,
+				size(s.DiskUsed), size(s.DiskExclusive), size(s.SnapshotBytes), ckpts, holds, lease(s.ExpiresAt, s.Protected), ip, policy)
 		}
 		tw.Flush()
 		fmt.Fprintln(w, "\nDISK is what the sprite's disk and checkpoints occupy, shared blocks counted once; OWN is the part")
 		fmt.Fprintln(w, "nothing else shares, which is what deleting it frees. SNAP is a warm sprite's memory snapshot.")
-		fmt.Fprintln(w, "HOLDS counts live tasks keeping a sprite awake. A * marks a transition in progress.")
+		fmt.Fprintln(w, "HOLDS counts live tasks keeping a sprite awake. LEASE is when an expiring workspace is deleted")
+		fmt.Fprintln(w, "(\"held\" = protected from it). A * marks a transition in progress.")
 	}
 
 	for _, d := range st.OtherDaemons {

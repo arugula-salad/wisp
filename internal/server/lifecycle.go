@@ -30,12 +30,15 @@ const (
 )
 
 type Options struct {
-	DataDir       string
-	Host          vmm.Host
-	BaseImage     string
-	IdleTimeout   time.Duration // no activity for this long => suspend (warm)
-	WarmTTL       time.Duration // suspended this long => drop memory state (cold)
-	LeaseWarning  time.Duration // lead time on sprite.expiring (leases.go); 0 = defaultLeaseWarning
+	DataDir      string
+	Host         vmm.Host
+	BaseImage    string
+	IdleTimeout  time.Duration // no activity for this long => suspend (warm)
+	WarmTTL      time.Duration // suspended this long => drop memory state (cold)
+	LeaseWarning time.Duration // lead time on sprite.expiring (leases.go); 0 = defaultLeaseWarning
+	// URLReadyWait is how long a sprite URL waits for the app inside to accept a
+	// connection before answering 503 (urlproxy.go); 0 fails on the first refusal.
+	URLReadyWait  time.Duration
 	DefaultVCPUs  int
 	DefaultMemMiB int
 	DNS           string

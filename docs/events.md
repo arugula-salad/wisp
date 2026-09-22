@@ -24,6 +24,8 @@ for a sprite created from inside another. `detail` is small and depends on the t
 |---|---|---|
 | `sprite.created` | created (by the API or a spawner) | `from: {sprite, checkpoint}` for a clone |
 | `sprite.deleted` | deleted | |
+| `sprite.expiring` | a workspace lease is about to run out (once per deadline, `--lease-warning` ahead of it) | `expires_at`, `in_ms` |
+| `sprite.expired` | the lease ran out and the sprite is being deleted; `sprite.deleted` follows | `expires_at` |
 | `sprite.woke` | booted or resumed | `mode` (`cold`/`warm`), `ms` (time to a running agent), `warm_discarded` (why a warm sprite booted cold, if it did) |
 | `sprite.wake_failed` | a wake failed | `error` |
 | `sprite.suspended` | snapshotted to disk (warm) | `ms`, `idle` (idle timeout, or the operator), `snapshot_bytes` (disk the memory snapshot takes) |

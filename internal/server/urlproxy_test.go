@@ -109,24 +109,17 @@ func TestURLReadyGateStopsWhenTheVisitorLeaves(t *testing.T) {
 	}
 }
 
-// Whatever is configured, the ceiling stands.
+// Whatever --url-ready-wait says, the ceiling stands, and an operator slip
+// (a negative duration) means the default rather than the gate turning off.
 func TestURLReadyGateCeiling(t *testing.T) {
-	if got := readyWaitFrom("10m", true); got != maxURLReadyWait {
-		t.Errorf("10m -> %v, want the %v ceiling", got, maxURLReadyWait)
-	}
-	for _, tc := range []struct {
-		v    string
-		set  bool
-		want time.Duration
-	}{
-		{"", false, defaultURLReadyWait},
-		{"3s", true, 3 * time.Second},
-		{"0", true, 0},
-		{"-2s", true, defaultURLReadyWait},
-		{"soon", true, defaultURLReadyWait},
+	for _, tc := range []struct{ in, want time.Duration }{
+		{10 * time.Minute, maxURLReadyWait},
+		{3 * time.Second, 3 * time.Second},
+		{0, 0}, // explicitly off: fail on the first refused connection
+		{-2 * time.Second, defaultURLReadyWait},
 	} {
-		if got := readyWaitFrom(tc.v, tc.set); got != tc.want {
-			t.Errorf("readyWaitFrom(%q, %v) = %v, want %v", tc.v, tc.set, got, tc.want)
+		if got := clampReadyWait(tc.in); got != tc.want {
+			t.Errorf("clampReadyWait(%v) = %v, want %v", tc.in, got, tc.want)
 		}
 	}
 }

@@ -9,10 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
-	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jhgaylor/mini-sprites/internal/vmm"
@@ -68,7 +66,7 @@ func dialGuestTCP(ctx context.Context, m *vmm.Machine, port string) (net.Conn, e
 // outlives the response. A visitor that gives up cancels the request context and
 // the gate stops with it, so nothing keeps polling an otherwise idle sprite.
 const (
-	defaultURLReadyWait = 10 * time.Second // a cold boot plus a normal app start
+	defaultURLReadyWait = 10 * time.Second // a cold boot plus a normal app start; --url-ready-wait overrides it, 0 fails on the first refused connection
 	maxURLReadyWait     = 60 * time.Second // whatever is configured, the visitor waits no longer
 	urlReadyRetryMin    = 100 * time.Millisecond
 	urlReadyRetryMax    = 500 * time.Millisecond
@@ -81,24 +79,13 @@ const (
 // rather than the proxy's 502, because it is honestly temporary.
 var errSpriteNotReady = errors.New("sprite is starting: nothing is listening on its HTTP port yet")
 
-// urlReadyWait is how long a visitor may wait for the app inside to come up.
-// $MINI_SPRITES_URL_READY_WAIT overrides it (a Go duration; 0 restores the old
-// behaviour of failing on the first refused connection). It is an environment
-// variable rather than a flag because the URL proxy is reached from paths that
-// never see the daemon's options, and it is read once so a request never stats
-// the environment.
-var urlReadyWait = sync.OnceValue(func() time.Duration {
-	return readyWaitFrom(os.LookupEnv("MINI_SPRITES_URL_READY_WAIT"))
-})
-
-// readyWaitFrom keeps the default for anything it cannot parse: a typo in a unit
-// file should not silently turn the gate into a minute-long hang, nor off.
-func readyWaitFrom(v string, set bool) time.Duration {
-	if !set {
-		return defaultURLReadyWait
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d < 0 {
+// clampReadyWait keeps --url-ready-wait inside what a visitor should ever be
+// made to wait. A negative value is an operator slip rather than an intention,
+// so it falls back to the default; whatever is configured, the gate gives up by
+// maxURLReadyWait, because a browser tab waiting a minute on a blank page is
+// worse than an honest 503.
+func clampReadyWait(d time.Duration) time.Duration {
+	if d < 0 {
 		return defaultURLReadyWait
 	}
 	return min(d, maxURLReadyWait)
@@ -225,5 +212,5 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 
 	spriteURLProxy(func(ctx context.Context) (net.Conn, error) {
 		return dialGuestTCP(ctx, m, "http")
-	}, urlReadyWait(), sp.URLSettings.Auth != "public").ServeHTTP(w, r)
+	}, clampReadyWait(s.opts.URLReadyWait), sp.URLSettings.Auth != "public").ServeHTTP(w, r)
 }

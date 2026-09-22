@@ -116,6 +116,8 @@ func main() {
 	maxRunning := flag.Int("max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
 	maxRunningMem := flag.Int("max-running-memory-mib", 0, "guest RAM (MiB) all running sprites together may hold; waking another is refused until one goes idle (0 = no budget). Each sprite is counted at its ceiling (its memory limit + 128 MiB, or --mem-mib), because a guest with memory autoscale may deflate its balloon back up to that at any time. Set it below this host's RAM: page cache, Firecracker overhead and everything else on the host are not counted")
 	maxBoots := flag.Int("max-concurrent-boots", 0, "cold boots that may be in flight at once; another is refused with a retryable error rather than queued (0 = no limit). Resumes are not capped")
+	leaseWarn := flag.Duration("lease-warning", 5*time.Minute, "how long before a workspace lease expires the sprite.expiring event goes out (0 = the 5 minute default)")
+	urlReady := flag.Duration("url-ready-wait", 10*time.Second, "how long a sprite URL waits for the app inside to accept a connection before answering 503; covers a cold boot and the app's own start (0 = fail on the first refused connection, 60s ceiling)")
 	diskReserve := flag.Int64("disk-reserve-mib", 2048, "free space (MiB) a create, checkpoint or restore must leave on the sprite volume, or it is refused (0 = never refuse)")
 	diskWarn := flag.Int("disk-warn-percent", 10, "warn in the log while less than this share of the sprite volume is free (0 = never)")
 	var webhooks []string
@@ -151,6 +153,7 @@ func main() {
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
 		NetdSocket: *netdSocket, Backup: backupOpts(),
 		MaxSprites: *maxSprites, MaxRunning: *maxRunning, MaxRunningMemoryMiB: *maxRunningMem, MaxConcurrentBoots: *maxBoots,
+		LeaseWarning: *leaseWarn, URLReadyWait: *urlReady,
 		DiskReserve: *diskReserve << 20, DiskWarnPercent: *diskWarn,
 		Listen: *listen,
 	}
