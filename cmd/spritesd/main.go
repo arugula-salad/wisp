@@ -85,7 +85,8 @@ func main() {
 	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
 	warmTTL := flag.Duration("warm-ttl", time.Hour, "drop a suspended sprite's memory state (go cold) after this long")
 	vcpus := flag.Int("vcpus", 8, "default vCPUs per sprite")
-	mem := flag.Int("mem-mib", 2048, "default guest RAM per sprite (MiB); also the size of each warm snapshot on disk")
+	mem := flag.Int("mem-mib", 2048, "default guest RAM per sprite (MiB); a warm snapshot takes what the guest was using, up to this")
+	fpr := flag.Bool("free-page-reporting", true, "guests hand freed memory back to the host while they run (balloon free page reporting); memory a guest frees and then touches again is re-faulted, ~2 s/GiB. Takes effect at each sprite's next cold boot")
 	dns := flag.String("dns", "1.1.1.1,8.8.8.8", "nameservers handed to guests")
 	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are <name>.<url-domain>; to serve them beyond this machine, point a wildcard DNS record here and see --public-listen")
 	control := flag.Bool("control", true, "serve the multiplexed /control channel; --control=false makes every SDK fall back to per-operation WebSockets")
@@ -139,9 +140,10 @@ func main() {
 	opts := server.Options{
 		DataDir: abs, BaseImage: filepath.Join(abs, "images", "base.ext4"),
 		Host: vmm.Host{
-			Firecracker: filepath.Join(abs, "bin", "firecracker"),
-			Kernel:      filepath.Join(abs, "kernel", "vmlinux"),
-			Initrd:      filepath.Join(abs, "initrd.cpio"),
+			Firecracker:         filepath.Join(abs, "bin", "firecracker"),
+			Kernel:              filepath.Join(abs, "kernel", "vmlinux"),
+			Initrd:              filepath.Join(abs, "initrd.cpio"),
+			NoFreePageReporting: !*fpr,
 		},
 		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn, NoControl: !*control, ControlForGoSDK: *controlGo,
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
