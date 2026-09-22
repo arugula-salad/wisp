@@ -116,9 +116,9 @@ the above (22 checks), including that nothing is corrupted afterwards; it needs 
 
 ## Not built yet
 
-- **Metrics**: no Prometheus endpoint. The log has the raw events (wake mode and latency,
-  suspends, going cold, policy denials, limit refusals, disk warnings), and
-  `spritesd status --json` has the gauges.
+- **Metrics**: no Prometheus endpoint. The same events the log has (wake mode and latency,
+  suspends, going cold, policy denials, limit refusals, disk warnings) are available as a
+  stream and as webhooks ([events](events.md)), and `spritesd status --json` has the gauges.
 - **Tokens**: one bearer token in `<data>/token`; to rotate it, replace the file and restart.
   No named tokens, scopes or revocation.
 - **Listening beyond localhost**: the API binds `127.0.0.1` in plaintext, and the supported
