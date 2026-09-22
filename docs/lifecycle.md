@@ -28,6 +28,64 @@ curl --unix-socket /.sprite/api.sock -X POST http://sprite/v1/tasks -d '{"name":
 They last at most 1h, are refreshed with PUT, and do not survive a cold boot or a spritesd
 restart. `/v1/sprites/{name}/tasks` exposes the same thing from outside (our extension).
 
+## Leases: sprites that delete themselves
+
+A task holds a sprite awake. A **lease** is the other kind of expiry: a deadline on the
+workspace itself, after which the sprite is deleted, disk and checkpoints and address
+included. It is ours, not upstream's, and it is opt-in — a sprite created without one has no
+deadline and is never reaped. There is deliberately no flag for a default lease: a persistent
+sprite must not acquire an expiry because of how the daemon was started.
+
+```sh
+# at creation, as a deadline or a duration
+curl -X POST "$SPRITES_API_URL/v1/sprites" -d '{"name":"preview-412","ttl_seconds":7200}'
+curl -X POST "$SPRITES_API_URL/v1/sprites" -d '{"name":"demo","expires_at":"2026-10-01T09:00:00Z"}'
+
+# renew, protect, release — the lease endpoint is outside /v1, like the event stream
+curl -X POST "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease" -d '{"ttl_seconds":3600}'
+curl -X POST "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease" -d '{"protected":true}'
+curl -X DELETE "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease"   # no deadline at all
+curl "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease"
+```
+
+- `expires_at` (RFC3339) and `ttl_seconds` are two ways to say the same thing; giving both is
+  an error, and so is a deadline already in the past. `expires_at: ""` or `ttl_seconds: 0`
+  clears the lease, and a request that mentions neither leaves it alone — an SDK that knows
+  nothing of leases cannot drop one by accident. The same fields work on
+  `PUT /v1/sprites/{name}`, and both appear on the sprite in `GET`, in `spritesd status --json`
+  and in the web UI's sprite overview.
+- `protected: true` holds the deletion off without clearing the deadline, for the sprite
+  somebody turns out to still be using. The deadline stays visible and stays in the past;
+  clearing the protection hands the sprite straight back to the reaper.
+- The reaper runs on the same 30 s janitor tick as the warm-TTL sweep, and **once at
+  startup**: a lease that ran out while spritesd was down has still run out.
+- Expiry is deletion, exactly what `DELETE /v1/sprites/{name}` does and by the same code —
+  a running sprite is stopped first, and its address, tap, disks, checkpoints and custom
+  domains are released. It is **not** a suspend, and it does **not** take a backup first:
+  where a bucket is configured the reaper leaves the same tombstone a manual delete leaves,
+  which says the sprite was deleted and never that its last upload was current.
+- Renewals and protection changes take the sprite's lifecycle lock, the one every transition
+  holds, and a reap that has committed refuses them with `409 expired`. A renewal racing a
+  reap therefore either wins outright or is told the sprite is going; there is no state in
+  between.
+- Two events say what happened: `sprite.expiring` once per deadline, a lead time ahead of it
+  (5 minutes by default), and `sprite.expired` just before the `sprite.deleted` that follows.
+
+**Leases for a spawner's children** are the reason all this exists. A lobby that hands every
+visitor a sprite reaches `spawn_policy.max_children` and stays there, because nothing frees a
+slot. `child_ttl_seconds` in the [spawn policy](api.md#sprites-that-create-sprites) gives every
+child a lease at birth:
+
+```sh
+curl -X POST "$SPRITES_API_URL/v1/sprites/lobby/policy/spawn" \
+  -d '{"enabled":true,"max_children":50,"child_ttl_seconds":3600}'
+```
+
+0, the default, keeps the old behavior: children never expire and the lobby is expected to
+delete them. The policy's TTL is a ceiling rather than a default — a lobby that knows a game
+is short-lived may ask for less when it creates one, and a child cannot ask for more, nor
+protect itself out of the lease its parent gave it.
+
 ## What a sprite costs in memory and disk
 
 Every VM has a virtio-balloon device, and a sprite costs roughly what its guest is using,
