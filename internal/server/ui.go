@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,6 +101,20 @@ func (s *Server) uiHandler() http.Handler {
 	api.HandleFunc("GET /ui/api/metrics", func(w http.ResponseWriter, r *http.Request) {
 		since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
 		writeJSON(w, http.StatusOK, s.metrics.snapshot(since))
+	})
+	api.HandleFunc("GET /ui/api/http", func(w http.ResponseWriter, r *http.Request) {
+		v := r.URL.Query()
+		q := httpQuery{Range: time.Hour, Sprite: v.Get("sprite"), Public: v.Get("listener"), Minute: v.Get("res") == "minute"}
+		if n, err := strconv.Atoi(v.Get("range")); err == nil {
+			q.Range = min(max(time.Duration(n)*time.Second, 5*time.Minute), httpCoarseKeep)
+		}
+		if k := v.Get("kinds"); k != "" {
+			q.Kinds = map[string]bool{}
+			for _, kind := range strings.Split(k, ",") {
+				q.Kinds[kind] = true
+			}
+		}
+		writeJSON(w, http.StatusOK, s.httpStats.query(q, time.Now()))
 	})
 	api.HandleFunc("POST /ui/api/sprites/{name}/wake", func(w http.ResponseWriter, r *http.Request) {
 		sp, ok := s.lookup(w, r)

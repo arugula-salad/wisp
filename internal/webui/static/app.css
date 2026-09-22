@@ -21,6 +21,7 @@
   --s-6: #008300;
   --s-7: #4a3aa7;
   --s-8: #e34948;
+  --q-50: #86b6ef; --q-95: #2a78d6; --q-99: #104281;
   --accent: #2a78d6;
   --accent-ink: #ffffff;
   --good: #0ca30c;
@@ -39,6 +40,7 @@
     --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --wash: rgba(255, 255, 255, 0.05);
     --s-running: #3987e5; --s-warm: #d95926; --s-cold: #199e70; --s-4: #c98500; --s-5: #d55181;
     --s-6: #008300; --s-7: #9085e9; --s-8: #e66767; --accent: #3987e5; --good-ink: #0ca30c;
+    --q-50: #184f95; --q-95: #3987e5; --q-99: #9ec5f4;
     --shadow: none;
   }
 }
@@ -48,6 +50,7 @@
   --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --wash: rgba(255, 255, 255, 0.05);
   --s-running: #3987e5; --s-warm: #d95926; --s-cold: #199e70; --s-4: #c98500; --s-5: #d55181;
   --s-6: #008300; --s-7: #9085e9; --s-8: #e66767; --accent: #3987e5; --good-ink: #0ca30c;
+  --q-50: #184f95; --q-95: #3987e5; --q-99: #9ec5f4;
   --shadow: none;
 }
 
@@ -120,7 +123,9 @@ label.field { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
   .two, .three { grid-template-columns: 1fr; }
   main { padding: 16px; }
   .top { padding: 0 12px; gap: 6px; }
-  .top nav { gap: 0; }
+  .top nav { gap: 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .top nav::-webkit-scrollbar { display: none; }
+  .top nav a { flex: none; }
   .top nav a { padding: 6px 7px; }
   .brand span, .live span { display: none; }
   .top-right { gap: 0; }
@@ -223,6 +228,9 @@ td.actions { text-align: right; white-space: nowrap; }
 .tabs a { padding: 8px 14px; text-decoration: none; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .tabs a:hover { color: var(--ink); }
 .tabs a.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 550; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: 8px 14px; margin-bottom: -1px; color: var(--ink-2); white-space: nowrap; }
+.tabs button:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 550; }
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
 dl.kv dt { color: var(--ink-2); }
 dl.kv dd { margin: 0; overflow-wrap: anywhere; }
@@ -251,3 +259,29 @@ dialog p { margin: 0; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Traffic and Ops */
+select.compact { width: auto; padding: 5px 8px; font-size: 12.5px; max-width: 180px; }
+.delta { color: var(--ink-2); }
+.small { font-size: 12px; }
+.nowrap { white-space: nowrap; }
+td.path { font-family: var(--mono); font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.tags { min-width: 120px; }
+td.tags .pill { display: inline-block; margin: 1px 0; }
+td.tags .pill + .pill { margin-left: 4px; }
+.tail td.path { max-width: 220px; }
+.inbar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.inbar i { display: block; height: 8px; border-radius: 0 4px 4px 0; background: var(--s-running); min-width: 2px; max-width: calc(100% - 48px); order: -1; margin-right: auto; }
+.inbar b { font-weight: 550; min-width: 40px; }
+.code { font-family: var(--mono); font-size: 11.5px; padding: 1px 6px; border-radius: 5px; background: var(--surface-2); color: var(--ink-2); }
+.code.c2 { color: var(--ink); }
+.code.c4 { background: color-mix(in srgb, var(--warning) 24%, transparent); color: var(--ink); }
+.code.c5 { background: color-mix(in srgb, var(--critical) 18%, transparent); color: var(--critical); font-weight: 600; }
+table.sortable th[data-s] { cursor: pointer; user-select: none; }
+table.sortable th[data-s]:hover, table.sortable th.sorted { color: var(--ink); }
+.tail { max-height: 420px; overflow-y: auto; }
+.tail td { padding: 6px 12px; font-size: 12.5px; }
+@media (max-width: 520px) {
+  td.path { max-width: 160px; }
+  .page-head .actions .range button { padding: 4px 7px; }
+}

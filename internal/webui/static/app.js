@@ -2,7 +2,7 @@
 // ordinary /v1 API and to /ui/api (status, metrics history, suspend/wake),
 // authenticated by the cookie /ui/login sets plus the X-Mini-Sprites-UI header.
 
-import { timeSeries, lanes, bars, sparkline, fmtTime } from './charts.js';
+import { timeSeries, lanes, bars, sparkline, heatmap, fmtTime, fmtTimeSec } from './charts.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const POLL_MS = 5000;
@@ -219,6 +219,8 @@ function route() {
   if (a === 's' && b) return { name: 'sprite', sprite: b, tab: c || 'overview' };
   if (a === 'sprites') return { name: 'sprites' };
   if (a === 'host') return { name: 'host' };
+  if (a === 'traffic') return { name: 'traffic', sprite: b };
+  if (a === 'ops') return { name: 'ops' };
   return { name: 'overview' };
 }
 function mount() {
@@ -228,7 +230,7 @@ function mount() {
   const root = $('#view');
   root.innerHTML = '';
   if (!data.loaded) { root.innerHTML = '<div class="empty"><span class="spin"></span> Loading…</div>'; view = null; return; }
-  view = ({ overview: Overview, sprites: SpritesView, host: HostView, sprite: SpriteView })[r.name](root, r);
+  view = ({ overview: Overview, sprites: SpritesView, traffic: TrafficView, ops: OpsView, host: HostView, sprite: SpriteView })[r.name](root, r);
   view.mounted = true;
   view.update?.();
 }
@@ -318,6 +320,29 @@ function putSpark(id, values, color, max) {
   if (box) { box.innerHTML = ''; box.appendChild(sparkline(values, { color, max })); }
 }
 
+// ---------- metric tabs ----------
+
+// Chart-heavy pages keep their stat tiles on top and split the charts into
+// tabs, so each tab fits on a screen. The chosen tab sticks per page.
+const metricTab = (() => { try { return JSON.parse(localStorage.getItem('ms-tabs')) || {}; } catch { return {}; } })();
+function tabbed(page, panels) {
+  const cur = panels.some(([k]) => k === metricTab[page]) ? metricTab[page] : panels[0][0];
+  return html`<nav class="tabs" role="tablist" data-tabs="${page}">${panels.map(([k, l]) => html`<button type="button" role="tab" data-tab="${k}" aria-selected="${k === cur}" class="${k === cur ? 'on' : ''}">${l}</button>`)}</nav>
+    ${panels.map(([k, , body]) => html`<div role="tabpanel" data-panel="${k}"${k === cur ? '' : raw(' hidden')}>${body}</div>`)}`;
+}
+// wireTabs switches panels and redraws: charts in a hidden panel have no width.
+function wireTabs(root, redraw) {
+  const nav = root.querySelector('[data-tabs]');
+  nav.onclick = (e) => {
+    const b = e.target.closest('[data-tab]'); if (!b) return;
+    metricTab[nav.dataset.tabs] = b.dataset.tab;
+    try { localStorage.setItem('ms-tabs', JSON.stringify(metricTab)); } catch {}
+    nav.querySelectorAll('[data-tab]').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', x === b); });
+    root.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== b.dataset.tab; });
+    redraw();
+  };
+}
+
 // ---------- Overview ----------
 
 function Overview(root) {
@@ -325,23 +350,24 @@ function Overview(root) {
     <div class="page-head"><div><h1>Overview</h1><div class="sub" id="ov-sub"></div></div>
       <div class="actions"><button class="primary" data-act="new">＋ New sprite</button></div></div>
     <div class="grid kpis" id="ov-kpis"></div>
-    <div class="grid two">
+    ${tabbed('overview', [
+    ['activity', 'Activity', html`<div class="grid two">
       <section class="card"><header><h2>Sprite states</h2><span class="note">stacked count · last hour</span></header>
         <div id="ch-states"></div><div id="lg-states"></div></section>
-      <section class="card"><header><h2>CPU</h2><span class="note" id="cpu-note">cores busy across all VMs</span></header><div id="ch-cpu"></div></section>
+      <section class="card"><header><h2>Recent changes</h2><span class="note">state transitions seen by the sampler</span></header><ul class="feed" id="feed"></ul></section>
     </div>
     <section class="card" style="margin-bottom:16px"><header><h2>Activity</h2><span class="note">each sprite's state over the last hour · click a lane to open</span></header>
-      <div id="ch-lanes"></div><div id="lg-lanes"></div></section>
-    <div class="grid two">
+      <div id="ch-lanes"></div><div id="lg-lanes"></div></section>`],
+    ['resources', 'CPU & memory', html`<div class="grid two">
+      <section class="card"><header><h2>CPU</h2><span class="note" id="cpu-note">cores busy across all VMs</span></header><div id="ch-cpu"></div></section>
       <section class="card"><header><h2>Memory</h2><span class="note">resident memory of all VMs</span></header><div id="ch-mem"></div></section>
-      <section class="card"><header><h2>Memory by sprite</h2><span class="note">running VMs, now</span></header><div id="ch-membar"></div></section>
     </div>
-    <div class="grid two">
-      <section class="card"><header><h2>Disk by sprite</h2><span class="note" id="disk-note"></span></header><div id="ch-disk"></div><div id="lg-disk"></div></section>
-      <section class="card"><header><h2>Recent changes</h2><span class="note">state transitions seen by the sampler</span></header><ul class="feed" id="feed"></ul></section>
-    </div>`);
+    <section class="card" style="margin-bottom:16px"><header><h2>Memory by sprite</h2><span class="note">running VMs, now</span></header><div id="ch-membar"></div></section>`],
+    ['disk', 'Disk', html`<section class="card" style="margin-bottom:16px"><header><h2>Disk by sprite</h2><span class="note" id="disk-note"></span></header><div id="ch-disk"></div><div id="lg-disk"></div></section>`],
+  ])}`);
   wireActions(root);
-  return {
+  wireTabs(root, () => this_.update());
+  const this_ = {
     update() {
       const st = data.status, h = st.host, pts = data.metrics.points, last = pts.at(-1) || {};
       const rows = spriteRows();
@@ -407,6 +433,7 @@ function Overview(root) {
       feed.scrollTop = feedTop;
     },
   };
+  return this_;
 }
 
 // ---------- Sprites list ----------
@@ -467,16 +494,19 @@ function HostView(root) {
   root.innerHTML = String(html`
     <div class="page-head"><div><h1>Host</h1><div class="sub" id="h-sub"></div></div></div>
     <div class="grid kpis" id="h-kpis"></div>
-    <div class="grid two">
+    ${tabbed('host', [
+    ['usage', 'Usage', html`<div class="grid two">
       <section class="card"><header><h2>Host memory</h2><span class="note">used, including every VM</span></header><div id="ch-hmem"></div></section>
       <section class="card"><header><h2>Load average</h2><span class="note">1-minute</span></header><div id="ch-load"></div></section>
     </div>
-    <div class="grid two">
-      <section class="card"><header><h2>Sprite volume</h2><span class="note">used space over time</span></header><div id="ch-vol"></div></section>
+    <section class="card" style="margin-bottom:16px"><header><h2>Sprite volume</h2><span class="note">used space over time</span></header><div id="ch-vol"></div></section>`],
+    ['daemon', 'Daemon', html`<div class="grid two">
       <section class="card"><header><h2>Daemon</h2></header><dl class="kv" id="h-kv"></dl></section>
-    </div>
-    <section class="card" id="h-orphans"></section>`);
-  return {
+      <section class="card" id="h-orphans"></section>
+    </div>`],
+  ])}`);
+  wireTabs(root, () => this_.update());
+  const this_ = {
     update() {
       const st = data.status, h = st.host, last = data.metrics.points.at(-1) || {};
       $('#h-sub').textContent = h.data_dir;
@@ -511,6 +541,305 @@ function HostView(root) {
           ${od.map((p) => html`<tr><td class="mono">${p.pid}</td><td class="mono" style="font-size:12px">${p.cmd.join(' ')}</td><td class="num">${p.vms}</td></tr>`)}</tbody></table></div>` : ''}`);
     },
   };
+  return this_;
+}
+
+// ---------- HTTP metrics: Traffic (who visits sprite URLs) and Ops (how the daemon is serving) ----------
+
+function fmtMs(v) {
+  if (!v) return '0 ms';
+  if (v < 1) return `${v.toFixed(2)} ms`;
+  if (v < 10) return `${v.toFixed(1)} ms`;
+  if (v < 1000) return `${Math.round(v)} ms`;
+  return v < 10000 ? `${(v / 1000).toFixed(2)} s` : `${(v / 1000).toFixed(1)} s`;
+}
+const fmtN = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e4 ? `${Math.round(v / 1e3)}k` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}k` : String(Math.round(v)));
+const fmtRate = (v) => (v === 0 ? '0' : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 0.01 ? v.toFixed(2) : v.toFixed(3));
+const fmtShare = (v) => (v === 0 ? '0%' : v < 0.001 ? '<0.1%' : v < 0.1 ? `${(v * 100).toFixed(1)}%` : `${Math.round(v * 100)}%`);
+const fmtRange = (s) => (s >= 3600 ? `${s / 3600}h` : `${s / 60}m`);
+const KIND_LABEL = { sprite: 'Sprite URLs', api: 'API', guest: 'From sprites', ui: 'Web UI' };
+// 2xx is ordinary traffic, not "good"; 4xx and 5xx wear the status colors and always a label.
+const STATUS_CLASSES = [
+  { i: 2, label: '2xx', color: 'var(--s-running)' }, { i: 3, label: '3xx', color: 'var(--s-cold)' },
+  { i: 4, label: '4xx', color: 'var(--warning)' }, { i: 5, label: '5xx', color: 'var(--critical)' }];
+const QUANTILES = [{ key: 'p50_ms', label: 'p50', color: 'var(--q-50)' }, { key: 'p95_ms', label: 'p95', color: 'var(--q-95)' }, { key: 'p99_ms', label: 'p99', color: 'var(--q-99)' }];
+
+// httpFetch drops answers to requests that a newer one has overtaken.
+function httpFetcher() {
+  let seq = 0;
+  return async (params) => {
+    const mine = ++seq;
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
+    const r = await api('/ui/api/http?' + q);
+    return mine === seq ? r : null;
+  };
+}
+
+// delta compares with the span just before, when the daemon held all of it.
+function delta(cur, prev, rangeS) {
+  if (prev == null) return '';
+  if (!prev) return cur ? html`<span class="delta">new vs previous ${fmtRange(rangeS)}</span>` : '';
+  const d = (cur - prev) / prev;
+  if (Math.abs(d) < 0.005) return html`<span class="delta">no change vs previous ${fmtRange(rangeS)}</span>`;
+  return html`<span class="delta">${d > 0 ? '↑' : '↓'} ${fmtShare(Math.abs(d))} vs previous ${fmtRange(rangeS)}</span>`;
+}
+
+function rangeButtons(id, ranges, cur) {
+  return html`<div class="range" id="${id}">${ranges.map(([v, l]) => html`<button data-v="${v}" class="${String(v) === String(cur) ? 'on' : ''}">${l}</button>`)}</div>`;
+}
+function wireRange(root, id, set) {
+  root.querySelector('#' + id).onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    root.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b));
+    set(b.dataset.v);
+  };
+}
+function spriteSelect(id, cur) {
+  const names = [...data.sprites.keys()].sort();
+  if (cur && !names.includes(cur)) names.unshift(cur);
+  return html`<select id="${id}" class="compact" aria-label="Sprite"><option value="">All sprites</option>${names.map((n) => html`<option ${n === cur ? raw('selected') : ''}>${n}</option>`)}</select>`;
+}
+const seriesTimes = (rep) => rep.series.map((p) => new Date(p.t).getTime());
+const spriteLink = (name) => html`<a class="mono" href="#/s/${encodeURIComponent(name)}">${name}</a>`;
+
+// inbar is a table cell's share-of-max bar with the number beside it.
+const inbar = (v, max, fmt = fmtN) => html`<div class="inbar"><i style="width:${(100 * v / (max || 1)).toFixed(1)}%"></i><b>${fmt(v)}</b></div>`;
+
+function statusPill(code) {
+  const c = Math.floor(code / 100);
+  return html`<span class="code c${c}">${code}</span>`;
+}
+
+// reqRows renders requests for the tail and the slowest list.
+function reqRows(list, empty, cols = 6) {
+  if (!list.length) return `<tr><td colspan="${cols}" class="empty">${empty}</td></tr>`;
+  return list.map((r) => String(html`<tr>
+    <td class="faint mono nowrap">${fmtTimeSec(r.t)}</td>
+    <td>${statusPill(r.status)}</td>
+    <td class="nowrap">${r.sprite ? spriteLink(r.sprite) : html`<span class="faint">${KIND_LABEL[r.kind] || r.kind}</span>`}</td>
+    <td class="path" title="${r.method} ${r.path}${r.route ? ` (${r.route})` : ''}"><span class="faint">${r.method}</span> ${r.path}</td>
+    <td class="num">${r.upgrade ? html`<span class="faint">${fmtMs(r.ttfb_ms)}</span>` : fmtMs(r.ttfb_ms)}</td>
+    <td class="tags">${r.wake_from ? html`<span class="pill" title="The sprite was ${r.wake_from} and had to start first">${r.wake_from === 'cold' ? 'cold boot' : 'resumed'} ${fmtMs(r.wake_ms)}</span>` : ''}${r.upgrade ? html`<span class="pill" title="Upgraded connection (WebSocket, exec); open for ${fmtMs(r.dur_ms)}">upgrade</span>` : ''}${r.public ? html`<span class="pill" title="Came in on the public listener">public</span>` : ''}${r.err ? html`<span class="pill bad">${r.err}</span>` : ''}</td></tr>`)).join('');
+}
+
+// Latency heatmap rows: pairs of the server's √2 bins, so each row doubles.
+function latencyHeat(rep) {
+  const E = rep.lat_edges_ms, nb = E.length;
+  const rowsAll = [];
+  for (let j = 0; 2 * j < nb; j++) rowsAll.push({ lo: j === 0 ? 0 : E[2 * j - 1], hi: E[Math.min(nb - 1, 2 * j + 1)] });
+  const cellsAll = rep.series.map((p) => rowsAll.map((_, j) => (p.lat[2 * j] || 0) + (p.lat[2 * j + 1] || 0)));
+  let lo = rowsAll.length, hi = -1;
+  cellsAll.forEach((col) => col.forEach((c, j) => { if (c) { lo = Math.min(lo, j); hi = Math.max(hi, j); } }));
+  if (hi < 0) return { rows: [], cells: [] };
+  lo = Math.max(0, lo - 1); hi = Math.min(rowsAll.length - 1, Math.max(hi + 1, lo + 7));
+  return { rows: rowsAll.slice(lo, hi + 1), cells: cellsAll.map((c) => c.slice(lo, hi + 1)) };
+}
+
+// ---------- Traffic ----------
+
+const trafficState = { range: '86400', sprite: '', listener: '' };
+function TrafficView(root, r) {
+  if (r.sprite) trafficState.sprite = r.sprite;
+  root.innerHTML = String(html`
+    <div class="page-head"><div><h1>Traffic</h1><div class="sub" id="tr-sub">Visitors to sprite URLs</div></div>
+      <div class="actions">${spriteSelect('tr-sprite', trafficState.sprite)}
+        ${rangeButtons('tr-listener', [['', 'All'], ['public', 'Public'], ['private', 'Private']], trafficState.listener)}
+        ${rangeButtons('tr-range', [['3600', '1h'], ['21600', '6h'], ['86400', '24h']], trafficState.range)}</div></div>
+    <div class="grid kpis" id="tr-kpis"></div>
+    ${tabbed('traffic', [
+    ['visits', 'Visits', html`<div class="grid two">
+      <section class="card"><header><h2>Visitors</h2><span class="note" id="tr-note"></span></header><div id="ch-tr-vis"></div></section>
+      <section class="card"><header><h2>Page views and requests</h2><span class="note" id="tr-note2"></span></header><div id="ch-tr"></div><div id="lg-tr"></div></section>
+    </div>`],
+    ['pages', 'Pages & sprites', html`<div class="grid two">
+      <section class="card"><header><h2>Top pages</h2><span class="note">HTML page views</span></header>
+        <div class="table-wrap"><table><thead><tr><th>Page</th><th>Sprite</th><th class="num" style="width:40%">Views</th></tr></thead><tbody id="tr-pages"></tbody></table></div></section>
+      <section class="card"><header><h2>Sprites</h2><span class="note">by requests</span></header>
+        <div class="table-wrap"><table><thead><tr><th>Sprite</th><th class="num">Visitors</th><th class="num">Views</th><th class="num" style="width:36%">Requests</th><th class="num">Errors</th></tr></thead><tbody id="tr-sprites"></tbody></table></div></section>
+    </div>`],
+    ['sources', 'Sources', html`<div class="grid two">
+      <section class="card"><header><h2>Referrers</h2><span class="note">where page views came from</span></header><div id="ch-tr-refs"></div></section>
+      <section class="card"><header><h2>Browsers and clients</h2><span class="note">every request, by user agent</span></header><div id="tr-mix"></div><div id="ch-tr-agents"></div></section>
+    </div>`],
+  ])}
+    <p class="faint small">Visitors are counted by a hash of address and browser under a key that changes every day; nothing identifying is stored.
+      Behind a TCP passthrough every public visitor arrives from the proxy's address, so there browsers are told apart only by user agent.</p>`);
+  const fetchHTTP = httpFetcher();
+  let rep = null;
+  const load = async () => {
+    try {
+      const r = await fetchHTTP({ range: trafficState.range, kinds: 'sprite', sprite: trafficState.sprite, listener: trafficState.listener, res: 'minute' });
+      if (r) { rep = r; this_.draw(); }
+    } catch (e) { fail(e); }
+  };
+  $('#tr-sprite').onchange = (e) => { trafficState.sprite = e.target.value; load(); };
+  wireRange(root, 'tr-listener', (v) => { trafficState.listener = v; load(); });
+  wireRange(root, 'tr-range', (v) => { trafficState.range = v; load(); });
+  wireTabs(root, () => this_.draw());
+  const this_ = {
+    update: load,
+    draw() {
+      if (!rep || !$('#tr-kpis')) return;
+      const t = rep.totals, p = rep.prev, rs = rep.range_seconds;
+      const errs = t.status[4] + t.status[5];
+      $('#tr-sub').textContent = `Visitors to sprite URLs${trafficState.sprite ? ` · ${trafficState.sprite}` : ''} · counting since ${new Date(rep.since).toLocaleString()}`;
+      $('#tr-kpis').innerHTML = [
+        stat({ label: 'Unique visitors', value: fmtN(t.visitors), hero: true, foot: delta(t.visitors, p?.visitors, rs) }),
+        stat({ label: 'Page views', value: fmtN(t.pages), foot: html`${delta(t.pages, p?.pages, rs)}${t.visitors ? html`<span>${(t.pages / t.visitors).toFixed(1)} per visitor</span>` : ''}` }),
+        stat({ label: 'Requests', value: fmtN(t.n), foot: html`${delta(t.n, p?.n, rs)}${t.upgrades ? html`<span>${fmtN(t.upgrades)} WebSocket</span>` : ''}` }),
+        stat({ label: 'Data sent', value: fmtBytes(t.bytes), foot: delta(t.bytes, p?.bytes, rs) }),
+        stat({ label: 'Errors', value: fmtShare(t.n ? errs / t.n : 0), foot: html`<span>${fmtN(t.status[4])} 4xx · ${fmtN(t.status[5])} 5xx</span>` }),
+      ].join('');
+      const times = seriesTimes(rep), interval = rep.step_seconds * 1000;
+      const per = rep.step_seconds >= 60 ? `per ${rep.step_seconds / 60} min` : `per ${rep.step_seconds} s`;
+      $('#tr-note').textContent = `unique ${per}`;
+      $('#tr-note2').textContent = per;
+      timeSeries($('#ch-tr-vis'), { times, interval, height: 200, floor: 1, label: 'Unique visitors', format: (v) => fmtN(v),
+        series: [{ label: 'Visitors', color: 'var(--s-running)', values: rep.series.map((x) => x.visitors) }] });
+      const ser = [
+        { label: 'Requests', color: 'var(--s-running)', values: rep.series.map((x) => x.n) },
+        { label: 'Page views', color: 'var(--s-warm)', values: rep.series.map((x) => x.pages) }];
+      timeSeries($('#ch-tr'), { times, interval, height: 200, floor: 1, label: 'Page views and requests', format: (v) => fmtN(v), series: ser });
+      $('#lg-tr').innerHTML = String(legend(ser.map((s) => ({ ...s, value: s.values.reduce((a, b) => a + b, 0) })), fmtN));
+
+      const maxPage = Math.max(1, ...rep.pages.map((x) => x.n));
+      $('#tr-pages').innerHTML = rep.pages.length ? rep.pages.slice(0, 15).map((x) => String(html`<tr>
+        <td class="path mono" title="${x.key}">${x.key}</td><td>${spriteLink(x.sprite)}</td><td class="num">${inbar(x.n, maxPage)}</td></tr>`)).join('')
+        : '<tr><td colspan="3" class="empty">No page views yet.</td></tr>';
+      const maxReq = Math.max(1, ...rep.sprites.map((x) => x.n));
+      $('#tr-sprites').innerHTML = rep.sprites.length ? rep.sprites.map((x) => String(html`<tr class="link" data-name="${x.key}">
+        <td>${spriteLink(x.key)}</td><td class="num">${fmtN(x.visitors)}</td><td class="num">${fmtN(x.pages)}</td>
+        <td class="num">${inbar(x.n, maxReq)}</td><td class="num">${x.n ? fmtShare((x.status[4] + x.status[5]) / x.n) : '—'}</td></tr>`)).join('')
+        : '<tr><td colspan="5" class="empty">No requests to any sprite URL yet.</td></tr>';
+
+      bars($('#ch-tr-refs'), { rows: rep.referrers.slice(0, 10).map((x) => ({ label: x.key, segments: [{ label: 'Page views', value: x.n, color: 'var(--s-running)' }] })),
+        format: fmtN, empty: 'No page views yet' });
+      const classes = { browser: 0, bot: 0, tool: 0 };
+      rep.agents.forEach((a) => { classes[a.key.split('/')[0]] = (classes[a.key.split('/')[0]] || 0) + a.n; });
+      const mix = [{ label: 'Browsers', value: classes.browser, color: 'var(--s-running)' }, { label: 'Bots', value: classes.bot, color: 'var(--s-warm)' },
+        { label: 'Tools and scripts', value: classes.tool, color: 'var(--s-cold)' }];
+      $('#tr-mix').innerHTML = mix.some((m) => m.value) ? String(html`${meter(mix, true)}${legend(mix, fmtN)}`) + '<div style="height:12px"></div>' : '';
+      const agentColor = { browser: 'var(--s-running)', bot: 'var(--s-warm)', tool: 'var(--s-cold)' };
+      bars($('#ch-tr-agents'), { rows: rep.agents.slice(0, 10).map((x) => {
+        const [cls, name] = x.key.split('/');
+        return { label: name || x.key, segments: [{ label: cls === 'tool' ? 'Tool or script' : cls === 'bot' ? 'Bot' : 'Browser', value: x.n, color: agentColor[cls] || 'var(--muted)' }] };
+      }), format: fmtN, empty: 'No requests yet' });
+    },
+  };
+  root.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr.link[data-name]');
+    if (tr && !e.target.closest('a')) { trafficState.sprite = tr.dataset.name; $('#tr-sprite').value = tr.dataset.name; load(); }
+  });
+  return this_;
+}
+
+// ---------- Ops ----------
+
+const opsState = { range: '900', sprite: '', kinds: new Set(['sprite', 'api', 'guest']), sort: 'n', desc: true };
+function OpsView(root) {
+  const kinds = ['sprite', 'api', 'guest', 'ui'];
+  root.innerHTML = String(html`
+    <div class="page-head"><div><h1>Ops</h1><div class="sub" id="op-sub">Every request the daemon serves, and how fast</div></div>
+      <div class="actions">
+        <div class="range" id="op-kinds" role="group" aria-label="Request kinds">${kinds.map((k) => html`<button data-k="${k}" aria-pressed="${opsState.kinds.has(k)}" class="${opsState.kinds.has(k) ? 'on' : ''}">${KIND_LABEL[k]}</button>`)}</div>
+        ${spriteSelect('op-sprite', opsState.sprite)}
+        ${rangeButtons('op-range', [['900', '15m'], ['3600', '1h'], ['21600', '6h'], ['86400', '24h']], opsState.range)}</div></div>
+    <div class="grid kpis" id="op-kpis"></div>
+    ${tabbed('ops', [
+    ['latency', 'Throughput & latency', html`<div class="grid two">
+      <section class="card"><header><h2>Throughput</h2><span class="note">requests per second, by status</span></header><div id="ch-op-rps"></div><div id="lg-op-rps"></div></section>
+      <section class="card"><header><h2>Latency</h2><span class="note">time to response headers</span></header><div id="ch-op-lat"></div><div id="lg-op-lat"></div></section>
+    </div>
+    <section class="card" style="margin-bottom:16px"><header><h2>Latency distribution</h2><span class="note">requests per time slice and latency band · darker is more</span></header><div id="ch-op-heat"></div></section>`],
+    ['routes', 'Routes', html`<section class="card" style="margin-bottom:16px"><header><h2>Routes</h2><span class="note">API patterns and sprite URL paths · click a heading to sort</span></header>
+      <div class="table-wrap"><table class="sortable"><thead><tr id="op-routes-head"></tr></thead><tbody id="op-routes"></tbody></table></div></section>`],
+    ['requests', 'Requests', html`<div class="grid two">
+      <section class="card"><header><h2>Live</h2><span class="note">latest requests, newest first</span></header>
+        <div class="table-wrap tail"><table><tbody id="op-tail"></tbody></table></div></section>
+      <section class="card"><header><h2>Slowest</h2><span class="note">in this range, upgrades aside</span></header>
+        <div class="table-wrap tail"><table><tbody id="op-slow"></tbody></table></div></section>
+    </div>`],
+  ])}`);
+  const fetchHTTP = httpFetcher();
+  let rep = null;
+  const load = async () => {
+    try {
+      const r = await fetchHTTP({ range: opsState.range, kinds: [...opsState.kinds].join(',') || 'none', sprite: opsState.sprite });
+      if (r) { rep = r; this_.draw(); }
+    } catch (e) { fail(e); }
+  };
+  $('#op-kinds').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const k = b.dataset.k;
+    if (opsState.kinds.has(k)) opsState.kinds.delete(k); else opsState.kinds.add(k);
+    b.classList.toggle('on', opsState.kinds.has(k)); b.setAttribute('aria-pressed', opsState.kinds.has(k));
+    load();
+  };
+  $('#op-sprite').onchange = (e) => { opsState.sprite = e.target.value; load(); };
+  wireRange(root, 'op-range', (v) => { opsState.range = v; load(); });
+  wireTabs(root, () => this_.draw());
+  $('#op-routes-head').onclick = (e) => {
+    const th = e.target.closest('th[data-s]'); if (!th) return;
+    if (opsState.sort === th.dataset.s) opsState.desc = !opsState.desc; else { opsState.sort = th.dataset.s; opsState.desc = th.dataset.s !== 'key'; }
+    this_.draw();
+  };
+  const this_ = {
+    update: load,
+    draw() {
+      if (!rep || !$('#op-kpis')) return;
+      const t = rep.totals, step = rep.step_seconds, sers = rep.series;
+      const times = seriesTimes(rep), interval = step * 1000;
+      const sel = (m) => Object.entries(m).filter(([k]) => opsState.kinds.has(k)).reduce((a, [, v]) => a + v, 0);
+      // The request fetching this page is itself in flight, as the web UI.
+      const inflight = Math.max(0, sel(rep.inflight) - (opsState.kinds.has('ui') ? 1 : 0)), upgraded = sel(rep.upgraded);
+      // "Now": the last complete step, or the one before it when the last just began.
+      const lastFull = sers.length > 1 ? sers[sers.length - 2] : sers.at(-1) || { n: 0 };
+      const errs5 = t.status[5];
+      $('#op-sub').textContent = `${[...opsState.kinds].map((k) => KIND_LABEL[k]).join(', ') || 'Nothing selected'}${opsState.sprite ? ` · ${opsState.sprite}` : ''} · ${step < 60 ? `${step} s` : `${step / 60} min`} steps`;
+      $('#op-kpis').innerHTML = [
+        stat({ label: 'Throughput', value: fmtRate(t.n / Math.max(1, rep.covered_seconds)), unit: 'req/s', foot: `${fmtN(t.n)} requests · last step ${fmtRate(lastFull.n / step)}/s`, sparkId: 'sp-op-n' }),
+        stat({ label: 'Server errors', value: fmtShare(t.n ? errs5 / t.n : 0), unit: '5xx', foot: `${fmtN(errs5)} 5xx · ${fmtN(t.status[4])} 4xx`, sparkId: 'sp-op-err' }),
+        stat({ label: 'Latency p95', value: fmtMs(t.p95_ms), foot: `p50 ${fmtMs(t.p50_ms)} · p99 ${fmtMs(t.p99_ms)} · max ${fmtMs(t.max_ms)}`, sparkId: 'sp-op-p95' }),
+        stat({ label: 'In flight', value: String(inflight), unit: 'now', foot: `${upgraded} upgraded connection${upgraded === 1 ? '' : 's'} open (exec, WebSockets)` }),
+        stat({ label: 'Wakes', value: fmtN(t.wakes), unit: 'requests waited', foot: t.wakes ? `avg ${fmtMs(t.wake_avg_ms)} · max ${fmtMs(t.wake_max_ms)} · ${t.cold_wakes} cold boot${t.cold_wakes === 1 ? '' : 's'}` : 'no request had to start a sprite' }),
+      ].join('');
+      putSpark('sp-op-n', sers.map((x) => x.n), 'var(--s-running)');
+      putSpark('sp-op-err', sers.map((x) => x.status[5]), 'var(--critical)', 1);
+      putSpark('sp-op-p95', sers.map((x) => x.p95_ms), 'var(--q-95)');
+
+      const statusSeries = STATUS_CLASSES.map((c) => ({ label: c.label, color: c.color, values: sers.map((x) => x.status[c.i] / step) }));
+      timeSeries($('#ch-op-rps'), { times, interval, stacked: true, height: 200, label: 'Requests per second by status', format: fmtRate, series: statusSeries });
+      $('#lg-op-rps').innerHTML = String(legend(STATUS_CLASSES.map((c) => ({ ...c, value: t.status[c.i] })), fmtN));
+      const has = sers.map((x) => x.n - x.upgrades > 0);
+      const latSeries = QUANTILES.map((q) => ({ label: q.label, color: q.color, values: sers.map((x, i) => (has[i] ? x[q.key] : null)) }));
+      timeSeries($('#ch-op-lat'), { times, interval, height: 200, area: false, floor: 1, label: 'Latency percentiles', format: fmtMs, series: latSeries });
+      $('#lg-op-lat').innerHTML = String(legend(QUANTILES.map((q) => ({ ...q, value: t[q.key] })), fmtMs));
+      const heat = latencyHeat(rep);
+      heatmap($('#ch-op-heat'), { times, step: interval, rows: heat.rows, cells: heat.cells, height: 220, format: fmtMs, label: 'Latency distribution over time' });
+
+      const cols = [['kind', 'Kind'], ['key', 'Route'], ['sprite', 'Sprite'], ['n', 'Requests'], ['err', '5xx'], ['p50_ms', 'p50'], ['p95_ms', 'p95'], ['p99_ms', 'p99'], ['max_ms', 'Max']];
+      $('#op-routes-head').innerHTML = cols.map(([k, l]) => String(html`<th data-s="${k}" class="${['kind', 'key', 'sprite'].includes(k) ? '' : 'num'}${opsState.sort === k ? ' sorted' : ''}" aria-sort="${opsState.sort === k ? (opsState.desc ? 'descending' : 'ascending') : 'none'}">${l}${opsState.sort === k ? (opsState.desc ? ' ↓' : ' ↑') : ''}</th>`)).join('');
+      const val = (r, k) => (k === 'err' ? (r.n ? r.status[5] / r.n : 0) : r[k] ?? '');
+      const routes = rep.routes.slice().sort((a, b) => {
+        const x = val(a, opsState.sort), y = val(b, opsState.sort);
+        const c = typeof x === 'string' ? String(x).localeCompare(String(y)) : x - y;
+        return opsState.desc ? -c : c;
+      }).slice(0, 40);
+      const maxN = Math.max(1, ...routes.map((r) => r.n));
+      $('#op-routes').innerHTML = routes.length ? routes.map((r) => String(html`<tr>
+        <td class="faint nowrap">${KIND_LABEL[r.kind] || r.kind}</td><td class="path mono" title="${r.key}">${r.key}</td>
+        <td>${r.sprite ? spriteLink(r.sprite) : r.kind === 'sprite' ? html`<span class="faint">no such sprite</span>` : ''}</td><td class="num">${inbar(r.n, maxN)}</td>
+        <td class="num">${r.status[5] ? html`<span class="err">${fmtShare(r.status[5] / r.n)}</span>` : html`<span class="faint">0</span>`}</td>
+        <td class="num">${r.n > r.upgrades ? fmtMs(r.p50_ms) : '—'}</td><td class="num">${r.n > r.upgrades ? fmtMs(r.p95_ms) : '—'}</td>
+        <td class="num">${r.n > r.upgrades ? fmtMs(r.p99_ms) : '—'}</td><td class="num">${r.n > r.upgrades ? fmtMs(r.max_ms) : '—'}</td></tr>`)).join('')
+        : '<tr><td colspan="9" class="empty">No requests in this range.</td></tr>';
+      const tail = $('#op-tail'), tailTop = tail.parentElement.parentElement.scrollTop;
+      tail.innerHTML = reqRows(rep.recent.slice(0, 60), 'Nothing yet.');
+      tail.parentElement.parentElement.scrollTop = tailTop;
+      $('#op-slow').innerHTML = reqRows(rep.slowest.slice(0, 15), 'Nothing yet.');
+    },
+  };
+  return this_;
 }
 
 // ---------- Sprite detail ----------

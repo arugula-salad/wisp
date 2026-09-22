@@ -59,12 +59,15 @@ func (s *Server) spriteForHost(host string) (string, bool) {
 func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name string, public bool) {
 	sp, err := s.store.Get(name)
 	if err != nil {
+		noteErr(r.Context(), "no such sprite")
 		http.Error(w, "no such sprite", http.StatusNotFound)
 		return
 	}
+	noteSprite(r.Context(), sp.Name)
 	if sp.URLSettings.Auth != "public" {
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+			noteErr(r.Context(), "token required")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="sprite"`)
 			http.Error(w, "this sprite's URL requires an API token (url_settings.auth is \"sprite\")", http.StatusUnauthorized)
 			return
@@ -73,11 +76,13 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 	m, release, err := s.life.Acquire(r.Context(), sp)
 	var lim *LimitError
 	if errors.As(err, &lim) {
+		noteErr(r.Context(), "at a limit")
 		writeLimitErr(w, lim)
 		return
 	}
 	if err != nil {
 		s.log.Error("wake failed", "sprite", sp.Name, "err", err)
+		noteErr(r.Context(), "wake failed")
 		msg := "sprite failed to wake"
 		if !public {
 			msg += ": " + err.Error() // host paths and the guest console
@@ -101,7 +106,8 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 				return dialGuestTCP(ctx, m, "http")
 			}},
 		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			noteErr(r.Context(), "app unreachable")
 			http.Error(w, "sprite is awake but the request failed: "+err.Error(), http.StatusBadGateway)
 		},
 	}

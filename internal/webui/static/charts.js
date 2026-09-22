@@ -101,13 +101,13 @@ export function timeSeries(container, opts) {
   for (let i = 0; i < n; i++) {
     let acc = 0;
     series.forEach((s, k) => {
-      const v = s.values[i] ?? 0;
+      const v = s.values[i];
       bottoms[k][i] = stacked ? acc : 0;
-      acc = stacked ? acc + v : v;
+      acc = stacked ? acc + (v ?? 0) : v; // null, unstacked: no data here
       tops[k][i] = acc;
     });
   }
-  const max = opts.max ?? Math.max(opts.floor || 0, ...tops.flat());
+  const max = opts.max ?? Math.max(opts.floor || 0, ...tops.flat().filter((v) => v != null));
   const { ticks, top } = bytes ? byteTicks(max) : niceTicks(max);
   const t0 = times[0], t1 = Math.max(times[n - 1], t0 + 1);
   const x = (t) => m.l + ((t - t0) / (t1 - t0)) * w;
@@ -129,7 +129,8 @@ export function timeSeries(container, opts) {
   const path = (k, useBottom) => {
     let d = '';
     for (let i = 0; i < n; i++) {
-      const brk = i === 0 || times[i] - times[i - 1] > gapMs;
+      if (tops[k][i] == null) continue;
+      const brk = i === 0 || times[i] - times[i - 1] > gapMs || tops[k][i - 1] == null;
       d += `${brk ? 'M' : 'L'}${x(times[i]).toFixed(1)},${y(tops[k][i]).toFixed(1)}`;
     }
     return d;
@@ -147,7 +148,7 @@ export function timeSeries(container, opts) {
   };
   series.forEach((s, k) => {
     if (stacked) el('path', { d: areaPath(k), fill: s.color, 'fill-opacity': 0.85 }, svg);
-    else if (opts.area !== false) el('path', { d: areaPath(k), fill: s.color, 'fill-opacity': 0.1 }, svg);
+    else if (opts.area !== false && !s.values.some((v) => v == null)) el('path', { d: areaPath(k), fill: s.color, 'fill-opacity': 0.1 }, svg);
   });
   if (stacked) {
     // 2px surface gap between stacked bands.
@@ -155,7 +156,7 @@ export function timeSeries(container, opts) {
   } else {
     series.forEach((s, k) => el('path', { d: path(k), class: 'line', stroke: s.color }, svg));
     // End dot on the latest value.
-    series.forEach((s, k) => el('circle', { class: 'dot', cx: x(times[n - 1]), cy: y(tops[k][n - 1]), r: 4, fill: s.color }, svg));
+    series.forEach((s, k) => { if (tops[k][n - 1] != null) el('circle', { class: 'dot', cx: x(times[n - 1]), cy: y(tops[k][n - 1]), r: 4, fill: s.color }, svg); });
   }
 
   // Hover: crosshair + tooltip with every series at the nearest sample.
@@ -171,8 +172,8 @@ export function timeSeries(container, opts) {
     for (let j = 0; j < n; j++) { const d = Math.abs(times[j] - t); if (d < best) { best = d; i = j; } }
     const cx = x(times[i]);
     cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
-    dots.forEach((d, k) => { d.setAttribute('cx', cx); d.setAttribute('cy', y(tops[k][i])); d.setAttribute('visibility', 'visible'); });
-    const rows = series.map((s) => ({ label: s.label, color: s.color, value: format(s.values[i] ?? 0), square: stacked })).reverse();
+    dots.forEach((d, k) => { d.setAttribute('cx', cx); d.setAttribute('cy', y(tops[k][i] ?? 0)); d.setAttribute('visibility', tops[k][i] == null ? 'hidden' : 'visible'); });
+    const rows = series.map((s) => ({ label: s.label, color: s.color, value: s.values[i] == null && !stacked ? '—' : format(s.values[i] ?? 0), square: stacked })).reverse();
     if (stacked && series.length > 1) rows.push({ label: 'Total', color: 'transparent', value: format(tops[series.length - 1][i]) });
     tip.innerHTML = tipRows(fmtTimeSec(times[i]), rows);
     placeTip(container, tip, cx * (r.width / width), ev.clientY - r.top);
@@ -310,4 +311,68 @@ export function sparkline(values, { color = 'var(--s-running)', max, height = 28
   el('path', { d: d + `L${width},${height}L0,${height}Z`, fill: color, 'fill-opacity': 0.12 }, svg);
   el('path', { d, fill: 'none', stroke: color, 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' }, svg);
   return svg;
+}
+
+/**
+ * heatmap draws counts over time (columns) and a log-scaled value axis (rows),
+ * shaded in one hue by count; empty cells stay the surface.
+ * opts: { times: ms[], step: ms, rows: [{lo, hi}], cells: number[col][row],
+ *         format: v => string (row bounds), unit: string (what is counted), label }
+ */
+export function heatmap(container, opts) {
+  const { times, rows, cells, step, height = 200, format = String, unit = 'requests', color = 'var(--s-running)' } = opts;
+  container.classList.add('chart');
+  const old = container.querySelector(':scope > svg');
+  const width = Math.max(container.clientWidth, 200);
+  const m = { l: 56, r: 12, t: 6, b: 22 };
+  const w = width - m.l - m.r, h = height - m.t - m.b;
+  const svg = el('svg', { viewBox: `0 0 ${width} ${height}`, height, role: 'img', 'aria-label': opts.label || '' });
+  swap(container, old, svg);
+  const n = times.length;
+  let top = 0;
+  for (const col of cells) for (const c of col) top = Math.max(top, c);
+  if (!n || !rows.length || !top) {
+    el('text', { x: m.l + w / 2, y: m.t + h / 2, 'text-anchor': 'middle' }, svg).textContent = opts.empty || 'No requests in this range';
+    return;
+  }
+  const cw = w / n, rh = h / rows.length;
+  const gap = cw >= 6 ? 1 : 0;
+  // Log shading: one request must show, and a busy cell must not wash out the rest.
+  const shade = (c) => 0.14 + 0.86 * (Math.log1p(c) / Math.log1p(top));
+  el('rect', { x: m.l, y: m.t, width: w, height: h, fill: 'var(--surface-2)', rx: 4 }, svg);
+  cells.forEach((col, i) => col.forEach((c, j) => {
+    if (!c) return;
+    el('rect', { x: m.l + i * cw, y: m.t + h - (j + 1) * rh, width: Math.max(0.5, cw - gap), height: Math.max(0.5, rh - gap), fill: color, 'fill-opacity': shade(c).toFixed(3) }, svg);
+  }));
+  // Row labels at most every ~22px, on round values.
+  const every = Math.max(1, Math.ceil(22 / rh));
+  rows.forEach((r, j) => {
+    if (j % every) return;
+    el('text', { x: m.l - 8, y: m.t + h - j * rh + 4, 'text-anchor': 'end' }, svg).textContent = format(r.lo);
+  });
+  const t0 = times[0], t1 = times[n - 1] + step;
+  const span = t1 - t0;
+  const xticks = Math.min(6, Math.max(2, Math.floor(w / 110)));
+  for (let i = 0; i <= xticks; i++) {
+    const t = t0 + (span * i) / xticks;
+    el('text', { x: m.l + (w * i) / xticks, y: height - 4, 'text-anchor': i === 0 ? 'start' : i === xticks ? 'end' : 'middle' }, svg).textContent = axisTime(span)(t);
+  }
+  const hl = el('rect', { fill: 'none', stroke: 'var(--ink)', 'stroke-width': 1, visibility: 'hidden', rx: 1 }, svg);
+  const hit = el('rect', { class: 'hit', x: m.l, y: m.t, width: w, height: h }, svg);
+  const tip = tipBox(container);
+  hit.addEventListener('pointermove', (ev) => {
+    const b = svg.getBoundingClientRect();
+    const px = (ev.clientX - b.left) * (width / b.width), py = (ev.clientY - b.top) * (height / b.height);
+    const i = Math.min(n - 1, Math.max(0, Math.floor((px - m.l) / cw)));
+    const j = Math.min(rows.length - 1, Math.max(0, Math.floor((m.t + h - py) / rh)));
+    const c = cells[i][j] || 0;
+    const total = cells[i].reduce((a, v) => a + v, 0);
+    hl.setAttribute('x', m.l + i * cw); hl.setAttribute('y', m.t + h - (j + 1) * rh);
+    hl.setAttribute('width', Math.max(1, cw - gap)); hl.setAttribute('height', Math.max(1, rh - gap)); hl.setAttribute('visibility', 'visible');
+    tip.innerHTML = tipRows(fmtTimeSec(times[i]), [
+      { label: `${format(rows[j].lo)} – ${format(rows[j].hi)}`, color, value: `${c} ${unit}`, square: true },
+      { label: 'In this interval', color: 'transparent', value: `${total}` }]);
+    placeTip(container, tip, (m.l + (i + 0.5) * cw) * (b.width / width), ev.clientY - b.top);
+  });
+  hit.addEventListener('pointerleave', () => { tip.hidden = true; hl.setAttribute('visibility', 'hidden'); });
 }

@@ -108,7 +108,7 @@ fmt.Print(string(out))
 
 spritesd serves a dashboard on the API address: open <http://127.0.0.1:7788/> and paste the
 token. It shows every sprite and the host at a glance, with an hour of CPU, memory, disk and
-state history, and lets you open a terminal in any sprite, browse its files, take and restore
+state history, request traffic and latency, and lets you open a terminal in any sprite, browse its files, take and restore
 checkpoints, and edit its policies ([web UI](docs/web-ui.md)).
 
 <picture>

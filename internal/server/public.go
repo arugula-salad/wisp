@@ -12,14 +12,15 @@ import (
 // nothing else. The management API is not reachable through it whatever the
 // request says, because its routes are simply not here.
 func (s *Server) PublicHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.instrument(func(*http.Request) string { return kindSprite }, true, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name, ok := s.spriteForHost(r.Host)
 		if !ok {
+			noteErr(r.Context(), "unknown host")
 			http.NotFound(w, r)
 			return
 		}
 		s.serveSpriteURL(w, r, name, true)
-	})
+	}))
 }
 
 // NewPublicServer wraps h for the open internet. There is no overall read or

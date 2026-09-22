@@ -222,6 +222,7 @@ func main() {
 	}
 	srv.Shutdown(ctx) // in-flight exec sessions are cut off; their sprites still suspend warm
 	srv.Close()
+	api.SaveHTTPStats()
 	life.Shutdown()
 }
 

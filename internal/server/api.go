@@ -43,6 +43,7 @@ type Server struct {
 	storage   *storage
 	backups   *backupManager // nil when no backup bucket is configured
 	metrics   *metrics       // history for the web UI (ui.go)
+	httpStats *httpStats     // request counts and latency for the web UI (httpstats.go)
 	started   time.Time
 }
 
@@ -59,6 +60,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
 	}
 	s.metrics = newMetrics(s)
+	s.httpStats = newHTTPStats()
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		go s.autoCheckpoints()
 	}
@@ -121,12 +123,13 @@ func (s *Server) Handler() http.Handler {
 	})
 	ui := s.uiHandler()
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if name, ok := s.spriteForHost(r.Host); ok {
+	return s.instrument(s.kindOf, false, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch s.kindOf(r) {
+		case kindSprite:
+			name, _ := s.spriteForHost(r.Host)
 			s.serveSpriteURL(w, r, name, false)
 			return
-		}
-		if r.URL.Path == "/" || r.URL.Path == "/ui" || strings.HasPrefix(r.URL.Path, "/ui/") {
+		case kindUI:
 			ui.ServeHTTP(w, r)
 			return
 		}
@@ -137,7 +140,18 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		mux.ServeHTTP(w, r)
-	})
+	}))
+}
+
+// kindOf sorts a request on the API listener for the request metrics.
+func (s *Server) kindOf(r *http.Request) string {
+	if _, ok := s.spriteForHost(r.Host); ok {
+		return kindSprite
+	}
+	if r.URL.Path == "/" || r.URL.Path == "/ui" || strings.HasPrefix(r.URL.Path, "/ui/") {
+		return kindUI
+	}
+	return kindAPI
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
