@@ -155,7 +155,7 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 |---|---|
 | [Host setup](docs/host-setup.md) | Guest networking and the reflink volume: the two optional steps that need root once |
 | [Operating it](docs/operations.md) | Running as a service, reboots, `spritesd status`, limits, disk pressure, what is not built |
-| [Lifecycle](docs/lifecycle.md) | `running` / `warm` / `cold`, what keeps a sprite awake, tasks |
+| [Lifecycle](docs/lifecycle.md) | `running` / `warm` / `cold`, what keeps a sprite awake, tasks, what a sprite costs in memory, autoscale |
 | [Web UI](docs/web-ui.md) | The browser dashboard: what it shows, how it signs in, reaching it from another machine |
 | [API coverage](docs/api.md) | What is implemented, and `sprite-env` for use from inside a sprite |
 | [Container images](docs/images.md) | Creating a sprite from any image (`"from": {"image": "node:22"}`), the image cache, odd userlands |

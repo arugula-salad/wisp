@@ -27,3 +27,82 @@ curl --unix-socket /.sprite/api.sock -X POST http://sprite/v1/tasks -d '{"name":
 
 They last at most 1h, are refreshed with PUT, and do not survive a cold boot or a spritesd
 restart. `/v1/sprites/{name}/tasks` exposes the same thing from outside (our extension).
+
+## What a sprite costs in memory and disk
+
+Every VM has a virtio-balloon device, and a sprite costs roughly what its guest is using,
+not its RAM size:
+
+- **While it runs**, the guest kernel reports memory it frees (in 2 MiB blocks, a few seconds
+  after the free) and Firecracker hands it back to the host. A resumed sprite that allocated
+  and freed 1 GiB three times sat at 111 MB of host RSS; without reporting it keeps whatever
+  it once touched.
+- **At suspend**, spritesd inflates the balloon over the guest's free memory, so it does not
+  wait for reporting to catch up. Firecracker then writes the whole memory file (it has no
+  sparse mode), unsynced, and spritesd copies it to a new file leaving a hole wherever a page
+  is zero, syncs the copy, and deletes the original. A hole reads back as zeros, so the
+  snapshot's contents are unchanged. (Punching holes in place was tried first: ext4 and XFS
+  write a range's dirty pages to disk before punching it, so every zero still hit the disk.)
+  On resume the balloon is set back and the guest deflates it in about 0.15 s.
+
+Measured with a 2 GiB sprite on ext4 (`du` of `snap.mem`, the allocated size, not the
+apparent one, which is always the RAM size):
+
+| Guest state at suspend | Before | Now |
+|---|---|---|
+| idle after boot | 2049 MiB | 115 to 118 MiB |
+| allocated and freed 1 GiB just before | 2049 MiB | 125 to 130 MiB (reporting alone: 1151 MiB at once, 650 after 5 s, 138 after 20 s) |
+| holding 600 MiB in a tmpfs | 2049 MiB | 711 MiB |
+| 4 GiB sprite that read a 2.5 GB file (page cache) | 4225 MiB | 2703 MiB; 790 MiB with autoscale |
+
+Latency, six suspend/wake rounds each on the same host with `--confine=strict`: suspend
+was 1.2 to 2.5 s before and is 1.16 to 1.21 s now (the first suspend after a cold boot is
+~2.5 s in both). Warm wake, restore to a responsive agent, is unchanged: 21 to 25 ms before,
+19 to 26 ms now. Disk writes per idle suspend (the partition's write counter across one
+suspend): 2049 MiB before, because Firecracker fsynced the whole file; 124 MiB now with
+`--confine=off`, and 0.8 to 1.1 GiB with the default cgroup confinement, whose per-cgroup
+dirty limits make the kernel write back part of the whole-RAM file while Firecracker is
+still writing it, before spritesd can delete it. A suspend still needs the full RAM size
+free on the volume for a moment, and up to half as much again while the copy exists; the
+disk guard reserves both.
+
+The cost of reporting: memory a guest frees and touches again after a few seconds has to be
+faulted in from the host again, at about 2 s per GiB here (2 GiB: 4.4 s on first touch in a
+fresh VM, 0.37 s when reused at once, 4.4 s again when reused after 30 s with reporting on,
+0.36 s with it off). That is the same cost every page already pays on its first touch after a
+warm resume. `--free-page-reporting=false` turns it off from each sprite's next cold boot;
+the suspend-time squeeze keeps snapshots small either way.
+
+### Memory autoscale
+
+`resources.memory.autoscale` is enforced with the balloon. Upstream describes a sprite that
+starts with some memory and grows towards a ceiling under pressure. Here the VM boots with
+the ceiling (`limit_mb` + 128 MiB, as without autoscale) and the balloon holds everything
+above a grant that starts at 1 GiB. Once a second spritesd reads the guest's balloon
+statistics: when available memory drops below a fifth of the grant it doubles the grant,
+and after 30 s of using less than half it shrinks it back towards what is in use (never
+below the start). Page cache does not count as pressure, so a sprite that reads a lot of
+files stays at its grant instead of filling its ceiling with cache. Turning autoscale on or
+off applies live.
+
+What it is and is not:
+
+- It bounds what the sprite costs the host (the 4 GiB sprite above: 0.96 GB of host RSS with
+  autoscale, 2.9 GB without), and so what its snapshot costs.
+- A burst faster than the one-second loop is not refused: the balloon runs with
+  `deflate_on_oom`, so the guest takes pages back from it instead of OOM-killing, and the
+  controller adopts what it took. 3 GiB allocated at once from a 1 GiB grant succeeded
+  with no OOM kill in 6.7 to 7.3 s, against 6.5 s for the same first touch without autoscale.
+- Inside the guest `MemTotal` stays at the ceiling and ballooned memory shows as used
+  (Linux counts it that way when `deflate_on_oom` is on); `MemAvailable` is the honest figure.
+- The workload's own limit is still `limit_mb`, and the host cgroup is still sized for the
+  ceiling, because the guest can always deflate. The balloon is a cooperative guest driver:
+  a hostile guest can ignore it, so it is an economy, not a boundary. VM RAM is the bound.
+- A VM resumed from a snapshot taken before VMs had a balloon has none; autoscale (and the
+  squeeze) take effect at its next cold boot.
+
+Not used: Firecracker's free page hinting, a developer preview with a documented race that
+can discard a page the guest has reused; diff snapshots, whose `mincore` shortcut would skip
+guest pages swapped out on the host and would need the previous memory file kept around for
+a resumed VM; and `virtio-mem` hotplug, which would give a truer growing `MemTotal` but has
+no fallback when the host is slow to grow it and has had several fixes in recent releases.

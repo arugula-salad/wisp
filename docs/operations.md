@@ -96,9 +96,11 @@ what bounds warm sprites here is the disk, below).
 
 ## Disk pressure
 
-The volume holds sprite disks, checkpoints, one guest-RAM-sized snapshot per warm sprite, and
-the disks cached from [container images](images.md) (building one is refused like a create
-when it would eat into the reserve; `spritesd images rm` gives the space back).
+The volume holds sprite disks, checkpoints, one memory snapshot per warm sprite, and the
+disks cached from [container images](images.md) (building one is refused like a create when
+it would eat into the reserve; `spritesd images rm` gives the space back). A snapshot takes
+what that guest was using (see [lifecycle](lifecycle.md#what-a-sprite-costs-in-memory-and-disk))
+but needs up to one and a half times its RAM free while it is written.
 When it is the loop-mounted image from `setup-storage.sh`, filling it, or the host filesystem
 under the sparse image, does not produce a clean ENOSPC but I/O errors inside guests. So:
 
