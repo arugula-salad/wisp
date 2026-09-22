@@ -50,6 +50,8 @@ func (s *Server) GuestAPI(hostDial func(ctx context.Context) (net.Conn, error)) 
 		// Sprites this one created. spritesd answers 403 unless its spawn policy allows it.
 		mux.Handle("/v1/sprites", host)
 		mux.Handle("/v1/sprites/", host)
+		// Events about those sprites (ours; spritesd scopes it to them).
+		mux.Handle("/mini-sprites/v1/events", host)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")

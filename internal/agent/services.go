@@ -70,6 +70,19 @@ type ServiceEvent struct {
 	LogFiles  map[string]string `json:"log_files,omitempty"`
 }
 
+// ServiceReport is a service lifecycle change the supervisor tells spritesd
+// about (see Reporter): started, crashed (exited on its own; a restart is
+// scheduled), stopped (on purpose) or failed (could not be launched).
+type ServiceReport struct {
+	Type         string `json:"type"`
+	Service      string `json:"service"`
+	PID          int    `json:"pid,omitempty"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
+	RestartCount int    `json:"restart_count,omitempty"`
+	RestartInMS  int64  `json:"restart_in_ms,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
 type service struct {
 	def         ServiceDef
 	state       ServiceState
@@ -86,13 +99,23 @@ type Supervisor struct {
 	stateDir string // definitions + logs; on the sprite's disk
 	runDir   string // pid files; tmpfs, so it empties on cold boot
 
+	// report hears of starts, crashes and stops; nil for none. It is called with
+	// mu held and must not block.
+	report func(ServiceReport)
+
 	mu       sync.Mutex
 	services map[string]*service
 }
 
 // NewSupervisor loads definitions and starts every service in dependency order.
 func NewSupervisor(stateDir, runDir string) *Supervisor {
-	sv := &Supervisor{stateDir: stateDir, runDir: runDir, services: map[string]*service{}}
+	return NewReportingSupervisor(stateDir, runDir, nil)
+}
+
+// NewReportingSupervisor is NewSupervisor with report set before the first
+// service starts, so the starts at boot are reported too.
+func NewReportingSupervisor(stateDir, runDir string, report func(ServiceReport)) *Supervisor {
+	sv := &Supervisor{stateDir: stateDir, runDir: runDir, services: map[string]*service{}, report: report}
 	os.MkdirAll(sv.defsDir(), 0o755)
 	os.MkdirAll(sv.logsDir(), 0o755)
 	os.MkdirAll(runDir, 0o755)
@@ -338,7 +361,9 @@ func (sv *Supervisor) spawnLocked(s *service) {
 		s.state.Status, s.state.Error, s.state.PID = "failed", err.Error(), 0
 		s.quickFails++
 		sv.emitLocked(s, ServiceEvent{Type: "error", Data: err.Error()})
-		sv.scheduleRestartLocked(s)
+		delay := sv.scheduleRestartLocked(s)
+		sv.reportLocked(ServiceReport{Type: "failed", Service: s.def.Name, Error: err.Error(),
+			RestartCount: s.state.RestartCount, RestartInMS: delay.Milliseconds()})
 		return
 	}
 
@@ -347,6 +372,7 @@ func (sv *Supervisor) spawnLocked(s *service) {
 	s.state.Status, s.state.PID, s.state.StartedAt, s.state.Error = "running", cmd.Process.Pid, &now, ""
 	os.WriteFile(sv.pidPath(s.def.Name), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 	sv.emitLocked(s, ServiceEvent{Type: "started", Data: fmt.Sprintf("pid %d", cmd.Process.Pid)})
+	sv.reportLocked(ServiceReport{Type: "started", Service: s.def.Name, PID: cmd.Process.Pid, RestartCount: s.state.RestartCount})
 
 	var readers sync.WaitGroup
 	readers.Add(2)
@@ -411,6 +437,7 @@ func (sv *Supervisor) reap(s *service, cmd *exec.Cmd, gen int, exited chan struc
 		s.state.PID = 0
 	}
 	if gen != s.gen || !s.wantRunning {
+		sv.reportLocked(ServiceReport{Type: "stopped", Service: s.def.Name, ExitCode: &code})
 		return // stopped or replaced on purpose
 	}
 	// It exited on its own: that is a crash, however clean the exit code.
@@ -422,10 +449,19 @@ func (sv *Supervisor) reap(s *service, cmd *exec.Cmd, gen int, exited chan struc
 	s.state.Status = "failed"
 	s.state.Error = fmt.Sprintf("exited with code %d", code)
 	s.state.RestartCount++
-	sv.scheduleRestartLocked(s)
+	delay := sv.scheduleRestartLocked(s)
+	sv.reportLocked(ServiceReport{Type: "crashed", Service: s.def.Name, ExitCode: &code,
+		RestartCount: s.state.RestartCount, RestartInMS: delay.Milliseconds()})
 }
 
-func (sv *Supervisor) scheduleRestartLocked(s *service) {
+func (sv *Supervisor) reportLocked(r ServiceReport) {
+	if sv.report != nil {
+		sv.report(r)
+	}
+}
+
+// scheduleRestartLocked returns how long until the restart.
+func (sv *Supervisor) scheduleRestartLocked(s *service) time.Duration {
 	// A service that had been up for a while restarts immediately; one that keeps dying backs off 1s, 2s, 4s...
 	var delay time.Duration
 	if s.quickFails > 0 {
@@ -441,6 +477,7 @@ func (sv *Supervisor) scheduleRestartLocked(s *service) {
 			sv.spawnLocked(s)
 		}
 	})
+	return delay
 }
 
 func (sv *Supervisor) Stop(name string, timeout time.Duration) error {

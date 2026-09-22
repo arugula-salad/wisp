@@ -46,6 +46,10 @@ const usage = `sprite-env manages this sprite from the inside.
   sprite-env sprites list | get <name> | delete <name>
                                           sprites this one created; needs a spawn policy, set from outside.
                                           --from clones a checkpoint ("." is this sprite, no @ is its newest)
+  sprite-env sprites events [--sprite a,b] [--type sprite.,service.] [--all] [--count N]
+                                          follow what happens to the sprites this one created, one JSON
+                                          event per line; --all starts with the events still buffered.
+                                          Reconnects by itself (a suspend cuts the stream) without losing any.
 
   sprite-env curl [curl options] <path>   curl against the management socket, e.g. sprite-env curl /v1/services
 `
@@ -270,6 +274,22 @@ func sprites(verb string, args []string) error {
 			body["labels"] = splitList(*labels)
 		}
 		return call(http.MethodPost, "/v1/sprites", nil, body)
+	case "events":
+		sprite := fs.String("sprite", "", "comma-separated sprite names")
+		types := fs.String("type", "", "comma-separated event type prefixes, e.g. sprite.,service.crashed")
+		all := fs.Bool("all", false, "start with the events still buffered, not just new ones")
+		count := fs.Int("count", 0, "exit after this many events (0 = follow until interrupted)")
+		if _, err := parse(fs, args, 0); err != nil {
+			return err
+		}
+		q := url.Values{}
+		if *sprite != "" {
+			q.Set("sprite", *sprite)
+		}
+		if *types != "" {
+			q.Set("type", *types)
+		}
+		return followEvents(q, *all, *count, os.Stdout)
 	}
 	return usageErr("unknown sprites command %q", verb)
 }
@@ -354,14 +374,31 @@ func (e apiError) Error() string { return string(e) }
 
 // request performs one API call and copies the response to out: NDJSON streams
 // line by line as they arrive, JSON documents re-indented for reading.
-func request(method, path string, q url.Values, body any, out io.Writer) error {
+func socketClient() *http.Client {
 	sock := socketPath()
-	client := &http.Client{Transport: &http.Transport{
+	return &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", sock)
 		},
 	}}
+}
+
+// errorOf turns a refusal into an apiError.
+func errorOf(resp *http.Response) error {
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var e struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(b, &e) == nil && e.Message != "" {
+		return apiError(fmt.Sprintf("%s (%d)", e.Message, resp.StatusCode))
+	}
+	return apiError(fmt.Sprintf("%s: %s", resp.Status, strings.TrimSpace(string(b))))
+}
+
+func request(method, path string, q url.Values, body any, out io.Writer) error {
+	sock := socketPath()
+	client := socketClient()
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -385,14 +422,7 @@ func request(method, path string, q url.Values, body any, out io.Writer) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		var e struct {
-			Message string `json:"message"`
-		}
-		if json.Unmarshal(b, &e) == nil && e.Message != "" {
-			return apiError(fmt.Sprintf("%s (%d)", e.Message, resp.StatusCode))
-		}
-		return apiError(fmt.Sprintf("%s: %s", resp.Status, strings.TrimSpace(string(b))))
+		return errorOf(resp)
 	}
 	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/x-ndjson") {
 		b, err := io.ReadAll(resp.Body)
@@ -439,4 +469,81 @@ func curl(args []string) error {
 		argv = append(argv, a)
 	}
 	return syscall.Exec(bin, argv, os.Environ())
+}
+
+// followEvents reads the server-sent event stream and prints each event's
+// JSON on a line of its own. The stream is cut whenever this sprite is
+// suspended, so it reconnects, resuming after the last event it printed.
+// Notices about the stream itself (a gap in what could be resumed) go to stderr.
+func followEvents(q url.Values, all bool, count int, out io.Writer) error {
+	client := socketClient()
+	var last string
+	seen := 0
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Second)
+		}
+		req, _ := http.NewRequest(http.MethodGet, "http://sprite/mini-sprites/v1/events?"+q.Encode(), nil)
+		switch {
+		case last != "":
+			req.Header.Set("Last-Event-ID", last)
+		case all:
+			req.Header.Set("Last-Event-ID", "0")
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt == 0 {
+				return apiError(fmt.Sprintf("management socket %s: %v", socketPath(), err))
+			}
+			continue
+		}
+		if resp.StatusCode >= 400 {
+			err := errorOf(resp)
+			resp.Body.Close()
+			if resp.StatusCode < 500 {
+				return err
+			}
+			continue
+		}
+		done, err := readEvents(resp.Body, out, &last, &seen, count)
+		resp.Body.Close()
+		if done || err != nil {
+			return err
+		}
+	}
+}
+
+// readEvents consumes one connection's worth of the stream. done means count was reached.
+func readEvents(body io.Reader, out io.Writer, last *string, seen *int, count int) (done bool, err error) {
+	sc := bufio.NewScanner(body)
+	sc.Buffer(make([]byte, 64*1024), 1<<20)
+	var id, data string
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "id:"):
+			id = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+		case strings.HasPrefix(line, "data:"):
+			data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		case line == "":
+			// An id with no data is the server telling us where we are.
+			if id != "" {
+				*last = id
+			}
+			switch {
+			case data == "":
+			case id == "":
+				fmt.Fprintln(os.Stderr, "sprite-env:", data)
+			default:
+				if _, err := fmt.Fprintln(out, data); err != nil {
+					return true, err
+				}
+				if *seen++; count > 0 && *seen >= count {
+					return true, nil
+				}
+			}
+			id, data = "", ""
+		}
+	}
+	return false, nil
 }
