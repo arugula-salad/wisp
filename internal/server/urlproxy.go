@@ -9,7 +9,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jhgaylor/mini-sprites/internal/vmm"
 )
@@ -29,6 +33,14 @@ func dialGuestTCP(ctx context.Context, m *vmm.Machine, port string) (net.Conn, e
 	if err != nil {
 		return nil, err
 	}
+	// The upgrade exchange below is plain blocking I/O, and the agent's side of
+	// it can take its time (it starts the sprite's HTTP service on demand and
+	// waits for it), so a caller's deadline has to be put on the socket or it
+	// would not bound this call at all. It is cleared again once the stream is
+	// the caller's: from there the proxy, not us, decides how long to wait.
+	if dl, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(dl)
+	}
 	fmt.Fprintf(conn, "GET /internal/tcp?port=%s HTTP/1.1\r\nHost: agent\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n", port)
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, nil)
@@ -41,7 +53,86 @@ func dialGuestTCP(ctx context.Context, m *vmm.Machine, port string) (net.Conn, e
 		conn.Close()
 		return nil, fmt.Errorf("nothing is listening on the %s port inside the sprite", port)
 	}
+	conn.SetDeadline(time.Time{})
 	return &bufferedConn{Conn: conn, r: br}, nil
+}
+
+// A sprite URL wakes its sprite and proxies straight into it. On a cold boot the
+// VM has resumed long before the user's app has bound its port, so the first
+// visitor after an idle period used to get a proxy error on a sprite that was
+// about to work perfectly well. The gate below waits, briefly and with a hard
+// ceiling, for the guest port to accept a connection.
+//
+// It is a wait, not a hold: it runs inside the request, under the keep-awake
+// hold Acquire already took for it (lifecycle.go), and adds nothing that
+// outlives the response. A visitor that gives up cancels the request context and
+// the gate stops with it, so nothing keeps polling an otherwise idle sprite.
+const (
+	defaultURLReadyWait = 10 * time.Second // a cold boot plus a normal app start
+	maxURLReadyWait     = 60 * time.Second // whatever is configured, the visitor waits no longer
+	urlReadyRetryMin    = 100 * time.Millisecond
+	urlReadyRetryMax    = 500 * time.Millisecond
+	// urlRetryAfter is what the 503 tells the visitor (and any crawler) to do.
+	urlRetryAfter = 5
+)
+
+// errSpriteNotReady is the gate giving up: the sprite is awake, but nothing
+// accepted a connection on its HTTP port in time. It is answered with a 503
+// rather than the proxy's 502, because it is honestly temporary.
+var errSpriteNotReady = errors.New("sprite is starting: nothing is listening on its HTTP port yet")
+
+// urlReadyWait is how long a visitor may wait for the app inside to come up.
+// $MINI_SPRITES_URL_READY_WAIT overrides it (a Go duration; 0 restores the old
+// behaviour of failing on the first refused connection). It is an environment
+// variable rather than a flag because the URL proxy is reached from paths that
+// never see the daemon's options, and it is read once so a request never stats
+// the environment.
+var urlReadyWait = sync.OnceValue(func() time.Duration {
+	return readyWaitFrom(os.LookupEnv("MINI_SPRITES_URL_READY_WAIT"))
+})
+
+// readyWaitFrom keeps the default for anything it cannot parse: a typo in a unit
+// file should not silently turn the gate into a minute-long hang, nor off.
+func readyWaitFrom(v string, set bool) time.Duration {
+	if !set {
+		return defaultURLReadyWait
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return defaultURLReadyWait
+	}
+	return min(d, maxURLReadyWait)
+}
+
+// dialWhenReady retries dial until it succeeds, the budget runs out or the
+// visitor goes away. Each attempt gets the remaining budget as its deadline, so
+// the total wait is bounded even when one attempt blocks inside the guest.
+func dialWhenReady(ctx context.Context, wait time.Duration, dial func(context.Context) (net.Conn, error)) (net.Conn, error) {
+	if wait <= 0 {
+		return dial(ctx) // gate off: one attempt, and its error as it came
+	}
+	deadline := time.Now().Add(min(wait, maxURLReadyWait))
+	for backoff := urlReadyRetryMin; ; backoff = min(backoff*2, urlReadyRetryMax) {
+		attempt, cancel := context.WithDeadline(ctx, deadline)
+		conn, err := dial(attempt)
+		cancel() // dial does not keep the context past its return
+		if err == nil {
+			return conn, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err() // the visitor hung up; no answer is owed
+		}
+		if left := time.Until(deadline); left <= 0 {
+			return nil, fmt.Errorf("%w (waited %v; last error: %v)", errSpriteNotReady, min(wait, maxURLReadyWait), err)
+		} else if backoff > left {
+			backoff = left
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
 }
 
 // spriteForHost maps "<name>.<url-domain>[:port]", or a custom domain attached
@@ -55,6 +146,42 @@ func (s *Server) spriteForHost(host string) (string, bool) {
 		return name, name != "" && !strings.Contains(name, ".")
 	}
 	return s.store.DomainOwner(host)
+}
+
+// spriteURLProxy is the reverse proxy behind a sprite's URL. dial is how the
+// guest's HTTP port is reached: a parameter so the readiness gate and the
+// answers below can be exercised without a VM. stripAuth drops the API token
+// from requests to a sprite whose URL is ours to guard, not the app's to read.
+func spriteURLProxy(dial func(context.Context) (net.Conn, error), wait time.Duration, stripAuth bool) *httputil.ReverseProxy {
+	return &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.Out.URL.Scheme, pr.Out.URL.Host = "http", pr.In.Host
+			pr.Out.Host = pr.In.Host
+			pr.SetXForwarded()
+			if stripAuth {
+				pr.Out.Header.Del("Authorization") // the API token is ours, not the app's
+			}
+		},
+		Transport: &http.Transport{DisableKeepAlives: true,
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialWhenReady(ctx, wait, dial)
+			}},
+		FlushInterval: -1,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, errSpriteNotReady) {
+				// Honest and temporary: the sprite is up, its app is not there
+				// yet. A 502 would tell a visitor (or a crawler) the site is
+				// broken; this tells them to come back.
+				noteErr(r.Context(), "app not ready")
+				w.Header().Set("Retry-After", strconv.Itoa(urlRetryAfter))
+				http.Error(w, "this sprite is starting up and its app is not listening yet. Try again in a few seconds.",
+					http.StatusServiceUnavailable)
+				return
+			}
+			noteErr(r.Context(), "app unreachable")
+			http.Error(w, "sprite is awake but the request failed: "+err.Error(), http.StatusBadGateway)
+		},
+	}
 }
 
 // serveSpriteURL handles requests to a sprite's own URL: wake it, then reverse
@@ -94,26 +221,9 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 		http.Error(w, msg, http.StatusServiceUnavailable)
 		return
 	}
-	defer release()
+	defer release() // the readiness wait below happens inside this hold, and ends with the request
 
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL.Scheme, pr.Out.URL.Host = "http", pr.In.Host
-			pr.Out.Host = pr.In.Host
-			pr.SetXForwarded()
-			if sp.URLSettings.Auth != "public" {
-				pr.Out.Header.Del("Authorization") // the API token is ours, not the app's
-			}
-		},
-		Transport: &http.Transport{DisableKeepAlives: true,
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return dialGuestTCP(ctx, m, "http")
-			}},
-		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			noteErr(r.Context(), "app unreachable")
-			http.Error(w, "sprite is awake but the request failed: "+err.Error(), http.StatusBadGateway)
-		},
-	}
-	proxy.ServeHTTP(w, r)
+	spriteURLProxy(func(ctx context.Context) (net.Conn, error) {
+		return dialGuestTCP(ctx, m, "http")
+	}, urlReadyWait(), sp.URLSettings.Auth != "public").ServeHTTP(w, r)
 }
