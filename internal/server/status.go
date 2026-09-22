@@ -63,6 +63,14 @@ type HostStatus struct {
 	// Limits of 0 mean none is configured.
 	MaxRunning int `json:"max_running"`
 	MaxSprites int `json:"max_sprites"`
+	// The host admission budget (admission.go), daemon only. ReservedMemoryMiB is
+	// the guest RAM running and starting VMs hold against MaxRunningMemoryMiB:
+	// their ceilings, not what they are touching, and reported even with no
+	// budget set so an operator can see what one would have to be.
+	MaxRunningMemoryMiB int `json:"max_running_memory_mib"`
+	ReservedMemoryMiB   int `json:"reserved_memory_mib"`
+	MaxConcurrentBoots  int `json:"max_concurrent_boots"`
+	BootsInFlight       int `json:"boots_in_flight"`
 	// Images is the cache of disks built from container images (images.go).
 	Images ImageCacheStatus `json:"images"`
 }
@@ -358,8 +366,10 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	out := Status{Daemon: &DaemonStatus{Pid: os.Getpid(), StartedAt: started, Listen: listen},
 		Host: HostStatus{DataDir: s.opts.DataDir, Reflink: s.storage.reflink, DiskReserve: s.opts.DiskReserve,
 			Networking: l.gateway != nil, PolicyHelper: l.egress.helperStatus(),
-			MaxRunning: s.opts.MaxRunning, MaxSprites: s.opts.MaxSprites},
+			MaxRunning: s.opts.MaxRunning, MaxSprites: s.opts.MaxSprites,
+			MaxRunningMemoryMiB: s.opts.MaxRunningMemoryMiB, MaxConcurrentBoots: s.opts.MaxConcurrentBoots},
 		Sprites: []SpriteStatus{}}
+	out.Host.ReservedMemoryMiB, out.Host.BootsInFlight = l.admit.usage()
 	out.Host.Volume, _ = l.disk.probe()
 	out.Host.Images = imageCacheStatus(vmRoot)
 	l.mu.Lock()

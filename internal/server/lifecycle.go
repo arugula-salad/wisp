@@ -58,9 +58,13 @@ type Options struct {
 	// Backup is the object-storage backup tier (internal/backup). An empty Bucket
 	// disables it entirely and nothing in the lifecycle changes.
 	Backup BackupOptions
-	// Operator ceilings (limits.go); 0 means no limit.
+	// Operator ceilings (limits.go, admission.go); 0 means no limit.
 	MaxSprites int // sprites that may exist
 	MaxRunning int // VMs that may run at once
+	// MaxRunningMemoryMiB is the aggregate guest RAM running and starting VMs may
+	// reserve, and MaxConcurrentBoots how many cold boots may be in flight.
+	MaxRunningMemoryMiB int
+	MaxConcurrentBoots  int
 	// The disk guard (diskguard.go): bytes that creates, checkpoints and restores
 	// must leave free, and the share of the volume below which the log warns.
 	DiskReserve     int64
@@ -146,6 +150,8 @@ type Lifecycle struct {
 	guestAPI func(store.Sprite, *guestChan) http.Handler
 	egress   *egress
 	disk     *diskGuard
+	// admit is the host memory budget and the concurrent-boot cap (admission.go).
+	admit *admission
 	// backups is the backup tier, nil when no bucket is configured. A nil manager's
 	// methods are no-ops, so the lifecycle needs no conditionals.
 	backups *backupManager
@@ -157,7 +163,7 @@ type Lifecycle struct {
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log), events: newEventBus(),
-		denials: newRateLimiter(guestEventBurst, guestEventRate)}
+		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate)}
 	l.disk.events = l.events
 	if opts.NoNetwork {
 		log.Info("guest networking disabled by --net=false")
@@ -304,7 +310,7 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 		if err := l.startLocked(ctx, sp, rt); err != nil {
 			var lim *LimitError
 			if errors.As(err, &lim) {
-				l.emit(sp, "limit.refused", map[string]any{"limit": "max_running", "max": lim.Limit, "current": lim.Current})
+				l.emit(sp, "limit.refused", map[string]any{"limit": lim.Which, "max": lim.Limit, "current": lim.Current})
 			} else {
 				l.emit(sp, "sprite.wake_failed", map[string]any{"error": clipErr(err)})
 			}
@@ -323,16 +329,20 @@ func (l *Lifecycle) cleanupLocked(rt *runtime) {
 	rt.guest = nil
 	l.returnTap(rt.tap)
 	rt.tap = ""
-	l.releaseRun()
+	l.releaseStart(rt)
 }
 
-// startLocked boots or resumes the sprite, within the MaxRunning ceiling.
+// startLocked boots or resumes the sprite, within the host's admission limits:
+// the MaxRunning count (limits.go), the running-memory budget and the
+// concurrent-boot cap (admission.go).
 func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
-	if err := l.reserveRun(); err != nil {
+	booted, err := l.admitStart(sp, rt)
+	if err != nil {
 		return err
 	}
+	defer booted()
 	if err := l.bootLocked(ctx, sp, rt); err != nil {
-		l.releaseRun()
+		l.releaseStart(rt)
 		return err
 	}
 	return nil

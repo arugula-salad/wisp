@@ -94,6 +94,50 @@ waiting does not help. `GET /v1/sprites` carries upstream's `org` block
 (`running`/`warm`/`cold` over all sprites, `running_limit`; `warm_limit` is always 0, because
 what bounds warm sprites here is the disk, below).
 
+## Host memory admission and the boot cap
+
+A count is the wrong unit for memory: ten 256 MiB sprites and ten 4 GiB ones are not the same
+load on the host. Two more flags, both 0 = none by default, so nothing changes until you set
+them:
+
+- **`--max-running-memory-mib`** is an aggregate budget every boot and every resume is
+  measured against. A sprite counts for its *ceiling*: `resources.memory.limit_mb` + 128 MiB
+  of VM headroom, or `--mem-mib` when it has no memory policy.
+- **`--max-concurrent-boots`** caps the cold boots in flight. That is the expensive moment
+  — Firecracker start, guest init, services coming up — and a host that starts thirty at once
+  makes all thirty slow. Resumes are not capped: they cost a fraction of a boot, and a warm
+  sprite you cannot resume on demand is a sprite nobody can use.
+
+Both refuse with the same retryable `429 concurrent_sprite_limit_exceeded` the SDKs already
+parse (`limit` and `current_count` are MiB for the budget, boots for the cap), with
+`Retry-After` set to the idle timeout and to 5 seconds respectively. Neither queues: you are
+told to come back, not made to wait. A refusal is also a `limit.refused`
+[event](events.md), with `limit` naming which one said no (`max_running_memory`,
+`max_concurrent_boots`, `max_running`). `spritesd status --json` reports
+`max_running_memory_mib` / `reserved_memory_mib` and `max_concurrent_boots` /
+`boots_in_flight`; reserved memory is counted even with no budget set, so you can see what a
+budget would have to be to hold what you run today.
+
+**Why the ceiling and not the grant.** With `resources.memory.autoscale` a guest's balloon
+holds back everything above its current grant, so what a sprite costs the host right now is
+usually far below its ceiling. Reserving the grant would still be wrong: the guest may
+deflate at will (`deflate_on_oom` hands pages back faster than the controller ticks), which is
+why the host cgroup is sized for the ceiling too — see
+[lifecycle](lifecycle.md). A budget that admitted against grants would admit sprites the host
+cannot hold the moment they get busy. The cost of reserving the ceiling is honest
+under-subscription: a host full of idle autoscaled sprites refuses wakes while it still has
+free RAM. Want the density, set the budget above physical RAM and accept the swap.
+
+**What this is not.** It is admission accounting, not a guarantee against host memory
+pressure. Host page cache for sprite disks is not counted, nor Firecracker's own overhead
+beyond guest RAM, nor the snapshot a suspend writes, nor spritesd itself, nor anything else on
+the machine. Reservations are taken before a VM starts and released when it stops or the start
+fails (a shutdown suspends every sprite, which releases them), and concurrent wakes are
+accounted against each other under one lock — so two simultaneous wakes cannot both be
+admitted into room for one — but nothing already running is ever evicted to fit an arrival.
+Set the budget below physical RAM with room for all of the above, and treat it as a brake on
+overcommit rather than a promise.
+
 ## Disk pressure
 
 The volume holds sprite disks, checkpoints, one memory snapshot per warm sprite, and the
