@@ -109,6 +109,51 @@ func installTools(root string) {
 	if err := os.Symlink(bin, root+"/usr/local/bin/sprite-env"); err != nil && !os.IsExist(err) {
 		log.Printf("link sprite-env: %v", err)
 	}
+	installSudo(root, b)
+}
+
+// installSudo gives a disk with no sudo of its own (most container images: see
+// spritesd's images.go) a stand-in: sprite-env, setuid root, which acts as a
+// passwordless sudo for the sprite user (cmd/sprite-env/sudo.go). Once the disk
+// has a real sudo (apt install sudo), the stand-in is taken away again.
+func installSudo(root string, b []byte) {
+	const shim, link = "/.sprite/bin/sudo", "/usr/local/bin/sudo"
+	ours := func() bool { t, err := os.Readlink(root + link); return err == nil && t == shim }
+	hasSudo := false
+	for _, p := range []string{"/usr/bin/sudo", "/bin/sudo", "/usr/sbin/sudo", "/sbin/sudo", link} {
+		// Lstat: an absolute symlink would resolve inside the initramfs, not the disk.
+		if _, err := os.Lstat(root + p); err == nil && !(p == link && ours()) {
+			hasSudo = true
+		}
+	}
+	if hasSudo {
+		if ours() {
+			os.Remove(root + link)
+		}
+		os.Remove(root + shim)
+		return
+	}
+	dst := root + shim
+	if err := os.WriteFile(dst+".tmp", b, 0o755); err != nil {
+		log.Printf("install sudo stand-in: %v", err)
+		return
+	}
+	// Chmod after the write: the setuid bit must be set on a root-owned, complete file.
+	if err := os.Chown(dst+".tmp", 0, 0); err != nil {
+		log.Printf("install sudo stand-in: %v", err)
+		return
+	}
+	if err := os.Chmod(dst+".tmp", 0o755|os.ModeSetuid); err != nil {
+		log.Printf("install sudo stand-in: %v", err)
+		return
+	}
+	if err := os.Rename(dst+".tmp", dst); err != nil {
+		log.Printf("install sudo stand-in: %v", err)
+		return
+	}
+	if err := os.Symlink(shim, root+link); err != nil && !os.IsExist(err) {
+		log.Printf("link sudo stand-in: %v", err)
+	}
 }
 
 func runInit() {

@@ -270,17 +270,27 @@ func defaultUser() (cred *syscall.Credential, home, name string) {
 }
 
 // baseEnv is the environment every exec session and service starts from.
+// A sprite made from a container image adds the image's environment (imageenv.go).
 func baseEnv(home, uname string) []string {
-	return []string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"HOME=" + home, "USER=" + uname, "LOGNAME=" + uname, "LANG=C.UTF-8", "SHELL=/bin/bash",
+	shell := loginShell()
+	if shell == "" {
+		shell = "/bin/sh"
 	}
+	env := []string{
+		"PATH=" + defaultPath,
+		"HOME=" + home, "USER=" + uname, "LOGNAME=" + uname, "LANG=C.UTF-8", "SHELL=" + shell,
+	}
+	return append(env, imageEnv()...)
 }
 
 // Start launches a command and registers the session.
 func (m *Manager) Start(o SessionOpts) (*Session, error) {
 	if len(o.Cmd) == 0 {
-		o.Cmd = []string{"bash"}
+		cmd, err := defaultCommand()
+		if err != nil {
+			return nil, err
+		}
+		o.Cmd = cmd
 	}
 	cred, home, uname := defaultUser()
 	dir := o.Dir
@@ -298,7 +308,7 @@ func (m *Manager) Start(o SessionOpts) (*Session, error) {
 		path = o.Cmd[0]
 	}
 	if !strings.Contains(path, "/") {
-		lp, err := exec.LookPath(path)
+		lp, err := lookPath(path, env)
 		if err != nil {
 			return nil, fmt.Errorf("executable %q not found in PATH", path)
 		}
