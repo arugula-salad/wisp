@@ -38,6 +38,16 @@ function byteTicks(max, n = 4) {
   return { ticks: ticks.map((t) => t * unit), top: top * unit };
 }
 
+// swap puts a redrawn chart where the old one was. The old one must stay in
+// place until then: measuring a container with its chart removed forces a
+// layout with the page suddenly shorter, and browsers without scroll
+// anchoring (Safari) clamp the scroll position to it, so every refresh
+// yanked the page up.
+function swap(container, old, svg) {
+  if (old) old.replaceWith(svg);
+  else container.prepend(svg);
+}
+
 function tipBox(container) {
   let tip = container.querySelector(':scope > .tip');
   if (!tip) {
@@ -73,12 +83,12 @@ function tipRows(title, rows) {
 export function timeSeries(container, opts) {
   const { series, times, stacked = false, height = 200, format = String, bytes = false } = opts;
   container.classList.add('chart');
-  container.querySelector('svg')?.remove();
+  const old = container.querySelector(':scope > svg');
   const width = Math.max(container.clientWidth, 200);
   const m = { l: 44, r: 12, t: 10, b: 22 };
   const w = width - m.l - m.r, h = height - m.t - m.b;
   const svg = el('svg', { viewBox: `0 0 ${width} ${height}`, height, role: 'img', 'aria-label': opts.label || '' });
-  container.prepend(svg);
+  swap(container, old, svg);
   if (times.length === 0) {
     el('text', { x: m.l + w / 2, y: m.t + h / 2, 'text-anchor': 'middle' }, svg).textContent = 'Collecting samples…';
     return;
@@ -181,7 +191,7 @@ export function timeSeries(container, opts) {
 export function lanes(container, opts) {
   const { names, times, state, colors, onClick } = opts;
   container.classList.add('chart');
-  container.querySelector('svg')?.remove();
+  const old = container.querySelector(':scope > svg');
   const width = Math.max(container.clientWidth, 200);
   const labelW = Math.min(160, Math.max(80, width * 0.18));
   const lane = 20, gap = 6;
@@ -189,7 +199,7 @@ export function lanes(container, opts) {
   const height = m.t + m.b + Math.max(1, names.length) * (lane + gap);
   const w = width - m.l - m.r;
   const svg = el('svg', { viewBox: `0 0 ${width} ${height}`, height, role: 'img', 'aria-label': 'Sprite state over time' });
-  container.prepend(svg);
+  swap(container, old, svg);
   if (!times.length || !names.length) {
     el('text', { x: m.l + w / 2, y: height / 2, 'text-anchor': 'middle' }, svg).textContent = names.length ? 'Collecting samples…' : 'No sprites yet';
     return;
@@ -243,7 +253,7 @@ export function lanes(container, opts) {
 export function bars(container, opts) {
   const { rows, format = String } = opts;
   container.classList.add('chart');
-  container.querySelector('svg')?.remove();
+  const old = container.querySelector(':scope > svg');
   const width = Math.max(container.clientWidth, 200);
   const labelW = Math.min(150, Math.max(80, width * 0.25));
   const valueW = 70;
@@ -251,7 +261,7 @@ export function bars(container, opts) {
   const height = Math.max(1, rows.length) * (bar + gap) + 4;
   const w = width - labelW - valueW - 8;
   const svg = el('svg', { viewBox: `0 0 ${width} ${height}`, height, role: 'img', 'aria-label': opts.label || '' });
-  container.prepend(svg);
+  swap(container, old, svg);
   if (!rows.length) {
     el('text', { x: width / 2, y: height / 2 + 4, 'text-anchor': 'middle' }, svg).textContent = opts.empty || 'Nothing to show';
     return;
