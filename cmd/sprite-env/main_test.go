@@ -95,3 +95,23 @@ func TestFailuresBecomeErrors(t *testing.T) {
 		t.Errorf("stream error: %v", err)
 	}
 }
+
+func TestReadEventsTracksWhereToResume(t *testing.T) {
+	stream := "retry: 2000\n: hello\n\nid: 10\n\n" + // the position, before any event
+		"data: {\"type\":\"stream.gap\"}\n\n" + // a notice: printed to stderr, not counted
+		"id: 11\ndata: {\"id\":11}\n\n: ping\n\nid: 12\ndata: {\"id\":12}\n\n"
+	var out bytes.Buffer
+	last, seen := "", 0
+	done, err := readEvents(bytes.NewBufferString(stream), &out, &last, &seen, 0)
+	if done || err != nil || last != "12" || seen != 2 || out.String() != "{\"id\":11}\n{\"id\":12}\n" {
+		t.Fatalf("done=%v err=%v last=%q seen=%d out=%q", done, err, last, seen, out.String())
+	}
+	last, seen = "", 0
+	out.Reset()
+	if done, _ := readEvents(bytes.NewBufferString("id: 10\n\n"), &out, &last, &seen, 0); done || last != "10" || out.Len() != 0 {
+		t.Fatalf("position only: done=%v last=%q out=%q", done, last, out.String())
+	}
+	if done, _ := readEvents(bytes.NewBufferString(stream), &out, &last, &seen, 1); !done || last != "11" {
+		t.Fatalf("--count 1: done=%v last=%q", done, last)
+	}
+}

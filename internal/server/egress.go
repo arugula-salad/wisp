@@ -51,8 +51,10 @@ type egress struct {
 	lastPush string // outcome of the latest push, to log changes only
 }
 
-func newEgress(opts Options, st *store.Store, log *slog.Logger, gateway net.IP) *egress {
+// onDeny hears of each refused lookup or connection (netpolicy.Enforcer.OnDeny).
+func newEgress(opts Options, st *store.Store, log *slog.Logger, gateway net.IP, onDeny func(sprite, kind, target, reason string)) *egress {
 	e := &egress{log: log, store: st, enf: netpolicy.NewEnforcer(log)}
+	e.enf.OnDeny = onDeny
 	socket := opts.NetdSocket
 	if socket == "" {
 		socket = netd.DefaultSocket
@@ -232,6 +234,20 @@ func (e *egress) forget(sp store.Sprite) {
 			e.syncLocked()
 		}
 	}
+}
+
+// networkDenied publishes a refusal of the network policy. A guest retrying in
+// a loop can refuse itself thousands of times a second, so the events are
+// rate limited per sprite; the log keeps every one.
+func (l *Lifecycle) networkDenied(name, kind, target, reason string) {
+	if !l.denials.allow(name) {
+		return
+	}
+	sp, err := l.store.Get(name)
+	if err != nil {
+		return
+	}
+	l.emit(sp, "policy.denied", map[string]any{"policy": "network", "kind": kind, "target": target, "reason": reason})
 }
 
 // tapFor takes a tap for the sprite unless its network policy cannot be

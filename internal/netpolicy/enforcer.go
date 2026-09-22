@@ -24,6 +24,10 @@ const maxAllowed = 4096
 type Enforcer struct {
 	log *slog.Logger
 	now func() time.Time
+	// OnDeny, when set before the listeners start, hears of every refusal that
+	// can be put down to a sprite: kind is "dns" or "connect", target the name
+	// or address. It is called on the listener's goroutine and must not block.
+	OnDeny func(sprite, kind, target, reason string)
 
 	mu      sync.Mutex
 	sprites map[netip.Addr]*sprite
@@ -47,6 +51,12 @@ type flow struct {
 // maxFlows bounds one sprite's concurrent proxied connections: each costs the
 // daemon two file descriptors, and they are shared with every other sprite.
 const maxFlows = 2048
+
+func (e *Enforcer) denied(sprite, kind, target, reason string) {
+	if e.OnDeny != nil && sprite != "" {
+		e.OnDeny(sprite, kind, target, reason)
+	}
+}
 
 func NewEnforcer(log *slog.Logger) *Enforcer {
 	return &Enforcer{log: log, now: time.Now, sprites: map[netip.Addr]*sprite{}}

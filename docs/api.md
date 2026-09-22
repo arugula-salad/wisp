@@ -31,6 +31,9 @@
     [Sprites that create sprites](#sprites-that-create-sprites).
 - **Proxy / URLs**: the TCP proxy, and per-sprite URLs with `sprite`/`public` auth (see
   [Public sprite URLs](public-urls.md) for serving them to the internet).
+- **Events** (ours): a server-sent event stream at `GET /mini-sprites/v1/events` of
+  lifecycle, checkpoint, service, policy, limit and disk events, with filters and
+  `Last-Event-ID` resume, and signed webhooks. See [Events and webhooks](events.md).
 
 ## From inside a sprite
 
@@ -96,5 +99,7 @@ What a spawner can and cannot do:
   in the request is ignored. It may choose `public` URL auth, environment and labels.
 - A child has no spawn policy of its own. Exec, the filesystem API and policies of a child are
   not reachable from inside: put what a child needs in the template.
+- It can follow its children's events, and only theirs: `sprite-env sprites events` (see
+  [Events and webhooks](events.md#from-inside-a-sprite)).
 - Deleting a spawner leaves its children in place.
 - Sprites running an agent from before this feature get the routes on their next cold boot.

@@ -101,7 +101,7 @@ func TestNetworkPolicyInNamespaces(t *testing.T) {
 	logs := &syncBuf{}
 	log := slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, logs), nil))
 	shut, open := addSprite(t, st, "shut"), addSprite(t, st, "open") // net_index 2 and 3, matching the namespaces
-	e := newEgress(Options{DNS: "1.1.1.1,8.8.8.8", NetdSocket: socket}, st, log, net.IPv4(10, 209, 0, 1))
+	e := newEgress(Options{DNS: "1.1.1.1,8.8.8.8", NetdSocket: socket}, st, log, net.IPv4(10, 209, 0, 1), nil)
 	if e.down != "" {
 		t.Fatalf("listeners: %s", e.down)
 	}

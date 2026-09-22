@@ -44,7 +44,11 @@ type Server struct {
 	backups   *backupManager // nil when no backup bucket is configured
 	metrics   *metrics       // history for the web UI (ui.go)
 	httpStats *httpStats     // request counts and latency for the web UI (httpstats.go)
-	started   time.Time
+	webhooks  []*webhook     // webhooks.go
+	// guestEvents limits the events a guest may report about itself (guestevents.go).
+	guestEvents *rateLimiter
+	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
+	started     time.Time
 }
 
 // New takes urlFmt, the pattern for the URL a sprite is reported to have: where
@@ -61,6 +65,8 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	}
 	s.metrics = newMetrics(s)
 	s.httpStats = newHTTPStats()
+	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
+	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		go s.autoCheckpoints()
 	}
@@ -118,6 +124,9 @@ func (s *Server) Handler() http.Handler {
 	s.registerTasks(mux)
 	s.registerPolicyLimits(mux)
 	s.registerSpawnPolicy(mux)
+	// Ours, outside /v1 (events.go, webhooks.go).
+	mux.HandleFunc("GET "+eventsPath, s.serveAPIEvents)
+	mux.HandleFunc("GET /mini-sprites/v1/webhooks", s.serveWebhookStatus)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
@@ -233,14 +242,24 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		writeErr(w, http.StatusBadRequest, "invalid_name", "name must be 1-63 chars of lowercase letters, digits and hyphens")
 		return
 	}
+	// A refused create is reported under the name it asked for, and to the
+	// spawner that asked, if one did.
+	refused := func(lim *LimitError, which string) {
+		e := Event{Type: "limit.refused", Sprite: req.Name, Detail: map[string]any{"limit": which, "max": lim.Limit, "current": lim.Current}}
+		if parent != nil {
+			e.ParentID = parent.ID
+		}
+		s.life.events.Publish(e)
+		writeLimitErr(w, lim)
+	}
 	if limit, n := s.opts.MaxSprites, len(s.store.List("")); limit > 0 && n >= limit {
-		writeLimitErr(w, &LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
-			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)})
+		refused(&LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
+			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)}, "max_sprites")
 		return
 	}
 	if parent != nil {
 		if lim := s.childLimit(*parent); lim != nil {
-			writeLimitErr(w, lim)
+			refused(lim, "max_children")
 			return
 		}
 	}
@@ -257,6 +276,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	}
 
 	var image string
+	var detail map[string]any
 	if req.From != nil {
 		src, cp, unlock, err := s.cloneSource(*req.From, parent)
 		if err != nil {
@@ -266,6 +286,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
 		image = s.checkpointPath(src.ID, cp)
+		detail = map[string]any{"from": map[string]string{"sprite": src.Name, "checkpoint": cp}}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
 	} else {
@@ -281,7 +302,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	} else if req.Config != nil {
 		sp.Config = *req.Config
 	}
-	if err := s.life.disk.admit("a new sprite", s.cloneCost(image)); err != nil {
+	if err := s.life.disk.admit(*sp, "a new sprite", s.cloneCost(image)); err != nil {
 		writeNoRoom(w, err)
 		return
 	}
@@ -300,6 +321,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		return
 	}
 	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", req.From != nil)
+	s.life.emit(*sp, "sprite.created", detail)
 	writeJSON(w, http.StatusCreated, s.render(*sp))
 }
 
@@ -403,6 +425,7 @@ func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
 	// not look the same to the bucket. `spritesd backups prune` retires it later.
 	s.backups.MarkDeleted(sp)
 	s.log.Info("sprite deleted", "sprite", sp.Name)
+	s.life.emit(sp, "sprite.deleted", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

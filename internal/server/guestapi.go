@@ -82,6 +82,7 @@ func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
 	mux.HandleFunc("POST /v1/checkpoints/{id}/mount", bind(s.mountCheckpoint))
 	mux.HandleFunc("POST /v1/checkpoints/{id}/unmount", bind(s.unmountCheckpoint))
 	s.registerGuestSpawn(mux, bind)
+	s.registerGuestEvents(mux, sp)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})

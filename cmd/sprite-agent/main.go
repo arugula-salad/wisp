@@ -44,6 +44,8 @@ func main() {
 	os.Exit(2)
 }
 
+func dialHost(context.Context) (net.Conn, error) { return vsock.Dial(vsock.Host, hostAPIPort, nil) }
+
 func serve(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", "vsock", "vsock, tcp:HOST:PORT or unix:PATH (the latter two are for host-side testing)")
@@ -73,10 +75,15 @@ func serve(args []string) {
 	agent.InitPolicy(agent.Policy{Profile: boot["profile"], NoNewPrivs: boot["nnp"] == "1", MemoryLimitMB: memLimit},
 		"/run/sprite-policy.json")
 
+	// Service starts and crashes go to spritesd's event stream, which only exists over vsock.
+	var report func(agent.ServiceReport)
+	if *listen == "vsock" {
+		report = agent.NewReporter(dialHost).Report
+	}
 	srv := &agent.Server{
 		Sessions: agent.NewManager(),
 		StateDir: *stateDir,
-		Services: agent.NewSupervisor(*stateDir, *runDir),
+		Services: agent.NewReportingSupervisor(*stateDir, *runDir, report),
 		Poweroff: func() {
 			unix.Sync()
 			// With reboot=k on the kernel command line this resets via the
@@ -92,7 +99,6 @@ func serve(args []string) {
 		if gl, err := agent.ListenGuestAPI(sock); err != nil {
 			log.Printf("%s: %v", sock, err)
 		} else {
-			dialHost := func(context.Context) (net.Conn, error) { return vsock.Dial(vsock.Host, hostAPIPort, nil) }
 			gs := &http.Server{Handler: srv.GuestAPI(dialHost), ReadHeaderTimeout: 10 * time.Second}
 			go func() { log.Fatal(gs.Serve(gl)) }()
 		}

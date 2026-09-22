@@ -44,10 +44,10 @@ func (s *Server) registerPolicyLimits(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/sprites/{name}/policy/privileges", s.setPrivileges)
 	mux.HandleFunc("POST /v1/sprites/{name}/policy/resources", s.setResources)
 	mux.HandleFunc("DELETE /v1/sprites/{name}/policy/privileges", func(w http.ResponseWriter, r *http.Request) {
-		s.storePolicy(w, r, func(sp *store.Sprite) { sp.Privileges = nil })
+		s.storePolicy(w, r, "privileges", func(sp *store.Sprite) { sp.Privileges = nil })
 	})
 	mux.HandleFunc("DELETE /v1/sprites/{name}/policy/resources", func(w http.ResponseWriter, r *http.Request) {
-		s.storePolicy(w, r, func(sp *store.Sprite) { sp.Resources = nil })
+		s.storePolicy(w, r, "resources", func(sp *store.Sprite) { sp.Resources = nil })
 	})
 }
 
@@ -78,7 +78,7 @@ func (s *Server) setPrivileges(w http.ResponseWriter, r *http.Request) {
 	if len(p.Devices) > 0 {
 		s.log.Warn("privileges policy lists devices, which are stored but not enforced", "sprite", r.PathValue("name"))
 	}
-	s.storePolicy(w, r, func(sp *store.Sprite) { sp.Privileges = &p })
+	s.storePolicy(w, r, "privileges", func(sp *store.Sprite) { sp.Privileges = &p })
 }
 
 func (s *Server) setResources(w http.ResponseWriter, r *http.Request) {
@@ -96,12 +96,12 @@ func (s *Server) setResources(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("resources policy asks for memory autoscale, which is stored but not enforced", "sprite", r.PathValue("name"))
 		}
 	}
-	s.storePolicy(w, r, func(sp *store.Sprite) { sp.Resources = &p })
+	s.storePolicy(w, r, "resources", func(sp *store.Sprite) { sp.Resources = &p })
 }
 
 // storePolicy persists a policy change and, if the sprite is running, hands it
 // to the guest now. A sleeping sprite is not woken: it gets the policy on wake.
-func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, change func(*store.Sprite)) {
+func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, policy string, change func(*store.Sprite)) {
 	sp, err := s.store.Update(r.PathValue("name"), func(sp *store.Sprite) {
 		change(sp)
 		sp.UpdatedAt = time.Now().UTC()
@@ -110,6 +110,7 @@ func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, change func
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return
 	}
+	s.life.emit(sp, "policy.changed", map[string]any{"policy": policy})
 	rt := s.life.rt(sp.ID)
 	rt.mu.Lock()
 	if rt.m != nil {
