@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -47,12 +48,14 @@ type Manager struct {
 
 // dir is per CA, so that moving from a staging directory to the real one does
 // not mistake the staging certificate for a current one.
-func (m *Manager) dir() string {
+func (m *Manager) dir() string { return caDir(m.Dir, m.DirectoryURL) }
+
+func caDir(dir, directoryURL string) string {
 	host := "ca"
-	if u, err := url.Parse(m.DirectoryURL); err == nil && u.Host != "" {
+	if u, err := url.Parse(directoryURL); err == nil && u.Host != "" {
 		host = u.Hostname()
 	}
-	return filepath.Join(m.Dir, host)
+	return filepath.Join(dir, host)
 }
 
 func (m *Manager) CertFile() string { return filepath.Join(m.dir(), "cert.pem") }
@@ -106,7 +109,13 @@ func (m *Manager) Run(ctx context.Context, st *Store) {
 	}
 }
 
+// keyMu serializes creating the account key, which the wildcard and the custom
+// domain managers share.
+var keyMu sync.Mutex
+
 func loadOrCreateKey(path string) (*ecdsa.PrivateKey, error) {
+	keyMu.Lock()
+	defer keyMu.Unlock()
 	if b, err := os.ReadFile(path); err == nil {
 		blk, _ := pem.Decode(b)
 		if blk == nil {
@@ -129,23 +138,31 @@ func writeKey(path string, key *ecdsa.PrivateKey) error {
 	return os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), 0o600)
 }
 
-func (m *Manager) obtain(ctx context.Context) error {
-	if err := os.MkdirAll(m.dir(), 0o700); err != nil {
-		return err
+// account returns a client for the CA's account kept in dir, registering it on first use.
+func account(ctx context.Context, dir, directoryURL, email string, hc *http.Client) (*acme.Client, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
 	}
-	accountKey, err := loadOrCreateKey(filepath.Join(m.dir(), "account.key"))
+	accountKey, err := loadOrCreateKey(filepath.Join(dir, "account.key"))
 	if err != nil {
-		return fmt.Errorf("account key: %w", err)
+		return nil, fmt.Errorf("account key: %w", err)
 	}
-	cl := &acme.Client{Key: accountKey, DirectoryURL: m.DirectoryURL, HTTPClient: m.HTTPClient, UserAgent: "mini-sprites"}
+	cl := &acme.Client{Key: accountKey, DirectoryURL: directoryURL, HTTPClient: hc, UserAgent: "mini-sprites"}
 	acct := &acme.Account{}
-	if m.Email != "" {
-		acct.Contact = []string{"mailto:" + m.Email}
+	if email != "" {
+		acct.Contact = []string{"mailto:" + email}
 	}
 	if _, err := cl.Register(ctx, acct, acme.AcceptTOS); err != nil && !errors.Is(err, acme.ErrAccountAlreadyExists) {
-		return fmt.Errorf("register account: %w", err)
+		return nil, fmt.Errorf("register account: %w", err)
 	}
+	return cl, nil
+}
 
+func (m *Manager) obtain(ctx context.Context) error {
+	cl, err := account(ctx, m.dir(), m.DirectoryURL, m.Email, m.HTTPClient)
+	if err != nil {
+		return err
+	}
 	order, err := cl.AuthorizeOrder(ctx, acme.DomainIDs(m.wildcard()))
 	if err != nil {
 		return fmt.Errorf("new order: %w", err)
@@ -155,8 +172,15 @@ func (m *Manager) obtain(ctx context.Context) error {
 			return err
 		}
 	}
-	orderURL := order.URI // only the response that created the order is sure to carry it
-	if order, err = cl.WaitOrder(ctx, orderURL); err != nil {
+	return finish(ctx, cl, order.URI, m.wildcard(), m.CertFile(), m.KeyFile())
+}
+
+// finish waits for an authorized order, has it issued for name, and writes the
+// pair. orderURL is taken from the response that created the order: only that
+// one is sure to carry it.
+func finish(ctx context.Context, cl *acme.Client, orderURL, name, certFile, keyFile string) error {
+	order, err := cl.WaitOrder(ctx, orderURL)
+	if err != nil {
 		return fmt.Errorf("order: %w", err)
 	}
 
@@ -165,7 +189,7 @@ func (m *Manager) obtain(ctx context.Context) error {
 		return err
 	}
 	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
-		Subject: pkix.Name{CommonName: m.wildcard()}, DNSNames: []string{m.wildcard()},
+		Subject: pkix.Name{CommonName: name}, DNSNames: []string{name},
 	}, crypto.Signer(certKey))
 	if err != nil {
 		return err
@@ -189,16 +213,16 @@ func (m *Manager) obtain(ctx context.Context) error {
 
 	// Key first: a reader that catches the pair between the two renames sees a
 	// mismatch and keeps its old certificate, rather than a cert with no key.
-	if err := writeKey(m.KeyFile()+".tmp", certKey); err != nil {
+	if err := writeKey(keyFile+".tmp", certKey); err != nil {
 		return err
 	}
-	if err := os.WriteFile(m.CertFile()+".tmp", certPEM, 0o644); err != nil {
+	if err := os.WriteFile(certFile+".tmp", certPEM, 0o644); err != nil {
 		return err
 	}
-	if err := os.Rename(m.KeyFile()+".tmp", m.KeyFile()); err != nil {
+	if err := os.Rename(keyFile+".tmp", keyFile); err != nil {
 		return err
 	}
-	return os.Rename(m.CertFile()+".tmp", m.CertFile())
+	return os.Rename(certFile+".tmp", certFile)
 }
 
 func (m *Manager) authorize(ctx context.Context, cl *acme.Client, authzURL string) error {
