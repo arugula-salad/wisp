@@ -11,6 +11,8 @@ import (
 // Operator ceilings (Options.MaxSprites, Options.MaxRunning) and the org block
 // of the list response. Errors use upstream's shape, which the SDKs parse into
 // their APIError: {error, message, limit, current_count, retry_after_seconds}.
+// The host memory budget and the concurrent-boot cap are in admission.go and
+// report themselves through the same LimitError.
 
 const (
 	// codeConcurrentLimit is upstream's code for too many sprites running at once.
@@ -20,8 +22,11 @@ const (
 
 // LimitError is a configured ceiling being hit.
 type LimitError struct {
-	Code       string
-	Message    string
+	Code    string
+	Message string
+	// Which names the ceiling for the limit.refused event (docs/events.md).
+	// Several ceilings share one upstream Code, so this is what tells them apart.
+	Which      string
 	Limit      int
 	Current    int
 	RetryAfter int // seconds; 0 when waiting will not help
@@ -60,7 +65,7 @@ func (l *Lifecycle) reserveRun() error {
 	if limit := l.opts.MaxRunning; limit > 0 && l.running >= limit {
 		// An idle sprite frees its slot after IdleTimeout, so that is when to look again.
 		retry := max(int(math.Ceil(l.opts.IdleTimeout.Seconds())), 1)
-		return &LimitError{Code: codeConcurrentLimit, Limit: limit, Current: l.running, RetryAfter: retry,
+		return &LimitError{Code: codeConcurrentLimit, Which: "max_running", Limit: limit, Current: l.running, RetryAfter: retry,
 			Message: fmt.Sprintf("%d sprites are already running, the most this host allows (--max-running); one frees up when a sprite goes idle", l.running)}
 	}
 	l.running++

@@ -37,7 +37,7 @@ for a sprite created from inside another. `detail` is small and depends on the t
 | `service.failed` | it could not be launched | `service`, `error`, `restart_in_ms` |
 | `policy.changed` | a policy was set or removed | `policy` (`network`, `privileges`, `resources`, `spawn`) |
 | `policy.denied` | the network policy refused a lookup or connection; a sprite without a spawn policy asked to spawn | `policy`, and for network `kind` (`dns`/`connect`), `target`, `reason` |
-| `limit.refused` | `--max-sprites`, `--max-running`, a spawner's `max_children` or `--guest-checkpoint-limit` said no | `limit`, `max`, `current` |
+| `limit.refused` | `--max-sprites`, `--max-running`, `--max-running-memory-mib`, `--max-concurrent-boots`, a spawner's `max_children` or `--guest-checkpoint-limit` said no | `limit` (which one: `max_sprites`, `max_running`, `max_running_memory`, `max_concurrent_boots`, `max_children`, `guest_checkpoints`), `max`, `current` |
 | `disk.refused` | the disk guard refused a create, checkpoint or restore | `operation`, `needed_bytes`, `free_bytes`, `reserve_bytes` |
 | `disk.low` / `disk.ok` | the volume crossed `--disk-warn-percent` (repeated every 10 min while low) | free and total bytes |
 
