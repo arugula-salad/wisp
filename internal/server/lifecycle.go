@@ -596,8 +596,9 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	now := time.Now()
 	l.store.Update(sp.Name, func(s *store.Sprite) { s.LastWarmingAt = &now })
 	took := time.Since(start)
-	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond))
-	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle})
+	snap := vmm.SnapshotBytes(l.store.Dir(sp.ID))
+	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond), "snapshot", mib(snap))
+	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap})
 	// The disk is quiescent exactly here: the guest has synced and the VM is
 	// paused. Enqueueing is non-blocking and cannot fail, so a bucket that is
 	// unreachable never turns a good suspend into a bad one.
