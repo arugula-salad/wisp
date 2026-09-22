@@ -43,7 +43,9 @@ not its RAM size:
   is zero, syncs the copy, and deletes the original. A hole reads back as zeros, so the
   snapshot's contents are unchanged. (Punching holes in place was tried first: ext4 and XFS
   write a range's dirty pages to disk before punching it, so every zero still hit the disk.)
-  On resume the balloon is set back and the guest deflates it in about 0.15 s.
+  On resume the balloon is set back and the guest deflates it in about 0.15 s; a command
+  run in that instant sees little free memory in `free`, and an allocation that cannot wait
+  takes pages from the balloon (`deflate_on_oom`).
 
 Measured with a 2 GiB sprite on ext4 (`du` of `snap.mem`, the allocated size, not the
 apparent one, which is always the RAM size):
