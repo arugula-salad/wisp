@@ -126,6 +126,7 @@ func main() {
 		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
 		NetdSocket: *netdSocket, Backup: backupOpts(),
 		MaxSprites: *maxSprites, MaxRunning: *maxRunning, DiskReserve: *diskReserve << 20, DiskWarnPercent: *diskWarn,
+		Listen: *listen,
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,
@@ -179,6 +180,7 @@ func main() {
 		}
 	}
 	api := server.New(opts, st, life, log, token, *org, *urlDomain, urlFmt)
+	api.StartMetrics()
 	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
 
 	var public *http.Server

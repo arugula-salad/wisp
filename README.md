@@ -104,6 +104,13 @@ out, err := sprite.CommandContext(ctx, "uname", "-a").Output()
 fmt.Print(string(out))
 ```
 
+### In a browser
+
+spritesd serves a dashboard on the API address: open <http://127.0.0.1:7788/> and paste the
+token. It shows every sprite and the host at a glance, with an hour of CPU, memory, disk and
+state history, and lets you open a terminal in any sprite, browse its files, take and restore
+checkpoints, and edit its policies ([web UI](docs/web-ui.md)).
+
 ### With the `sprite` CLI
 
 It reads the two variables above:
@@ -135,6 +142,7 @@ To serve them on the internet under your own domain, over HTTPS, without exposin
 | [Host setup](docs/host-setup.md) | Guest networking and the reflink volume: the two optional steps that need root once |
 | [Operating it](docs/operations.md) | Running as a service, reboots, `spritesd status`, limits, disk pressure, what is not built |
 | [Lifecycle](docs/lifecycle.md) | `running` / `warm` / `cold`, what keeps a sprite awake, tasks |
+| [Web UI](docs/web-ui.md) | The browser dashboard: what it shows, how it signs in, reaching it from another machine |
 | [API coverage](docs/api.md) | What is implemented, and `sprite-env` for use from inside a sprite |
 | [Public sprite URLs](docs/public-urls.md) | A wildcard domain, automatic certificates, and the listener that serves only sprite URLs |
 | [Backups](docs/backups.md) | Incremental, deduplicated backups to any S3-compatible bucket, and restoring onto a new host |

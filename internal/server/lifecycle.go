@@ -65,6 +65,8 @@ type Options struct {
 	// must leave free, and the share of the volume below which the log warns.
 	DiskReserve     int64
 	DiskWarnPercent int
+	// Listen is the API address, reported by the status views.
+	Listen string
 }
 
 // BackupOptions configures the object-storage backup tier.
@@ -582,6 +584,19 @@ func (l *Lifecycle) Stop(sp store.Sprite, keepWarm bool) error {
 	l.cleanupLocked(rt)
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
 	return nil
+}
+
+// Cool drops a suspended sprite's memory snapshot, as the warm TTL would. It
+// reports false, and does nothing, when the sprite is not warm.
+func (l *Lifecycle) Cool(sp store.Sprite) bool {
+	rt := l.rt(sp.ID)
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.m != nil || !vmm.HasSnapshot(l.store.Dir(sp.ID)) {
+		return false
+	}
+	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
+	return true
 }
 
 // Forget drops runtime state for a deleted sprite.
