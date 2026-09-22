@@ -44,13 +44,17 @@ func dialGuestTCP(ctx context.Context, m *vmm.Machine, port string) (net.Conn, e
 	return &bufferedConn{Conn: conn, r: br}, nil
 }
 
-// spriteForHost maps "<name>.<url-domain>[:port]" to a sprite name.
+// spriteForHost maps "<name>.<url-domain>[:port]", or a custom domain attached
+// to a sprite (domains.go), to a sprite name.
 func (s *Server) spriteForHost(host string) (string, bool) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	name, ok := strings.CutSuffix(strings.ToLower(host), "."+s.urlDomain)
-	return name, ok && name != "" && !strings.Contains(name, ".")
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if name, ok := strings.CutSuffix(host, "."+s.urlDomain); ok {
+		return name, name != "" && !strings.Contains(name, ".")
+	}
+	return s.store.DomainOwner(host)
 }
 
 // serveSpriteURL handles requests to a sprite's own URL: wake it, then reverse

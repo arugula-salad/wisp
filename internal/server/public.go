@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/acme"
 )
 
 // PublicHandler is what an internet-facing listener serves: sprite URLs and
@@ -32,7 +34,10 @@ func NewPublicServer(h http.Handler, getCert func(*tls.ClientHelloInfo) (*tls.Ce
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    64 << 10,
-		TLSConfig:         &tls.Config{GetCertificate: getCert, MinVersion: tls.VersionTLS12},
+		// acme-tls/1 is for the CA's TLS-ALPN-01 probe (domains.go); it comes last,
+		// so it is chosen only by a client that offers nothing else.
+		TLSConfig: &tls.Config{GetCertificate: getCert, MinVersion: tls.VersionTLS12,
+			NextProtos: []string{"h2", "http/1.1", acme.ALPNProto}},
 	}
 }
 

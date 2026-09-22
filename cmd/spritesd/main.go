@@ -98,6 +98,11 @@ func main() {
 	acmeDir := flag.String("acme-directory", certs.LetsEncrypt, "ACME directory used when no --tls-cert is given. A wildcard certificate is requested over DNS-01 through Cloudflare, with the API token read from $CLOUDFLARE_API_TOKEN or <data>/cloudflare-token (needs Zone:Read and DNS:Edit on the zone)")
 	publicConns := flag.Int("public-max-conns", 1024, "open connections allowed on --public-listen (0 = no limit)")
 	publicConnsPer := flag.Int("public-max-conns-per-client", 64, "open connections allowed per IPv4 address or IPv6 /64 on --public-listen (0 = no limit; use 0 behind a CDN, where every client shares the CDN's addresses)")
+	domainsOn := flag.Bool("custom-domains", true, "with --public-listen, let sprites have custom domains (POST /v1/sprites/<name>/domains), each with its own certificate from --acme-directory over TLS-ALPN-01")
+	domainResolver := flag.String("domain-resolver", "1.1.1.1:53", "recursive DNS server that checks a custom domain points here before a certificate is requested for it")
+	domainsPer := flag.Int("max-domains-per-sprite", 5, "custom domains one sprite may have (0 = no limit)")
+	domainsTotal := flag.Int("max-domains", 50, "custom domains across all sprites (0 = no limit)")
+	domainOrders := flag.Int("acme-orders-per-hour", 10, "certificate orders per hour for custom domains, across all of them; keeps a misconfigured domain from spending the CA's rate limits")
 	confineMode := flag.String("confine", os.Getenv("MINI_SPRITES_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
 	backupOpts := backupFlags(flag.CommandLine)
 	maxSprites := flag.Int("max-sprites", 0, "most sprites that may exist; creating another is refused (0 = no limit)")
@@ -193,7 +198,14 @@ func main() {
 		if err != nil {
 			fatal(log, err)
 		}
-		public = server.NewPublicServer(api.PublicHandler(), cs.GetCertificate)
+		getCert := cs.GetCertificate
+		if *domainsOn {
+			getCert = api.EnableCustomDomains(context.Background(), server.DomainConfig{
+				ACMEDir: filepath.Join(abs, "acme"), DirectoryURL: *acmeDir, Email: *acmeEmail,
+				Resolver: *domainResolver, PerSprite: *domainsPer, Total: *domainsTotal, OrdersPerHour: *domainOrders,
+			}, getCert)
+		}
+		public = server.NewPublicServer(api.PublicHandler(), getCert)
 		go func() {
 			log.Info("serving sprite URLs to the public", "addr", *publicListen, "urls", fmt.Sprintf(urlFmt, "<name>"))
 			err := public.ServeTLS(server.LimitListener(ln, *publicConns, *publicConnsPer), "", "")

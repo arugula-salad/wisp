@@ -91,6 +91,10 @@ type Sprite struct {
 	ParentID string `json:"parent_id,omitempty"`
 	// A nil spawn policy is the default: the sprite cannot create sprites.
 	Spawn *SpawnPolicy `json:"spawn_policy,omitempty"`
+
+	// Domains are custom hostnames served as this sprite's URL (domains.go). A
+	// domain belongs to at most one sprite; clones do not inherit them.
+	Domains []string `json:"domains,omitempty"`
 }
 
 type Store struct {
@@ -165,6 +169,8 @@ func (s *Store) Create(sp *Sprite) error {
 	if sp.NetIndex == 0 {
 		return errors.New("address pool exhausted")
 	}
+	// A restored record may name domains another sprite has taken since.
+	sp.Domains = s.unclaimedLocked(sp.Domains)
 	if err := os.MkdirAll(s.Dir(sp.ID), 0o755); err != nil {
 		return err
 	}
