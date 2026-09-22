@@ -40,13 +40,16 @@ func defaultDataDir() string {
 }
 
 // loadToken reads the API token, generating one on first run.
-func loadToken(path string) (string, error) {
+func loadToken(path string) (string, error) { return loadSecret(path, "msprite_") }
+
+// loadSecret reads a secret from path, generating a random one on first run.
+func loadSecret(path, prefix string) (string, error) {
 	if b, err := os.ReadFile(path); err == nil {
 		return strings.TrimSpace(string(b)), nil
 	}
 	b := make([]byte, 24)
 	rand.Read(b)
-	tok := "msprite_" + hex.EncodeToString(b)
+	tok := prefix + hex.EncodeToString(b)
 	return tok, os.WriteFile(path, []byte(tok+"\n"), 0o600)
 }
 
@@ -104,6 +107,16 @@ func main() {
 	maxRunning := flag.Int("max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
 	diskReserve := flag.Int64("disk-reserve-mib", 2048, "free space (MiB) a create, checkpoint or restore must leave on the sprite volume, or it is refused (0 = never refuse)")
 	diskWarn := flag.Int("disk-warn-percent", 10, "warn in the log while less than this share of the sprite volume is free (0 = never)")
+	var webhooks []string
+	flag.Func("webhook", "POST every event (see docs/events.md) as JSON to this URL, signed with the webhook secret; repeatable", func(v string) error {
+		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+			return errors.New("want an http:// or https:// URL")
+		}
+		webhooks = append(webhooks, v)
+		return nil
+	})
+	webhookSecret := flag.String("webhook-secret-file", "", "the HMAC key for webhook signatures (default <data>/webhook-secret, generated on first use)")
+	webhookTypes := flag.String("webhook-types", "", "comma-separated event type prefixes to send to webhooks, e.g. sprite.,service.crashed (default: every event)")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -169,6 +182,20 @@ func main() {
 	if err != nil {
 		fatal(log, err)
 	}
+	if len(webhooks) > 0 {
+		path := *webhookSecret
+		if path == "" {
+			path = filepath.Join(abs, "webhook-secret")
+		}
+		secret, err := loadSecret(path, "")
+		if err != nil {
+			fatal(log, fmt.Errorf("webhook secret: %w", err))
+		}
+		opts.Webhooks = server.WebhookOptions{URLs: webhooks, Secret: secret}
+		if *webhookTypes != "" {
+			opts.Webhooks.Types = strings.Split(*webhookTypes, ",")
+		}
+	}
 	life := server.NewLifecycle(opts, st, log)
 
 	_, port, _ := net.SplitHostPort(*listen)
@@ -182,6 +209,7 @@ func main() {
 	api := server.New(opts, st, life, log, token, *org, *urlDomain, urlFmt)
 	api.StartMetrics()
 	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
+	srv.RegisterOnShutdown(api.CloseEvents) // event streams never finish on their own
 
 	var public *http.Server
 	if *publicListen != "" {

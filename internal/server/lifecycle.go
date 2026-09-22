@@ -67,6 +67,8 @@ type Options struct {
 	DiskWarnPercent int
 	// Listen is the API address, reported by the status views.
 	Listen string
+	// Webhooks receive every event (webhooks.go).
+	Webhooks WebhookOptions
 }
 
 // BackupOptions configures the object-storage backup tier.
@@ -144,10 +146,16 @@ type Lifecycle struct {
 	// backups is the backup tier, nil when no bucket is configured. A nil manager's
 	// methods are no-ops, so the lifecycle needs no conditionals.
 	backups *backupManager
+	// events is where everything below reports what it did (events.go).
+	events *eventBus
+	// denials rate-limits policy.denied events for the network policy.
+	denials *rateLimiter
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
-	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log)}
+	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log), events: newEventBus(),
+		denials: newRateLimiter(guestEventBurst, guestEventRate)}
+	l.disk.events = l.events
 	if opts.NoNetwork {
 		log.Info("guest networking disabled by --net=false")
 	} else if gw, err := bridgeAddr(); err != nil {
@@ -173,7 +181,7 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	// Only now: a cgroup that still holds a live orphan cannot be removed, so
 	// sweeping before the reaping above would leave every stale leaf behind.
 	opts.Host.Confine.SweepStale()
-	l.egress = newEgress(opts, st, log, l.gateway)
+	l.egress = newEgress(opts, st, log, l.gateway, l.networkDenied)
 	go l.janitor()
 	return l
 }
@@ -291,6 +299,12 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 			from = "warm"
 		}
 		if err := l.startLocked(ctx, sp, rt); err != nil {
+			var lim *LimitError
+			if errors.As(err, &lim) {
+				l.emit(sp, "limit.refused", map[string]any{"limit": "max_running", "max": lim.Limit, "current": lim.Current})
+			} else {
+				l.emit(sp, "sprite.wake_failed", map[string]any{"error": clipErr(err)})
+			}
 			return nil, nil, err
 		}
 		noteWake(ctx, time.Since(start), from)
@@ -346,8 +360,9 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 	}()
 
 	var m *vmm.Machine
-	mode := "cold"
+	mode, discarded := "cold", ""
 	if vmm.HasSnapshot(dir) && sp.BootIP != cfg.IPCIDR {
+		discarded = "network changed"
 		// The guest configured its address at boot; a snapshot from before the
 		// network changed (or appeared) would resume with the wrong one.
 		l.log.Info("network changed since boot; discarding warm state", "sprite", sp.Name, "was", sp.BootIP, "now", cfg.IPCIDR)
@@ -359,7 +374,7 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 			// A snapshot we can't load is just lost memory state; the disk is intact.
 			l.log.Warn("restore failed, falling back to cold boot", "sprite", sp.Name, "err", err)
 			vmm.DiscardSnapshot(dir)
-			mode, m = "cold", nil
+			mode, m, discarded = "cold", nil, "snapshot restore failed"
 		}
 	}
 	if m == nil {
@@ -397,7 +412,13 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 			s.Mounts = nil // a fresh VM has placeholders behind every checkpoint slot
 		}
 	})
-	l.log.Info("sprite running", "sprite", sp.Name, "wake", mode, "took", time.Since(start).Round(time.Millisecond), "net", tap != "")
+	took := time.Since(start)
+	l.log.Info("sprite running", "sprite", sp.Name, "wake", mode, "took", took.Round(time.Millisecond), "net", tap != "")
+	woke := map[string]any{"mode": mode, "ms": took.Milliseconds()}
+	if discarded != "" {
+		woke["warm_discarded"] = discarded
+	}
+	l.emit(sp, "sprite.woke", woke)
 	go l.watch(sp, rt, m)
 	return nil
 }
@@ -483,6 +504,7 @@ func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 			if rt.m == m {
 				l.cleanupLocked(rt)
 				l.log.Info("sprite VM exited", "sprite", sp.Name)
+				l.emit(sp, "sprite.exited", nil)
 			}
 			rt.mu.Unlock()
 			return
@@ -548,6 +570,7 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 		rt.m.Kill()
 		l.cleanupLocked(rt)
 		l.log.Warn("no room for a memory snapshot even with every other sprite cold; sprite stopped cold instead", "sprite", sp.Name, "needed", mib(need))
+		l.emit(sp, "sprite.stopped", map[string]any{"reason": "no room for a memory snapshot"})
 		return nil
 	}
 	if err := rt.m.Suspend(ctx); err != nil {
@@ -556,7 +579,9 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	l.cleanupLocked(rt)
 	now := time.Now()
 	l.store.Update(sp.Name, func(s *store.Sprite) { s.LastWarmingAt = &now })
-	l.log.Info("sprite suspended", "sprite", sp.Name, "took", time.Since(start).Round(time.Millisecond))
+	took := time.Since(start)
+	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond))
+	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle})
 	// The disk is quiescent exactly here: the guest has synced and the VM is
 	// paused. Enqueueing is non-blocking and cannot fail, so a bucket that is
 	// unreachable never turns a good suspend into a bad one.
@@ -588,6 +613,7 @@ func (l *Lifecycle) Stop(sp store.Sprite, keepWarm bool) error {
 	rt.m.Kill()
 	l.cleanupLocked(rt)
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
+	l.emit(sp, "sprite.stopped", nil)
 	return nil
 }
 
@@ -601,6 +627,7 @@ func (l *Lifecycle) Cool(sp store.Sprite) bool {
 		return false
 	}
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
+	l.emit(sp, "sprite.cold", map[string]any{"reason": "operator"})
 	return true
 }
 
@@ -659,5 +686,15 @@ func (l *Lifecycle) coolIfExpired(sp store.Sprite) {
 	if rt.m == nil && vmm.HasSnapshot(l.store.Dir(sp.ID)) {
 		vmm.DiscardSnapshot(l.store.Dir(sp.ID))
 		l.log.Info("sprite went cold", "sprite", sp.Name)
+		l.emit(cur, "sprite.cold", map[string]any{"reason": "warm ttl"})
 	}
+}
+
+// clipErr keeps an error short enough for an event.
+func clipErr(err error) string {
+	msg := err.Error()
+	if len(msg) > 300 {
+		msg = msg[:300] + "..."
+	}
+	return msg
 }

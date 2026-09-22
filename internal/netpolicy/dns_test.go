@@ -136,6 +136,8 @@ func TestDNSAllowedNameResolvesAndIsRemembered(t *testing.T) {
 func TestDNSDeniedNameIsRefusedWithoutAskingUpstream(t *testing.T) {
 	d, e, up, _ := newTestDNS(t, map[string][]string{"evil.com.": {"evil.com. 300 IN A 93.184.216.34"}})
 	e.Set(spriteA, "a", mustCompile(t, rule("github.com", "allow")))
+	var heard []string
+	e.OnDeny = func(sprite, kind, target, _ string) { heard = append(heard, sprite+" "+kind+" "+target) }
 
 	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeTXT} {
 		m := query(d, spriteA, "evil.com", qtype)
@@ -148,6 +150,9 @@ func TestDNSDeniedNameIsRefusedWithoutAskingUpstream(t *testing.T) {
 	}
 	if _, _, denied := e.authorize(spriteA, netip.MustParseAddr("93.184.216.34")); denied == "" {
 		t.Error("address of a refused name was authorised")
+	}
+	if len(heard) != 3 || heard[0] != "a dns evil.com" {
+		t.Errorf("OnDeny heard %q", heard)
 	}
 }
 

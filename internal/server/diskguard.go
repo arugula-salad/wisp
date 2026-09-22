@@ -52,6 +52,7 @@ type diskGuard struct {
 	reserve int64 // creates, checkpoints and restores must leave this much free
 	warnPct int   // warn below this share of the volume (or of the image, for the host)
 	probe   func() (Headroom, error)
+	events  *eventBus // nil in tests that build a guard by hand
 
 	mu       sync.Mutex
 	low      bool
@@ -143,7 +144,7 @@ func probeHeadroom(dir string) (Headroom, error) {
 
 // admit refuses an operation that would write need bytes unless the reserve
 // survives it. A probe that fails is not a reason to refuse work.
-func (g *diskGuard) admit(what string, need int64) error {
+func (g *diskGuard) admit(sp store.Sprite, what string, need int64) error {
 	h, err := g.probe()
 	g.mu.Lock()
 	h.Free -= g.claimed
@@ -156,6 +157,7 @@ func (g *diskGuard) admit(what string, need int64) error {
 	if h.Free < h.VolumeFree {
 		where = "the filesystem holding " + h.Image
 	}
+	g.events.Publish(spriteEvent(sp, "disk.refused", map[string]any{"operation": what, "needed_bytes": need, "free_bytes": h.Free, "reserve_bytes": g.reserve}))
 	return fmt.Errorf("%w: %s needs %s and %s has %s free, of which %s is kept in reserve (--disk-reserve-mib); delete sprites or checkpoints",
 		errNoRoom, what, mib(need), where, mib(h.Free), mib(g.reserve))
 }
@@ -180,8 +182,10 @@ func (g *diskGuard) watch() {
 		g.lastWarn = time.Now()
 		g.log.Warn("sprite volume is running out of space: creates and checkpoints will be refused, and warm sprites turned cold, before it fills",
 			"volume_free", mib(h.VolumeFree), "volume_size", mib(h.VolumeTotal), "image", h.Image, "host_free", mib(h.HostFree))
+		g.events.Publish(Event{Type: "disk.low", Detail: map[string]any{"volume_free_bytes": h.VolumeFree, "volume_total_bytes": h.VolumeTotal, "host_free_bytes": h.HostFree}})
 	case !low && g.low:
 		g.log.Info("sprite volume has headroom again", "volume_free", mib(h.VolumeFree))
+		g.events.Publish(Event{Type: "disk.ok", Detail: map[string]any{"volume_free_bytes": h.VolumeFree, "volume_total_bytes": h.VolumeTotal}})
 	}
 	g.low = low
 }
@@ -248,6 +252,7 @@ func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) (release func(), fits 
 			vmm.DiscardSnapshot(dir)
 			free += got
 			l.log.Warn("sprite turned cold to make room for another's memory snapshot", "sprite", o.Name, "for", sp.Name, "freed", mib(got))
+			l.emit(o, "sprite.cold", map[string]any{"reason": "disk space", "for": sp.Name})
 		}
 		rt.mu.Unlock()
 	}

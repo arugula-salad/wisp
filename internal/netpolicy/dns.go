@@ -68,6 +68,7 @@ func (d *DNS) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	q := r.Question[0]
 	if !policy.Allows(q.Name) {
 		d.Log.Info("egress dns refused", "sprite", sprite, "domain", canonical(q.Name), "type", dns.TypeToString[q.Qtype])
+		d.Enforcer.denied(sprite, "dns", canonical(q.Name), "not allowed by the network policy")
 		rcode(denyRcode)
 		return
 	}

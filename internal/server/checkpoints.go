@@ -96,7 +96,7 @@ func (s *Server) createCheckpointLocked(rt *runtime, name, comment string, auto 
 		cp.ID, cp.IsAuto = fmt.Sprintf("auto-%d", sp.NextAuto+1), true
 	}
 	live := filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile)
-	if err := s.life.disk.admit("a checkpoint", s.cloneCost(live)); err != nil {
+	if err := s.life.disk.admit(sp, "a checkpoint", s.cloneCost(live)); err != nil {
 		return cp, err
 	}
 	info("Creating checkpoint %s...", cp.ID)
@@ -142,14 +142,13 @@ func (s *Server) createCheckpointLocked(rt *runtime, name, comment string, auto 
 		sp.Checkpoints = append(sp.Checkpoints, cp)
 	})
 	s.log.Info("checkpoint created", "sprite", sp.Name, "checkpoint", cp.ID)
+	s.life.emit(sp, "checkpoint.created", map[string]any{"checkpoint": cp.ID, "auto": auto})
 	return cp, nil
 }
 
-func (s *Server) deleteCheckpointLocked(name, id string) error {
-	var spriteID string
+func (s *Server) deleteCheckpointLocked(name, id string, pruned bool) error {
 	found := false
-	s.store.Update(name, func(sp *store.Sprite) {
-		spriteID = sp.ID
+	sp, _ := s.store.Update(name, func(sp *store.Sprite) {
 		n := len(sp.Checkpoints)
 		sp.Checkpoints = slices.DeleteFunc(sp.Checkpoints, func(cp store.Checkpoint) bool { return cp.ID == id })
 		found = len(sp.Checkpoints) < n
@@ -157,7 +156,11 @@ func (s *Server) deleteCheckpointLocked(name, id string) error {
 	if !found {
 		return errNoCheckpoint
 	}
-	return os.Remove(s.checkpointPath(spriteID, id))
+	if err := os.Remove(s.checkpointPath(sp.ID, id)); err != nil {
+		return err
+	}
+	s.life.emit(sp, "checkpoint.deleted", map[string]any{"checkpoint": id, "pruned": pruned})
+	return nil
 }
 
 // pruneAutosLocked keeps the newest AutoCheckpointKeep automatic checkpoints.
@@ -175,7 +178,7 @@ func (s *Server) pruneAutosLocked(name, spare string) {
 		}
 	}
 	for i := 0; i < len(autos)-s.opts.AutoCheckpointKeep; i++ {
-		if err := s.deleteCheckpointLocked(name, autos[i]); err != nil {
+		if err := s.deleteCheckpointLocked(name, autos[i], true); err != nil {
 			s.log.Warn("prune auto checkpoint", "sprite", name, "checkpoint", autos[i], "err", err)
 			continue
 		}
@@ -210,7 +213,7 @@ func (s *Server) restoreCheckpointLocked(rt *runtime, name, id string, info prog
 	// Upstream warns that a restore discards the current state for good. A full
 	// clone is cheap enough here to make every restore undoable instead.
 	// Checked before anything is stopped: the copy lands beside the disk it replaces.
-	if err := s.life.disk.admit("a restore", s.cloneCost(s.checkpointPath(sp.ID, id))); err != nil {
+	if err := s.life.disk.admit(sp, "a restore", s.cloneCost(s.checkpointPath(sp.ID, id))); err != nil {
 		return err
 	}
 	if err := s.autoCheckpointLocked(rt, name, "before restore to "+id, id, info); err != nil {
@@ -239,6 +242,7 @@ func (s *Server) restoreCheckpointLocked(rt *runtime, name, id string, info prog
 	}
 	s.store.Update(name, func(sp *store.Sprite) { sp.Lineage = lineage })
 	s.log.Info("checkpoint restored", "sprite", sp.Name, "checkpoint", id)
+	s.life.emit(sp, "checkpoint.restored", map[string]any{"checkpoint": id})
 	if wasRunning {
 		// The environment restarts on its own, so services come back from the
 		// restored disk without waiting for the next request.
@@ -302,6 +306,7 @@ func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	// loop in one guest would starve every other sprite. (Approximate under
 	// concurrent creates, which is fine for a ceiling.)
 	if limit := s.opts.GuestCheckpointLimit; from != nil && limit > 0 && len(filterCheckpoints(sp, "", false)) >= limit {
+		s.life.emit(sp, "limit.refused", map[string]any{"limit": "guest_checkpoints", "max": limit, "current": len(filterCheckpoints(sp, "", false))})
 		writeErr(w, http.StatusConflict, "checkpoint_limit", fmt.Sprintf(
 			"this sprite already has %d checkpoints, the most it may create from inside; delete some first", limit))
 		return
@@ -346,7 +351,7 @@ func (s *Server) deleteCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 		writeErr(w, http.StatusConflict, "checkpoint_mounted", errCheckpointMounted.Error())
 		return
 	}
-	if err := s.deleteCheckpointLocked(sp.Name, r.PathValue("id")); errors.Is(err, errNoCheckpoint) {
+	if err := s.deleteCheckpointLocked(sp.Name, r.PathValue("id"), false); errors.Is(err, errNoCheckpoint) {
 		writeErr(w, http.StatusNotFound, "not_found", "checkpoint not found")
 		return
 	} else if err != nil {

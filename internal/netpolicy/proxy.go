@@ -58,6 +58,7 @@ func (p *Proxy) handle(in *net.TCPConn) {
 	src := in.RemoteAddr().(*net.TCPAddr).AddrPort().Addr().Unmap()
 	deny := func(sprite string, dst any, reason string) {
 		p.Log.Warn("egress denied", "sprite", sprite, "src", src, "dst", dst, "reason", reason)
+		p.Enforcer.denied(sprite, "connect", fmt.Sprint(dst), reason)
 		in.SetLinger(0) // reset rather than FIN, so the guest sees a refusal, not an empty reply
 	}
 	dst, err := p.OrigDst(in)
