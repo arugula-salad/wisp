@@ -124,6 +124,17 @@ func inherit(sp *store.Sprite, parent store.Sprite, cloned bool) {
 	if !cloned {
 		sp.Config, sp.Privileges, sp.Resources = parent.Config, parent.Privileges, parent.Resources
 	}
+	// A spawner's children are why leases exist (leases.go): max_children caps
+	// how many a lobby holds, and without an expiry the sprite a visitor left an
+	// hour ago holds its slot forever. The policy's TTL is a ceiling rather than
+	// a default, so a lobby that knows a game is short-lived may ask for less,
+	// and a child cannot buy itself more time or protect itself out of the lease.
+	if ttl := spawnPolicy(parent).ChildTTLSeconds; ttl > 0 {
+		sp.Protected = false
+		if deadline := time.Now().UTC().Add(time.Duration(ttl) * time.Second); sp.ExpiresAt == nil || sp.ExpiresAt.After(deadline) {
+			sp.ExpiresAt = &deadline
+		}
+	}
 }
 
 // registerGuestSpawn adds the sprite routes to one sprite's guest channel.
@@ -183,6 +194,10 @@ func (s *Server) registerSpawnPolicy(mux *http.ServeMux) {
 		}
 		if p.MaxChildren < 0 {
 			writeErr(w, http.StatusBadRequest, "bad_request", "max_children must not be negative")
+			return
+		}
+		if p.ChildTTLSeconds < 0 {
+			writeErr(w, http.StatusBadRequest, "bad_request", "child_ttl_seconds must not be negative")
 			return
 		}
 		for _, name := range p.Sources {

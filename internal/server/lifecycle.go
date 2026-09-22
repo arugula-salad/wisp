@@ -35,6 +35,7 @@ type Options struct {
 	BaseImage     string
 	IdleTimeout   time.Duration // no activity for this long => suspend (warm)
 	WarmTTL       time.Duration // suspended this long => drop memory state (cold)
+	LeaseWarning  time.Duration // lead time on sprite.expiring (leases.go); 0 = defaultLeaseWarning
 	DefaultVCPUs  int
 	DefaultMemMiB int
 	DNS           string
@@ -155,6 +156,9 @@ type Lifecycle struct {
 	// backups is the backup tier, nil when no bucket is configured. A nil manager's
 	// methods are no-ops, so the lifecycle needs no conditionals.
 	backups *backupManager
+	// leases reaps sprites whose workspace lease ran out (leases.go). The Server
+	// installs it, since deleting a sprite is the API's path; nil until then.
+	leases *leases
 	// events is where everything below reports what it did (events.go).
 	events *eventBus
 	// denials rate-limits policy.denied events for the network policy.
@@ -681,10 +685,12 @@ func (l *Lifecycle) Shutdown() {
 	wg.Wait()
 }
 
-// janitor turns long-suspended sprites cold by dropping their memory snapshot.
+// janitor turns long-suspended sprites cold by dropping their memory snapshot,
+// and deletes the sprites whose workspace lease has run out.
 func (l *Lifecycle) janitor() {
 	for range time.Tick(30 * time.Second) {
 		l.disk.watch()
+		l.reapLeases() // before cooling: a sprite on its way out needs no snapshot work
 		for _, sp := range l.store.List("") {
 			if l.warmExpired(sp) {
 				l.coolIfExpired(sp)

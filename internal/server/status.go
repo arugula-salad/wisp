@@ -127,6 +127,12 @@ type SpriteStatus struct {
 	LastWarmingAt    *time.Time `json:"last_warming_at,omitempty"`
 	// Image is the container image the disk was made from, if any.
 	Image string `json:"image,omitempty"`
+	// ExpiresAt is the workspace lease: when this sprite is deleted, disk and
+	// all (leases.go). Absent on a sprite with no lease, which is the default.
+	// Protected holds the deletion off without clearing the deadline, so an
+	// operator can see both that the lease ran out and why the sprite is still here.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Protected bool       `json:"protected,omitempty"`
 }
 
 type VMProcess struct {
@@ -282,7 +288,8 @@ func diskUsage(st *store.Store, vmRoot string, sprites []SpriteStatus) {
 
 func spriteBase(sp store.Sprite) SpriteStatus {
 	return SpriteStatus{Name: sp.Name, ID: sp.ID, Checkpoints: len(sp.Checkpoints), MountedCheckpoints: sp.Mounts,
-		NetIndex: sp.NetIndex, LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, Image: sp.Image}
+		NetIndex: sp.NetIndex, LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, Image: sp.Image,
+		ExpiresAt: sp.ExpiresAt, Protected: sp.Protected}
 }
 
 func (h *HostStatus) count(state string) {

@@ -27,4 +27,8 @@ type SpawnPolicy struct {
 	// Sources names sprites whose checkpoints it may clone, besides its own and
 	// its children's.
 	Sources []string `json:"sources,omitempty"`
+	// ChildTTLSeconds gives every child a lease of that length at birth, so a
+	// slot under MaxChildren comes back on its own (leases.go). 0, the default,
+	// means children never expire and the spawner is expected to delete them.
+	ChildTTLSeconds int64 `json:"child_ttl_seconds,omitempty"`
 }
