@@ -57,6 +57,9 @@ apparent one, which is always the RAM size):
 | holding 600 MiB in a tmpfs | 2049 MiB | 711 MiB |
 | 4 GiB sprite that read a 2.5 GB file (page cache) | 4225 MiB | 2703 MiB; 790 MiB with autoscale |
 
+On the production XFS reflink volume, under `--confine=strict`, an idle 2 GiB sprite made from
+`alpine:3.20` suspended to a 128 MiB snapshot in 581 ms and woke warm in 21 ms.
+
 Latency, six suspend/wake rounds each on the same host with `--confine=strict`: suspend
 was 1.2 to 2.5 s before and is 1.16 to 1.21 s now (the first suspend after a cold boot is
 ~2.5 s in both). Warm wake, restore to a responsive agent, is unchanged: 21 to 25 ms before,
