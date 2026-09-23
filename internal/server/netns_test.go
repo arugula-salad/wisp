@@ -4,7 +4,7 @@
 // host: scripts/test-netpolicy-netns.sh runs this test binary as "root" inside a
 // rootless container, where it owns a private network namespace. It builds the
 // msbr0 bridge, loads the exact ruleset setup-host.sh installs, runs the real
-// mini-sprites-netd against the real nft, stands up spritesd's policy listeners,
+// wisp-netd against the real nft, stands up wispd's policy listeners,
 // and plays the part of two sprites with two further namespaces.
 //
 // Not covered here (needs the real host): ufw, tap devices and bridge port
@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 func sh(t *testing.T, script string) string {
@@ -74,11 +74,11 @@ func TestNetworkPolicyInNamespaces(t *testing.T) {
 		}
 	}
 	// What a guest is given. Only the fake sprites resolve through this file; everything
-	// spritesd-side in this test dials addresses.
+	// wispd-side in this test dials addresses.
 	sh(t, `echo 'nameserver 1.1.1.1' > /etc/resolv.conf`)
 	sh(t, setup+" --print-rules | nft -f -")
 
-	socket := "/run/mini-sprites/netd.sock"
+	socket := "/run/wisp/netd.sock"
 	helper := exec.Command(netdBin, "--owner", "root", "--net", "10.209.0.0/16", "--socket", socket)
 	helper.Stderr = os.Stderr
 	if err := helper.Start(); err != nil {
@@ -118,7 +118,7 @@ func TestNetworkPolicyInNamespaces(t *testing.T) {
 		}
 	}
 	members := func() string {
-		return strings.Join(strings.Fields(sh(t, "nft list set inet mini_sprites restricted4 | grep elements || true")), " ")
+		return strings.Join(strings.Fields(sh(t, "nft list set inet wisp restricted4 | grep elements || true")), " ")
 	}
 
 	const fetch = `curl -sS -m 15 -o /dev/null -w '%%{http_code}' https://%s/`
@@ -256,15 +256,15 @@ func TestNetworkPolicyInNamespaces(t *testing.T) {
 		check("...including ICMP", ok, out)
 	}
 
-	// A set emptied behind spritesd's back (setup-host.sh re-run without KEEP, nft flush) is repaired at the next boot.
+	// A set emptied behind wispd's back (setup-host.sh re-run without KEEP, nft flush) is repaired at the next boot.
 	setPolicy(`{"rules":[{"domain":"example.com","action":"allow"}]}`)
-	sh(t, "nft flush set inet mini_sprites restricted4")
+	sh(t, "nft flush set inet wisp restricted4")
 	if err := e.admit(shut); err != nil {
 		t.Fatal(err)
 	}
 	check("a boot re-pushes the set", members() == "elements = { 10.209.0.2 }", members())
 	// Re-applying the ruleset the way setup-host.sh does keeps the members.
-	sh(t, `KEEP=$(nft list set inet mini_sprites restricted4 | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p'); test -n "$KEEP"; KEEP="$KEEP" `+setup+` --print-rules | nft -f -`)
+	sh(t, `KEEP=$(nft list set inet wisp restricted4 | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p'); test -n "$KEEP"; KEEP="$KEEP" `+setup+` --print-rules | nft -f -`)
 	check("re-applying the ruleset preserves the restricted set", members() == "elements = { 10.209.0.2 }", members())
 
 	helper.Process.Kill()

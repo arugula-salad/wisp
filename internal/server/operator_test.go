@@ -18,8 +18,8 @@ import (
 
 	sprites "github.com/superfly/sprites-go"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // newOperatorServer is a daemon with a tiny base image and no VMs: enough for

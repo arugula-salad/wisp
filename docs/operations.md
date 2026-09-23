@@ -7,49 +7,49 @@ back after a reboot, like the network and the volume already do:
 
 ```sh
 make install-service                       # builds, installs a systemd *user* unit, (re)starts it
-./scripts/install-service.sh -- --max-running 8 --url-domain sprites.example.com   # with spritesd flags
+./scripts/install-service.sh -- --max-running 8 --url-domain sprites.example.com   # with wispd flags
 ./scripts/install-service.sh --uninstall   # suspends the sprites and removes the unit; data stays
 ```
 
 It runs as you, with no root, exactly like `make run`. The binary is copied to
-`~/.local/lib/mini-sprites/`, so the unit does not depend on this checkout; the flags live in
-`~/.config/mini-sprites/mini-sprites.env` and survive a re-install. Stop the `make run` daemon
+`~/.local/lib/wisp/`, so the unit does not depend on this checkout; the flags live in
+`~/.config/wisp/wisp.env` and survive a re-install. Stop the `make run` daemon
 first (`^C` suspends its sprites, and the service resumes them).
 
 ```sh
-journalctl --user -u mini-sprites -f            # the log: wakes with latency, suspends, egress denied, ...
-journalctl --user -u mini-sprites -b -p warning # this boot, trouble only
-systemctl --user restart mini-sprites           # suspends every running sprite, starts, resumes on demand
+journalctl --user -u wisp -f            # the log: wakes with latency, suspends, egress denied, ...
+journalctl --user -u wisp -b -p warning # this boot, trouble only
+systemctl --user restart wisp           # suspends every running sprite, starts, resumes on demand
 ```
 
-A stop sends SIGTERM to spritesd alone (`KillMode=mixed`), which writes every running sprite's
+A stop sends SIGTERM to wispd alone (`KillMode=mixed`), which writes every running sprite's
 RAM to disk before exiting: about 0.6 s for three 2 GiB guests at once here. Measured on a
 restart with three sprites running: all three came back with the same kernel `boot_id`.
 
 Two things need root, once, and the installer tells you when they are missing rather than
 doing them:
 
-- `sudo loginctl enable-linger $USER`: without lingering, your user manager (and spritesd in
+- `sudo loginctl enable-linger $USER`: without lingering, your user manager (and wispd in
   it) starts at your first login and stops at your last logout.
 - `sudo ./scripts/install-service.sh --system-dropin`: a drop-in for `user@<uid>.service` that
-  orders your user manager after `mini-sprites-net`, `-netd` and `-storage` (and so stops it
+  orders your user manager after `wisp-net`, `-netd` and `-storage` (and so stops it
   before them), and raises its stop timeout. **Ubuntu ships that timeout at 5 seconds**
   (`user@.service.d/timeout.conf`): at reboot every user service is killed 5 s after being
   asked to stop, whatever its own `TimeoutStopSec` says. A sprite cut off mid-snapshot is
   intact (an incomplete snapshot is never published) but comes back cold.
 
 Until the drop-in is there the unit still waits, for up to 90 s, for the volume to be mounted
-and the bridge to exist: started early, spritesd would see an empty sprite directory, or boot
+and the bridge to exist: started early, wispd would see an empty sprite directory, or boot
 every sprite without a NIC.
 
 ## See what is running
 
 ```
-$ spritesd status
-spritesd   pid 1140375, up 3h12m, API on 127.0.0.1:7788
-data       /home/you/.local/share/mini-sprites
+$ wispd status
+wispd   pid 1140375, up 3h12m, API on 127.0.0.1:7788
+data       /home/you/.local/share/wisp
 volume     5.9G used, 33G free of 39G, reflink clones; 2.0G kept in reserve
-image      /home/you/.local/share/mini-sprites/sprites.xfs; 66G free on its filesystem
+image      /home/you/.local/share/wisp/sprites.xfs; 66G free on its filesystem
 sprites    1 running (limit 8), 1 warm, 0 cold; 2 in all (no limit)
 network    1 of 32 taps in use
 policy     helper reachable
@@ -58,14 +58,14 @@ NAME   ID            STATE    PID      RSS   DISK  OWN   SNAP  CKPTS            
 build  09dc6ed0dfbd  running  1140792  412M  1.9G  1.3G  0     3 (mounted 0=v2)  1      10.209.0.2  restricted
 hello  19610039ea00  warm     -        -     589M  7M    2.0G  0                 -      10.209.0.3  open
 
-ORPHANED VMs: 1 firecracker process(es) of yours that no running spritesd started. Not touched; ...
+ORPHANED VMs: 1 firecracker process(es) of yours that no running wispd started. Not touched; ...
   PID      RSS   PARENT          CWD
   1083557  915M  systemd (6354)  /tmp/ms-mem/vm/e7a5da5ef31f
 ```
 
-It needs no token: the running daemon answers on `<data>/spritesd.sock` (mode 0600, so the
+It needs no token: the running daemon answers on `<data>/wispd.sock` (mode 0600, so the
 filesystem permission is the authentication), and with no daemon up the same command answers
-from the files. That socket is also the lock on the data directory: a second spritesd on the
+from the files. That socket is also the lock on the data directory: a second wispd on the
 same one refuses to start. `--json` prints everything, under field names that are meant to be
 scripted against (`internal/server/status.go`).
 
@@ -74,13 +74,13 @@ scripted against (`internal/server/status.go`).
   DISK is what the sprite's disk and checkpoints occupy with every shared block counted once,
   OWN the part nothing else shares, i.e. what deleting the sprite gives back.
 - **images** (shown when there are any) counts the disks cached from container images and
-  what they occupy; `spritesd images list` has the detail. See [images](images.md).
+  what they occupy; `wispd images list` has the detail. See [images](images.md).
 - **HOLDS** is the number of live tasks keeping a sprite awake: the answer to "why is this
   VM still running".
-- **Orphans** are Firecracker processes of your user whose parent is not a running spritesd:
+- **Orphans** are Firecracker processes of your user whose parent is not a running wispd:
   a VM started by hand, or left by a daemon that was killed. They are reported, never killed,
-  since another data directory or someone's experiment may own them. (A spritesd does reap
-  stale VMs in *its own* data directory when it starts.) Other spritesd instances and their VM
+  since another data directory or someone's experiment may own them. (A wispd does reap
+  stale VMs in *its own* data directory when it starts.) Other wispd instances and their VM
   counts are listed separately.
 
 ## Limits
@@ -113,7 +113,7 @@ parse (`limit` and `current_count` are MiB for the budget, boots for the cap), w
 `Retry-After` set to the idle timeout and to 5 seconds respectively. Neither queues: you are
 told to come back, not made to wait. A refusal is also a `limit.refused`
 [event](events.md), with `limit` naming which one said no (`max_running_memory`,
-`max_concurrent_boots`, `max_running`). `spritesd status --json` reports
+`max_concurrent_boots`, `max_running`). `wispd status --json` reports
 `max_running_memory_mib` / `reserved_memory_mib` and `max_concurrent_boots` /
 `boots_in_flight`; reserved memory is counted even with no budget set, so you can see what a
 budget would have to be to hold what you run today.
@@ -130,7 +130,7 @@ free RAM. Want the density, set the budget above physical RAM and accept the swa
 
 **What this is not.** It is admission accounting, not a guarantee against host memory
 pressure. Host page cache for sprite disks is not counted, nor Firecracker's own overhead
-beyond guest RAM, nor the snapshot a suspend writes, nor spritesd itself, nor anything else on
+beyond guest RAM, nor the snapshot a suspend writes, nor wispd itself, nor anything else on
 the machine. Reservations are taken before a VM starts and released when it stops or the start
 fails (a shutdown suspends every sprite, which releases them), and concurrent wakes are
 accounted against each other under one lock — so two simultaneous wakes cannot both be
@@ -142,7 +142,7 @@ overcommit rather than a promise.
 
 The volume holds sprite disks, checkpoints, one memory snapshot per warm sprite, and the
 disks cached from [container images](images.md) (building one is refused like a create when
-it would eat into the reserve; `spritesd images rm` gives the space back). A snapshot takes
+it would eat into the reserve; `wispd images rm` gives the space back). A snapshot takes
 what that guest was using (see [lifecycle](lifecycle.md#what-a-sprite-costs-in-memory-and-disk))
 but needs up to one and a half times its RAM free while it is written.
 When it is the loop-mounted image from `setup-storage.sh`, filling it, or the host filesystem
@@ -156,7 +156,7 @@ under the sparse image, does not produce a clean ENOSPC but I/O errors inside gu
   even that cannot make room the sprite is synced and stopped cold instead. Concurrent
   suspends (a shutdown) are not promised the same free bytes twice.
 - Free space is the smaller of the volume's and, for a sparse image, its host filesystem's;
-  `spritesd status` shows both. The log warns while either is below `--disk-warn-percent` (10).
+  `wispd status` shows both. The log warns while either is below `--disk-warn-percent` (10).
 
 What the guard cannot do is stop running guests from growing their own disks, which are
 sparse too; the warning and the reserve are the margin for that.
@@ -168,7 +168,7 @@ the above (22 checks), including that nothing is corrupted afterwards; it needs 
 
 - **Metrics**: no Prometheus endpoint. The same events the log has (wake mode and latency,
   suspends, going cold, policy denials, limit refusals, disk warnings) are available as a
-  stream and as webhooks ([events](events.md)), and `spritesd status --json` has the gauges.
+  stream and as webhooks ([events](events.md)), and `wispd status --json` has the gauges.
 - **Tokens**: one bearer token in `<data>/token`; to rotate it, replace the file and restart.
   No named tokens, scopes or revocation.
 - **Listening beyond localhost**: the API binds `127.0.0.1` in plaintext, and the supported

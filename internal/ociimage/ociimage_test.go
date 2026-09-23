@@ -16,7 +16,7 @@ func TestParseRef(t *testing.T) {
 		"index.docker.io/library/node:22":               "docker.io/library/node:22",
 		"bitnami/redis":                                 "docker.io/bitnami/redis:latest",
 		"ghcr.io/owner/repo/sub:v1.2.3":                 "ghcr.io/owner/repo/sub:v1.2.3",
-		"localhost/mini-sprites-base":                   "localhost/mini-sprites-base:latest",
+		"localhost/wisp-base":                   "localhost/wisp-base:latest",
 		"localhost:5000/team/app:dev":                   "localhost:5000/team/app:dev",
 		"registry.example.com:8443/app":                 "registry.example.com:8443/app:latest",
 		"gcr.io/distroless/static-debian12":             "gcr.io/distroless/static-debian12:latest",

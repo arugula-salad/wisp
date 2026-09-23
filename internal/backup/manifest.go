@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // A manifest is everything needed to rebuild one sprite's machine directory:
@@ -32,7 +32,7 @@ type Manifest struct {
 	// Files is keyed by the path relative to the machine directory, e.g.
 	// "disk.ext4" or "checkpoints/v1.ext4".
 	Files map[string]File `json:"files"`
-	// Reason records what triggered this backup, for `spritesd backups list`.
+	// Reason records what triggered this backup, for `wispd backups list`.
 	Reason string `json:"reason,omitempty"`
 }
 
@@ -125,7 +125,7 @@ type repoConfig struct {
 
 // Tombstone marks a sprite that was deleted on the host. Deleting a sprite and
 // losing the machine it lived on must not look the same to the bucket, so the
-// backup outlives the sprite until `spritesd backups prune` retires it.
+// backup outlives the sprite until `wispd backups prune` retires it.
 type Tombstone struct {
 	SpriteID  string    `json:"sprite_id"`
 	Name      string    `json:"name"`

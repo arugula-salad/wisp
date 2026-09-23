@@ -1,7 +1,7 @@
 // Package s3test is an in-process stand-in for the S3 API, enough of it for the
 // backup tier's tests: object PUT/GET/HEAD/DELETE and ListObjectsV2 with
 // prefixes, delimiters and continuation. It is a test helper, never imported by
-// spritesd itself.
+// wispd itself.
 //
 // It deliberately does not check signatures — Garage does that, and the real
 // end-to-end run against Garage is what proves the signing code. It does check

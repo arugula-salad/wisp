@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // fromInside sends a request down the named sprite's guest channel.

@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
-// The privileges and resources policies. spritesd is the source of truth (a
+// The privileges and resources policies. wispd is the source of truth (a
 // sprite cannot rewrite its own policy); the guest agent enforces them on the
 // processes it launches, and the memory limit also sizes the VM.
 //

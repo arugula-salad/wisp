@@ -1,4 +1,4 @@
-// sprite-agent is the in-guest runtime. As PID 1 it sets up the system and
+// wisp-agent is the in-guest runtime. As PID 1 it sets up the system and
 // supervises a copy of itself running `serve`, which hosts the agent API on
 // vsock. Splitting the two keeps PID 1's wait4(-1) orphan reaping from
 // stealing exit statuses that os/exec is waiting on in the server.
@@ -20,18 +20,18 @@ import (
 	"github.com/mdlayher/vsock"
 	"golang.org/x/sys/unix"
 
-	"github.com/jhgaylor/mini-sprites/internal/agent"
+	"github.com/jhgaylor/wisp/internal/agent"
 )
 
-// AgentPort is the vsock port spritesd dials.
+// AgentPort is the vsock port wispd dials.
 const AgentPort = 1024
 
-// hostAPIPort is the vsock port spritesd answers on for this sprite (guestAPIPort there).
+// hostAPIPort is the vsock port wispd answers on for this sprite (guestAPIPort there).
 const hostAPIPort = 1025
 
 func main() {
 	log.SetFlags(0)
-	log.SetPrefix("sprite-agent: ")
+	log.SetPrefix("wisp-agent: ")
 	if os.Getpid() == 1 {
 		runInit()
 		return
@@ -40,7 +40,7 @@ func main() {
 		serve(os.Args[2:])
 		return
 	}
-	fmt.Fprintln(os.Stderr, "usage: sprite-agent serve [--listen vsock|tcp:ADDR|unix:PATH]")
+	fmt.Fprintln(os.Stderr, "usage: wisp-agent serve [--listen vsock|tcp:ADDR|unix:PATH]")
 	os.Exit(2)
 }
 
@@ -75,7 +75,7 @@ func serve(args []string) {
 	agent.InitPolicy(agent.Policy{Profile: boot["profile"], NoNewPrivs: boot["nnp"] == "1", MemoryLimitMB: memLimit},
 		"/run/sprite-policy.json")
 
-	// Service starts and crashes go to spritesd's event stream, which only exists over vsock.
+	// Service starts and crashes go to wispd's event stream, which only exists over vsock.
 	var report func(agent.ServiceReport)
 	if *listen == "vsock" {
 		report = agent.NewReporter(dialHost).Report

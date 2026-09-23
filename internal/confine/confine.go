@@ -12,7 +12,7 @@
 //     capped by the kernel.
 //
 // Landlock has to be applied between fork and exec, and Go's os/exec offers no
-// hook there (nothing may run in the child of a threaded runtime). So spritesd
+// hook there (nothing may run in the child of a threaded runtime). So wispd
 // re-execs itself as a shim: the parent builds the argv, the shim applies the
 // domain and then execve's Firecracker, which inherits it. The shim must exec
 // rather than spawn, so the pid the parent knows stays the Firecracker pid —
@@ -29,7 +29,7 @@ import (
 	"syscall"
 )
 
-// ShimArg is the hidden first argument that turns a spritesd exec into the
+// ShimArg is the hidden first argument that turns a wispd exec into the
 // confinement shim.
 const ShimArg = "__confine"
 
@@ -49,7 +49,7 @@ const (
 	ModeOff
 )
 
-// ParseMode reads the MINI_SPRITES_CONFINE setting.
+// ParseMode reads the WISP_CONFINE setting.
 func ParseMode(s string) (Mode, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "best-effort":
@@ -117,7 +117,7 @@ func Open(mode Mode, name string) (*Confiner, error) {
 }
 
 // Describe is the one-line startup summary: exactly what is enforced, so the
-// claim in docs/security.md can be checked against a running spritesd.
+// claim in docs/security.md can be checked against a running wispd.
 func (c *Confiner) Describe() string {
 	if c == nil {
 		return "off (firecracker runs with only its own seccomp filter)"
@@ -139,10 +139,10 @@ func (c *Confiner) Enforced() bool {
 	return c != nil && (c.abi >= 1 || c.cg != nil)
 }
 
-// SweepStale removes cgroup leaves left by a spritesd that died without
+// SweepStale removes cgroup leaves left by a wispd that died without
 // cleaning up. It must be called *after* orphaned VMMs have been reaped: a
 // cgroup that still holds a process cannot be removed, so an earlier sweep
-// silently leaves every leaf whose VMM outlived its spritesd.
+// silently leaves every leaf whose VMM outlived its wispd.
 func (c *Confiner) SweepStale() {
 	if c != nil && c.cg != nil {
 		c.cg.Sweep()
@@ -169,10 +169,10 @@ func (c *Confiner) Start(cmd *exec.Cmd, spec Spec, id string, lim Limits) (*Cgro
 		}
 		self, err := os.Executable()
 		if err != nil {
-			return nil, fmt.Errorf("confine: locate spritesd: %w", err)
+			return nil, fmt.Errorf("confine: locate wispd: %w", err)
 		}
 		cmd.Path = self
-		cmd.Args = append([]string{"spritesd", ShimArg, string(blob)}, cmd.Args...)
+		cmd.Args = append([]string{"wispd", ShimArg, string(blob)}, cmd.Args...)
 	}
 	if c.cg == nil {
 		return nil, nil
@@ -198,11 +198,11 @@ func (c *Confiner) Start(cmd *exec.Cmd, spec Spec, id string, lim Limits) (*Cgro
 // and execs args[1:]. It never returns.
 func RunShim(args []string) {
 	fail := func(err error) {
-		fmt.Fprintf(os.Stderr, "mini-sprites confine: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wisp confine: %v\n", err)
 		os.Exit(126)
 	}
 	if len(args) < 2 {
-		fail(errors.New("usage: spritesd " + ShimArg + " <spec-json> <argv...>"))
+		fail(errors.New("usage: wispd " + ShimArg + " <spec-json> <argv...>"))
 	}
 	var spec Spec
 	if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
@@ -214,7 +214,7 @@ func RunShim(args []string) {
 		if spec.Strict {
 			fail(err)
 		}
-		fmt.Fprintf(os.Stderr, "mini-sprites confine: running unconfined: %v\n", err)
+		fmt.Fprintf(os.Stderr, "wisp confine: running unconfined: %v\n", err)
 	}
 	if err := syscall.Exec(args[1], args[1:], os.Environ()); err != nil {
 		fail(fmt.Errorf("exec %s: %w", args[1], err))

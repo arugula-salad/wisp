@@ -2,7 +2,7 @@
 # Downloads the Firecracker VMM and a guest kernel into the data directory.
 set -euo pipefail
 
-DATA="${MINI_SPRITES_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/mini-sprites}"
+DATA="${WISP_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}"
 FC_VERSION="${FC_VERSION:-v1.17.0}"
 # Guest kernels are published with Firecracker's CI artifacts, not its releases.
 KERNEL_URL="${KERNEL_URL:-https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/x86_64/vmlinux-6.1.155}"

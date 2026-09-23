@@ -12,7 +12,7 @@ import (
 
 // The Tasks API is upstream's explicit keep-awake: while at least one task is
 // live the sprite is not idle-suspended. Upstream serves it inside the sprite
-// on /.sprite/api.sock, so the table lives here in the guest; spritesd learns
+// on /.sprite/api.sock, so the table lives here in the guest; wispd learns
 // about holds through /internal/activity. Every task expires (an hour at
 // most), so a client that crashed cannot pin a VM forever.
 
@@ -96,7 +96,7 @@ func (t *taskTable) delete(name string) bool {
 }
 
 // clear runs after a snapshot restore: a task is a hold on the current run,
-// and a run that was suspended anyway (spritesd shutting down) is over.
+// and a run that was suspended anyway (wispd shutting down) is over.
 func (t *taskTable) clear() {
 	t.mu.Lock()
 	t.m = nil
@@ -104,7 +104,7 @@ func (t *taskTable) clear() {
 }
 
 // registerTasks mounts the API under prefix: /v1/tasks on the guest socket,
-// /tasks for spritesd, which exposes it as /v1/sprites/{name}/tasks.
+// /tasks for wispd, which exposes it as /v1/sprites/{name}/tasks.
 func (s *Server) registerTasks(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"tasks": s.tasks.live()})

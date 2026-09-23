@@ -14,24 +14,24 @@ import (
 	"time"
 )
 
-// The host side of confinement: that spritesd really did put each Firecracker
+// The host side of confinement: that wispd really did put each Firecracker
 // in its own cgroup with the limits the sprite's shape implies, and that the
 // VMM still looks the way vmm.ReapOrphan expects after going through the
 // Landlock shim. These read /proc and /sys, so they only mean anything when the
-// tests run on the spritesd host — which is the only way mini-sprites is
+// tests run on the wispd host — which is the only way wisp is
 // deployed. They skip otherwise.
 
-// dataDir is where spritesd keeps machine directories.
+// dataDir is where wispd keeps machine directories.
 func dataDir(t *testing.T) string {
 	t.Helper()
-	if d := os.Getenv("MINI_SPRITES_DATA"); d != "" {
+	if d := os.Getenv("WISP_DATA"); d != "" {
 		return d
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Skip("cannot locate the data directory")
 	}
-	return filepath.Join(home, ".local", "share", "mini-sprites")
+	return filepath.Join(home, ".local", "share", "wisp")
 }
 
 // spriteID reads a sprite's id, which names its machine directory.
@@ -51,7 +51,7 @@ func vmmPID(t *testing.T, id string) int {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(dataDir(t), "vm", id, "fc.pid"))
 	if err != nil {
-		t.Skipf("no fc.pid for %s (not running on the spritesd host?): %v", id, err)
+		t.Skipf("no fc.pid for %s (not running on the wispd host?): %v", id, err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil {

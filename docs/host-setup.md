@@ -1,6 +1,6 @@
 # Host setup
 
-spritesd itself needs no root. Two optional, one-time steps do: guest networking and the
+wispd itself needs no root. Two optional, one-time steps do: guest networking and the
 reflink volume. Both install boot units, so they survive a reboot.
 
 ## Guest networking
@@ -15,9 +15,9 @@ ranges. Without the setup sprites simply have no NIC; exec, checkpoints, sprite 
 TCP proxy still work because they travel over vsock.
 
 What the script knows about because it bit us:
-- It refuses a subnet that overlaps an existing route (`MINI_SPRITES_NET_PREFIX` picks another
+- It refuses a subnet that overlaps an existing route (`WISP_NET_PREFIX` picks another
   /16). podman owns 10.88/16 by default, and an overlap silently steals all return traffic.
-  spritesd reads the network back off the bridge, so the script is the only place it is set.
+  wispd reads the network back off the bridge, so the script is the only place it is set.
 - If ufw is active it adds `ufw route allow in on msbr0` and input allowances for the two
   policy ports: ufw's policies are DROP, and a drop in any netfilter table is final.
 - `--print-rules` shows the nftables ruleset without root; `--remove` undoes everything.
@@ -26,7 +26,7 @@ What the script knows about because it bit us:
 
 ```sh
 sudo apt install xfsprogs
-sudo ./scripts/setup-storage.sh      # stop spritesd first; SPRITE_VOLUME_GB=40 by default
+sudo ./scripts/setup-storage.sh      # stop wispd first; SPRITE_VOLUME_GB=40 by default
 ```
 
 Puts the sprite directory on a loop-mounted XFS volume with reflinks, so creating a sprite,
@@ -35,17 +35,17 @@ taking a checkpoint and restoring one are instant and share disk blocks until wr
 snapshots live on the volume too, one per suspended sprite, taking what the guest was using
 but briefly more than its RAM size while written, so size it for both; suspend is a little slower through the loop device (~1.6 s vs ~1.2 s). The
 script migrates existing sprites, never sizes the volume beyond what the host disk can hold,
-and `--remove` moves everything back. spritesd needs no configuration: it probes the
+and `--remove` moves everything back. wispd needs no configuration: it probes the
 filesystem at startup and logs which mode it is in.
 
 To give sprites more room later, grow the volume, and optionally move its image to a disk
 with more space (the image is one file; by default it sits in the data directory):
 
 ```sh
-systemctl --user stop mini-sprites      # suspends every sprite; they resume warm afterwards
-sudo SPRITE_VOLUME_GB=300 SPRITE_VOLUME_IMAGE=/data/mini-sprites/sprites.xfs \
+systemctl --user stop wisp      # suspends every sprite; they resume warm afterwards
+sudo SPRITE_VOLUME_GB=300 SPRITE_VOLUME_IMAGE=/data/wisp/sprites.xfs \
      ./scripts/setup-storage.sh --grow
-systemctl --user start mini-sprites
+systemctl --user start wisp
 ```
 
 Either variable can be left out: `SPRITE_VOLUME_GB` alone grows the image where it is,

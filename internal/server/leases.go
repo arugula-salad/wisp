@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // A lease is an expiry on a whole sprite: when it runs out the sprite is
-// deleted, disk, checkpoints and address included. Nothing else in spritesd
+// deleted, disk, checkpoints and address included. Nothing else in wispd
 // ever deletes a sprite, which was fine while every sprite was somebody's
 // workspace and stopped being fine when a lobby began handing one to every
 // visitor (spawn.go): spawn_policy.max_children caps how many exist at once,
@@ -32,7 +32,7 @@ import (
 // ignores them.
 
 // leasePath is the renewal endpoint, ours, outside /v1.
-const leasePath = "/mini-sprites/v1/sprites/{name}/lease"
+const leasePath = "/wisp/v1/sprites/{name}/lease"
 
 // defaultLeaseWarning is how long before expiry sprite.expiring goes out when
 // the operator has set no Options.LeaseWarning.

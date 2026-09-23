@@ -6,19 +6,19 @@
 #   ./scripts/verify-backup.sh
 #
 # Needs, in the environment or on the command line:
-#   MINI_SPRITES_BACKUP_ENDPOINT   default http://garage-s3:3900
-#   MINI_SPRITES_BACKUP_BUCKET     default mini-sprites
-#   MINI_SPRITES_BACKUP_REGION     default home-cloud
-#   MINI_SPRITES_BACKUP_CREDS      default ~/.config/mini-sprites/backup.env
+#   WISP_BACKUP_ENDPOINT   default http://garage-s3:3900
+#   WISP_BACKUP_BUCKET     default wisp
+#   WISP_BACKUP_REGION     default home-cloud
+#   WISP_BACKUP_CREDS      default ~/.config/wisp/backup.env
 #                                  (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY lines)
-#   MINI_SPRITES_BACKUP_KEY_FILE   optional; turns on client-side encryption
-#   MINI_SPRITES_BACKUP_TEST_DIR   default /tmp; where the two data directories go.
+#   WISP_BACKUP_KEY_FILE   optional; turns on client-side encryption
+#   WISP_BACKUP_TEST_DIR   default /tmp; where the two data directories go.
 #                                  Point it at a reflink volume to cover the
 #                                  snapshot path (tmpfs has none, so /tmp covers
 #                                  reading the disk in place). Keep it short.
-#   MINI_SPRITES_BACKUP_KEEP       set to keep both data directories, for their logs
+#   WISP_BACKUP_KEEP       set to keep both data directories, for their logs
 #
-# It runs its own spritesd on a private data directory and port (--net=false, so it
+# It runs its own wispd on a private data directory and port (--net=false, so it
 # does not touch the tap pool or an already-running daemon), tears everything down
 # on exit, and prints a PASS/FAIL list. Exit status is the number of FAILs.
 #
@@ -26,19 +26,19 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-ENDPOINT="${MINI_SPRITES_BACKUP_ENDPOINT:-http://garage-s3:3900}"
-BUCKET="${MINI_SPRITES_BACKUP_BUCKET:-mini-sprites}"
-REGION="${MINI_SPRITES_BACKUP_REGION:-home-cloud}"
-CREDS="${MINI_SPRITES_BACKUP_CREDS:-$HOME/.config/mini-sprites/backup.env}"
-KEY_FILE="${MINI_SPRITES_BACKUP_KEY_FILE:-}"
+ENDPOINT="${WISP_BACKUP_ENDPOINT:-http://garage-s3:3900}"
+BUCKET="${WISP_BACKUP_BUCKET:-wisp}"
+REGION="${WISP_BACKUP_REGION:-home-cloud}"
+CREDS="${WISP_BACKUP_CREDS:-$HOME/.config/wisp/backup.env}"
+KEY_FILE="${WISP_BACKUP_KEY_FILE:-}"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SPRITESD="$REPO/bin/spritesd"
-PORT="${MINI_SPRITES_BACKUP_TEST_PORT:-7791}"
+WISPD="$REPO/bin/wispd"
+PORT="${WISP_BACKUP_TEST_PORT:-7791}"
 API="http://127.0.0.1:$PORT"
 NAME="vb-$$"
 # Short paths: machine directories hold unix sockets, capped at 108 bytes.
-TEST_DIR="${MINI_SPRITES_BACKUP_TEST_DIR:-/tmp}"
+TEST_DIR="${WISP_BACKUP_TEST_DIR:-/tmp}"
 DATA_A="$TEST_DIR/vb-a-$$"
 DATA_B="$TEST_DIR/vb-b-$$"
 
@@ -48,7 +48,7 @@ fail() { fails=$((fails + 1)); printf 'FAIL  %s\n      %s\n' "$1" "${2:-}"; }
 note() { printf '      %s\n' "$1"; }
 
 for tool in curl jq; do command -v "$tool" >/dev/null || { echo "need $tool" >&2; exit 2; }; done
-[ -x "$SPRITESD" ] || { echo "no $SPRITESD (run: make build)" >&2; exit 2; }
+[ -x "$WISPD" ] || { echo "no $WISPD (run: make build)" >&2; exit 2; }
 [ -f "$CREDS" ] || { echo "no credentials at $CREDS (see docs/backups.md)" >&2; exit 2; }
 
 BACKUP_FLAGS=(--backup-endpoint "$ENDPOINT" --backup-bucket "$BUCKET"
@@ -60,12 +60,12 @@ cleanup() {
   [ -n "$DAEMON_PID" ] && kill "$DAEMON_PID" 2>/dev/null
   wait "$DAEMON_PID" 2>/dev/null
   # Drop this run's backup so repeated runs do not pile up. Only this sprite's: the
-  # bucket may be the one a real spritesd uses, so nothing here touches retention
+  # bucket may be the one a real wispd uses, so nothing here touches retention
   # or the grace period. Chunks only this run wrote go at the first prune after that.
-  "$SPRITESD" backups forget "${BACKUP_FLAGS[@]}" "$NAME" >/dev/null 2>&1
-  "$SPRITESD" backups prune "${BACKUP_FLAGS[@]}" >/dev/null 2>&1
-  if [ -n "${MINI_SPRITES_BACKUP_KEEP:-}" ]; then
-    echo "kept $DATA_A and $DATA_B (spritesd.log, dead-bucket.log)"
+  "$WISPD" backups forget "${BACKUP_FLAGS[@]}" "$NAME" >/dev/null 2>&1
+  "$WISPD" backups prune "${BACKUP_FLAGS[@]}" >/dev/null 2>&1
+  if [ -n "${WISP_BACKUP_KEEP:-}" ]; then
+    echo "kept $DATA_A and $DATA_B (wispd.log, dead-bucket.log)"
   else
     rm -rf "$DATA_A" "$DATA_B"
   fi
@@ -74,10 +74,10 @@ trap cleanup EXIT
 
 api() { curl -sS -m 300 -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
 
-# start_daemon <data dir>: boots spritesd there and waits for it to answer.
+# start_daemon <data dir>: boots wispd there and waits for it to answer.
 start_daemon() {
-  "$SPRITESD" --data "$1" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 5s \
-    --backup-interval 0 "${BACKUP_FLAGS[@]}" >"$1/spritesd.log" 2>&1 &
+  "$WISPD" --data "$1" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 5s \
+    --backup-interval 0 "${BACKUP_FLAGS[@]}" >"$1/wispd.log" 2>&1 &
   DAEMON_PID=$!
   TOKEN=""
   for _ in $(seq 1 100); do
@@ -85,10 +85,10 @@ start_daemon() {
     if [ -n "$TOKEN" ] && curl -sS -m 5 -o /dev/null -H "Authorization: Bearer $TOKEN" "$API/v1/sprites"; then
       return 0
     fi
-    kill -0 "$DAEMON_PID" 2>/dev/null || { echo "spritesd died:"; tail -20 "$1/spritesd.log"; return 1; }
+    kill -0 "$DAEMON_PID" 2>/dev/null || { echo "wispd died:"; tail -20 "$1/wispd.log"; return 1; }
     sleep 0.3
   done
-  echo "spritesd did not come up:"; tail -20 "$1/spritesd.log"; return 1
+  echo "wispd did not come up:"; tail -20 "$1/wispd.log"; return 1
 }
 
 # prepare_data <data dir>: the shared read-only artifacts, plus an initrd. The
@@ -99,7 +99,7 @@ prepare_data() {
   if [ -f "$DATA_A/initrd.cpio" ] && [ "$1" != "$DATA_A" ]; then
     cp "$DATA_A/initrd.cpio" "$1/initrd.cpio"
   else
-    MINI_SPRITES_DATA="$1" ./scripts/build-initrd.sh >/dev/null || { echo "could not build the initrd (is go on PATH?)" >&2; return 1; }
+    WISP_DATA="$1" ./scripts/build-initrd.sh >/dev/null || { echo "could not build the initrd (is go on PATH?)" >&2; return 1; }
   fi
 }
 
@@ -216,14 +216,14 @@ if wait_backup "$FIRST" 600; then
 else
   fail "a second backup ran" "$OUT"
 fi
-if grep -q "backup deferred" "$DATA_A/spritesd.log"; then
+if grep -q "backup deferred" "$DATA_A/wispd.log"; then
   note "no reflinks under $DATA_A: the upload gave way to the wake and is retried at the next suspend"
 fi
 
-if "$SPRITESD" backups list "${BACKUP_FLAGS[@]}" | grep -q "$NAME"; then
-  pass "spritesd backups list shows $NAME"
+if "$WISPD" backups list "${BACKUP_FLAGS[@]}" | grep -q "$NAME"; then
+  pass "wispd backups list shows $NAME"
 else
-  fail "spritesd backups list shows $NAME"
+  fail "wispd backups list shows $NAME"
 fi
 
 # 4. THE POINT: lose the machine entirely, rebuild from the bucket.
@@ -232,10 +232,10 @@ mv "$DATA_A/vm" "$DATA_A/vm.lost" || { fail "could not simulate losing the data 
 prepare_data "$DATA_B" || exit 2
 note "data directory $DATA_A/vm set aside; restoring into $DATA_B"
 
-if "$SPRITESD" restore --data "$DATA_B" "${BACKUP_FLAGS[@]}" "$NAME"; then
-  pass "spritesd restore rebuilt $NAME from the bucket"
+if "$WISPD" restore --data "$DATA_B" "${BACKUP_FLAGS[@]}" "$NAME"; then
+  pass "wispd restore rebuilt $NAME from the bucket"
 else
-  fail "spritesd restore rebuilt $NAME from the bucket"; exit 1
+  fail "wispd restore rebuilt $NAME from the bucket"; exit 1
 fi
 
 start_daemon "$DATA_B" || exit 2
@@ -269,7 +269,7 @@ fi
 
 # 5. An unreachable bucket is visible and harmless.
 stop_daemon
-"$SPRITESD" --data "$DATA_B" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 5s \
+"$WISPD" --data "$DATA_B" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 5s \
   --backup-endpoint http://127.0.0.1:1 --backup-bucket "$BUCKET" --backup-region "$REGION" \
   --backup-credentials-file "$CREDS" >"$DATA_B/dead-bucket.log" 2>&1 &
 DAEMON_PID=$!
@@ -280,9 +280,9 @@ for _ in $(seq 1 50); do
   sleep 0.2
 done
 if [ -n "$up" ]; then
-  pass "spritesd starts and serves with an unreachable bucket"
+  pass "wispd starts and serves with an unreachable bucket"
 else
-  fail "spritesd starts and serves with an unreachable bucket" "$(tail -5 "$DATA_B/dead-bucket.log")"
+  fail "wispd starts and serves with an unreachable bucket" "$(tail -5 "$DATA_B/dead-bucket.log")"
 fi
 if guest 'cat ~/proof.txt' && [ "$OUT" = "durable-proof" ]; then
   pass "the sprite wakes and runs with the bucket down"

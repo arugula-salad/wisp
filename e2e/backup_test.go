@@ -18,7 +18,7 @@ import (
 // directory and a restart, which scripts/verify-backup.sh does; this suite checks
 // everything that can be seen through the running daemon.
 //
-// Needs spritesd started with a reachable --backup-bucket. Skipped otherwise.
+// Needs wispd started with a reachable --backup-bucket. Skipped otherwise.
 
 type backupStatus struct {
 	Phase     string     `json:"phase"`
@@ -41,7 +41,7 @@ func backupOf(t *testing.T, name string) backupStatus {
 		t.Fatalf("decode sprite: %v: %s", err, body)
 	}
 	if sp.Backup == nil {
-		t.Skip("spritesd is running without --backup-bucket")
+		t.Skip("wispd is running without --backup-bucket")
 	}
 	return *sp.Backup
 }

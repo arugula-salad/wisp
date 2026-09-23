@@ -3,7 +3,7 @@
 ```sh
 make test     # unit tests, race detector. The vmm tests boot a real microVM; they skip without /dev/kvm.
               # The ACME test runs against pebble if it is on PATH (go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest).
-make e2e      # official Sprites Go SDK against a running spritesd
+make e2e      # official Sprites Go SDK against a running wispd
 make initrd   # rebuild the agent and sprite-env; sprites pick them up on their next *cold* boot
 make netd     # build the network-policy helper that setup-host.sh installs
 
@@ -24,10 +24,10 @@ daemon's user needs working rootless podman and e2fsprogs >= 1.47.1).
 The backup suite skips itself unless the daemon under test was started with a reachable
 `--backup-bucket`.
 
-Only one spritesd per host may own the tap pool. For extra dev/test stacks:
+Only one wispd per host may own the tap pool. For extra dev/test stacks:
 
 ```sh
 ./scripts/dev-data.sh /tmp/ms-x            # keep it short: the dir holds unix sockets (108-byte limit)
-MINI_SPRITES_DATA=/tmp/ms-x ./scripts/build-initrd.sh
-./bin/spritesd --data /tmp/ms-x --listen 127.0.0.1:7801 --net=false
+WISP_DATA=/tmp/ms-x ./scripts/build-initrd.sh
+./bin/wispd --data /tmp/ms-x --listen 127.0.0.1:7801 --net=false
 ```

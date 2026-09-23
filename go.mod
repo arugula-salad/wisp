@@ -1,4 +1,4 @@
-module github.com/jhgaylor/mini-sprites
+module github.com/jhgaylor/wisp
 
 go 1.27.1
 

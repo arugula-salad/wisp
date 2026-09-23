@@ -49,7 +49,7 @@
   [Public sprite URLs](public-urls.md) for serving them to the internet). A URL request to a
   sprite whose app has not bound its port yet is held for a few seconds and then answered
   `503` with `Retry-After`, instead of failing at once; the proxy and exec paths are not gated.
-- **Events** (ours): a server-sent event stream at `GET /mini-sprites/v1/events` of
+- **Events** (ours): a server-sent event stream at `GET /wisp/v1/events` of
   lifecycle, checkpoint, service, policy, limit and disk events, with filters and
   `Last-Event-ID` resume, and signed webhooks. See [Events and webhooks](events.md).
 - **Custom domains** (ours): `GET|POST /v1/sprites/{name}/domains`, `GET|DELETE
@@ -117,7 +117,7 @@ What a spawner can and cannot do:
 - It holds at most `max_children` of them (default 10); `--max-sprites` and the disk guard still apply.
 - It may clone its own checkpoints, its children's, and those of the sprites in `sources`.
 - It may start a child from a container image only if the image is already in the host's
-  cache (`spritesd images pull`); a guest can never make the host pull. See [images](images.md).
+  cache (`wispd images pull`); a guest can never make the host pull. See [images](images.md).
 - A child always runs under the spawner's network policy, so spawning is no way out of one. It
   gets the spawner's config and other policies, or the source's when it is a clone; `config`
   in the request is ignored. It may choose `public` URL auth, environment and labels.

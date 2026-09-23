@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs a private spritesd with a public listener against a local test CA and
+# Runs a private wispd with a public listener against a local test CA and
 # drives the custom-domain e2e test through it: attach a domain, have the CA
 # validate it over TLS-ALPN-01 on the public listener, fetch the sprite through it.
 # Nothing here touches real DNS, Let's Encrypt or another daemon.
 #
-#   ./scripts/dev-data.sh /tmp/ms-dom && MINI_SPRITES_DATA=/tmp/ms-dom ./scripts/build-initrd.sh
+#   ./scripts/dev-data.sh /tmp/ms-dom && WISP_DATA=/tmp/ms-dom ./scripts/build-initrd.sh
 #   ./scripts/verify-custom-domains.sh /tmp/ms-dom
 #
 # Needs pebble and pebble-challtestsrv on PATH:
@@ -57,10 +57,10 @@ for _ in $(seq 100); do curl -sfk "https://127.0.0.1:$ACMEP/dir" >/dev/null && b
 curl -sfk "https://127.0.0.1:$MGMTP/roots/0" >"$WORK/root.pem"
 
 # SSL_CERT_FILE makes the daemon trust pebble's HTTPS, and only that.
-(cd "$REPO" && SSL_CERT_FILE="$WORK/ca.pem" exec ./bin/spritesd --data "$DATA" --listen "127.0.0.1:$PORT" --net=false \
+(cd "$REPO" && SSL_CERT_FILE="$WORK/ca.pem" exec ./bin/wispd --data "$DATA" --listen "127.0.0.1:$PORT" --net=false \
   --public-listen "127.0.0.1:$PUBLIC" --public-port "$PUBLIC" --tls-cert "$WORK/wild.pem" --tls-key "$WORK/wild.key" \
   --acme-directory "https://127.0.0.1:$ACMEP/dir" --domain-resolver "127.0.0.1:$DNSP" --idle-timeout 30s --confine=strict \
-  >"$WORK/spritesd.log" 2>&1) &
+  >"$WORK/wispd.log" 2>&1) &
 daemon=$!
 pids+=($daemon)
 up=""
@@ -70,13 +70,13 @@ for _ in $(seq 100); do
   sleep 0.1
 done
 if [ -z "$up" ] || ! kill -0 "$daemon" 2>/dev/null; then
-  echo "spritesd did not come up on 127.0.0.1:$PORT (port taken?):" >&2; tail -5 "$WORK/spritesd.log" >&2; exit 1
+  echo "wispd did not come up on 127.0.0.1:$PORT (port taken?):" >&2; tail -5 "$WORK/wispd.log" >&2; exit 1
 fi
 
-echo "spritesd on 127.0.0.1:$PORT, public listener 127.0.0.1:$PUBLIC, ACME https://127.0.0.1:$ACMEP/dir, DNS 127.0.0.1:$DNSP"
+echo "wispd on 127.0.0.1:$PORT, public listener 127.0.0.1:$PUBLIC, ACME https://127.0.0.1:$ACMEP/dir, DNS 127.0.0.1:$DNSP"
 status=0
-(cd "$REPO" && MINI_SPRITES_DATA="$DATA" SPRITES_E2E_URL="http://127.0.0.1:$PORT" SPRITES_E2E_TOKEN="$(cat "$DATA/token")" SPRITES_E2E_IDLE_TIMEOUT=30s \
+(cd "$REPO" && WISP_DATA="$DATA" SPRITES_E2E_URL="http://127.0.0.1:$PORT" SPRITES_E2E_TOKEN="$(cat "$DATA/token")" SPRITES_E2E_IDLE_TIMEOUT=30s \
   SPRITES_E2E_PUBLIC="127.0.0.1:$PUBLIC" SPRITES_E2E_ACME_ROOT="$WORK/root.pem" \
   go test -tags e2e -count=1 -v -run "$RUN" ./e2e/) || status=$?
-grep -E "certificate|custom domain" "$WORK/spritesd.log" || true
+grep -E "certificate|custom domain" "$WORK/wispd.log" || true
 exit $status

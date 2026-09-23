@@ -22,7 +22,7 @@ The official SDKs have no way to send `from`, so this is a raw HTTP call (or `sp
 
 ## The cache, and when a pull happens
 
-spritesd pulls the image with rootless podman, flattens it into an ext4 disk, and keeps that
+wispd pulls the image with rootless podman, flattens it into an ext4 disk, and keeps that
 disk in a cache under `<data>/vm/.images/`, one per image ID. Every create from it afterwards
 clones the cached disk exactly as checkpoints are cloned: instant on a reflink volume, a
 sparse copy otherwise (measured on a plain tmpfs, no reflink: 0.19 s for node:22's 1.1 GB, 5 ms
@@ -33,26 +33,26 @@ for alpine).
   from the request: a client that gives up does not cancel it, and a retry finds the disk
   ready. Concurrent creates of the same image share one pull.
 - **A create whose image is cached never contacts the registry**, even for a tag that has
-  since moved. A tag is refreshed only by an explicit `spritesd images pull`; if it now names a
+  since moved. A tag is refreshed only by an explicit `wispd images pull`; if it now names a
   different image, the reference moves to a new disk and the old disk, if nothing else refers
   to it, is deleted. Sprites made from the old one are unaffected (they are copies).
 - **Clients with short timeouts** (the SDKs' default is 30 s) should not trigger a cold pull:
-  pull ahead of time with `spritesd images pull`.
+  pull ahead of time with `wispd images pull`.
 
 ```
-$ spritesd images pull node:22
+$ wispd images pull node:22
 pulling docker.io/library/node:22
 Trying to pull docker.io/library/node:22...
 ...
 cached docker.io/library/node:22 as image 3112e746c449 in 11s (shell: /bin/bash, own sudo: false)
-$ spritesd images list
+$ wispd images list
 ID            REFS                                SHELL      SUDO      UID   IMAGE  DISK  BUILT     LAST USED
 3112e746c449  docker.io/library/node:22           /bin/bash  stand-in  1001  1.1G   1.1G  2m ago    just now
-d01fbf53dae0  localhost/mini-sprites-base:latest  /bin/bash  image's   1000  554M   582M  just now  just now
-$ spritesd images rm node:22          # or an ID prefix of 12+ characters
+d01fbf53dae0  localhost/wisp-base:latest  /bin/bash  image's   1000  554M   582M  just now  just now
+$ wispd images rm node:22          # or an ID prefix of 12+ characters
 ```
 
-`images` talks to the running daemon over the operator socket (`<data>/spritesd.sock`, like
+`images` talks to the running daemon over the operator socket (`<data>/wispd.sock`, like
 `status`), so it needs no token, and the cache cannot be managed through the API token at all.
 `list` also works with no daemon running. `--json` prints the records.
 
@@ -136,16 +136,16 @@ What was verified on a real daemon (no guest network, no reflink volume):
 
 Cached disks live on the sprite volume, so the [disk guard](operations.md#disk-pressure)
 sees them: a build is refused (`507`) unless about twice the image's size (the temporary tar
-and the disk's blocks) fits above `--disk-reserve-mib`. `spritesd status` has an `images`
+and the disk's blocks) fits above `--disk-reserve-mib`. `wispd status` has an `images`
 line, and its DISK/OWN columns count the blocks a sprite shares with the cached disk it came
 from once, as they do for the base image.
 
 What the guard does not cover is podman's own storage, on the filesystem of the daemon user's
 home, which holds the compressed and unpacked layers during a pull. There is no automatic
-eviction: remove what you no longer need with `spritesd images rm`.
+eviction: remove what you no longer need with `wispd images rm`.
 
 ## Not covered
 
 - The image is pulled for the host's architecture only; there is no `--platform`.
-- No pull progress through the API: a create simply blocks. `spritesd images pull` streams it.
+- No pull progress through the API: a create simply blocks. `wispd images pull` streams it.
 - Image `HEALTHCHECK`, `STOPSIGNAL`, labels and the like are ignored.

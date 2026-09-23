@@ -120,7 +120,7 @@ func (p Podman) Pull(ctx context.Context, ref Ref, progress io.Writer) (string, 
 func (p Podman) Export(ctx context.Context, id string, w io.Writer) error {
 	b := make([]byte, 6)
 	rand.Read(b)
-	name := "mini-sprites-export-" + hex.EncodeToString(b)
+	name := "wisp-export-" + hex.EncodeToString(b)
 	// An image without an entrypoint or command cannot be created as is; this
 	// one is never run.
 	if _, err := p.run(ctx, "create", "--pull=never", "--name", name, "--entrypoint", "/.sprite-export", "--", id); err != nil {

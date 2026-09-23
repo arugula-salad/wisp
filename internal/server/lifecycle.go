@@ -1,4 +1,4 @@
-// Package server is the spritesd control plane: the Sprites REST/WebSocket API,
+// Package server is the wispd control plane: the Sprites REST/WebSocket API,
 // and the lifecycle engine that wakes sprites on demand and suspends idle ones.
 package server
 
@@ -19,8 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 const (
@@ -48,7 +48,7 @@ type Options struct {
 	// ControlForGoSDK offers /control to the official Go SDK too. See offersControl.
 	ControlForGoSDK bool
 	// NoNetwork boots every sprite without a NIC and leaves the shared tap pool
-	// alone, so several spritesd instances (dev, tests) can coexist on one host.
+	// alone, so several wispd instances (dev, tests) can coexist on one host.
 	NoNetwork bool
 	// Automatic checkpoints (checkpoints.go): the background interval (0 = only
 	// before restores) and how many to keep per sprite (0 = none at all).
@@ -57,7 +57,7 @@ type Options struct {
 	// GuestCheckpointLimit caps the manual checkpoints a sprite can hold when the
 	// request to create one comes from inside it (0 = no limit).
 	GuestCheckpointLimit int
-	// NetdSocket is where mini-sprites-netd listens; empty means its default.
+	// NetdSocket is where wisp-netd listens; empty means its default.
 	NetdSocket string
 	// Backup is the object-storage backup tier (internal/backup). An empty Bucket
 	// disables it entirely and nothing in the lifecycle changes.
@@ -92,7 +92,7 @@ type BackupOptions struct {
 	// successful upload, and is the retry path for one that failed (0 = only on
 	// suspend).
 	Interval time.Duration
-	// Retention and Keep are defaults for `spritesd backups prune`.
+	// Retention and Keep are defaults for `wispd backups prune`.
 	Retention time.Duration
 	Keep      int
 }
@@ -460,7 +460,7 @@ func consoleTail(dir string) string {
 }
 
 // errGuestBusy is the agent declining an idle suspend: work arrived over a
-// socket spritesd does not pin (a control channel) after the last activity check.
+// socket wispd does not pin (a control channel) after the last activity check.
 var errGuestBusy = errors.New("guest became active")
 
 // agentCall makes one HTTP request to the guest agent over a fresh vsock stream.

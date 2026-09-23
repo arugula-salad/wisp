@@ -17,7 +17,7 @@ import (
 )
 
 // Policy is the part of a sprite's privileges and resources policies that the
-// guest enforces. spritesd owns it (a sprite must not be able to rewrite its
+// guest enforces. wispd owns it (a sprite must not be able to rewrite its
 // own policy): it arrives on the kernel command line at boot, so services are
 // confined from their first start, and through /internal/policy afterwards.
 //

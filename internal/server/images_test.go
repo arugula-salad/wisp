@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jhgaylor/mini-sprites/internal/ociimage"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/ociimage"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // fakePodman is a script standing in for podman: it serves one image, whose

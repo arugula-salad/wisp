@@ -11,15 +11,15 @@ import (
 
 // The guest API is what processes inside the sprite (sprite-env, agents, curl)
 // reach on /.sprite/api.sock, with no token: being in the sprite is the
-// credential. It is deliberately much smaller than the vsock API spritesd
+// credential. It is deliberately much smaller than the vsock API wispd
 // uses. Services are handled here; checkpoints, and the sprites this one may
-// create, are host operations, so they are relayed to spritesd over a channel
+// create, are host operations, so they are relayed to wispd over a channel
 // that can only ever mean "this sprite is asking".
 // Exec, the filesystem API, the TCP proxy and /internal/* stay off it: they run
-// things as root or on spritesd's behalf, and nothing inside needs them.
+// things as root or on wispd's behalf, and nothing inside needs them.
 
 // GuestAPI returns the handler for the in-guest socket. hostDial opens a
-// stream to spritesd's per-sprite channel; nil leaves checkpoints unavailable.
+// stream to wispd's per-sprite channel; nil leaves checkpoints unavailable.
 func (s *Server) GuestAPI(hostDial func(ctx context.Context) (net.Conn, error)) http.Handler {
 	mux := http.NewServeMux()
 	if s.Services != nil {
@@ -43,15 +43,15 @@ func (s *Server) GuestAPI(hostDial func(ctx context.Context) (net.Conn, error)) 
 		// More specific than the proxied prefix below, so these two are ours: mounting
 		// needs work on both sides of the channel.
 		s.registerCheckpointMounts(mux, hostDial)
-		// Only these paths leave the guest; spritesd's side serves nothing else either.
+		// Only these paths leave the guest; wispd's side serves nothing else either.
 		mux.Handle("/v1/checkpoint", host)
 		mux.Handle("/v1/checkpoints", host)
 		mux.Handle("/v1/checkpoints/", host)
-		// Sprites this one created. spritesd answers 403 unless its spawn policy allows it.
+		// Sprites this one created. wispd answers 403 unless its spawn policy allows it.
 		mux.Handle("/v1/sprites", host)
 		mux.Handle("/v1/sprites/", host)
-		// Events about those sprites (ours; spritesd scopes it to them).
-		mux.Handle("/mini-sprites/v1/events", host)
+		// Events about those sprites (ours; wispd scopes it to them).
+		mux.Handle("/wisp/v1/events", host)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")

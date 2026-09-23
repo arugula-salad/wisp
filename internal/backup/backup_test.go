@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/s3/s3test"
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/s3/s3test"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // stubServer is the in-process stand-in for Garage.
@@ -538,7 +538,7 @@ func TestOpenNeedsCredentials(t *testing.T) {
 	}
 }
 
-// `spritesd backups prune` runs in another process from the daemon, whose chunk
+// `wispd backups prune` runs in another process from the daemon, whose chunk
 // index would otherwise go on promising chunks the prune has collected. The next
 // backup of identical content must put them back, or its manifest cannot restore.
 func TestABackupAfterAPruneElsewhereStillRestores(t *testing.T) {

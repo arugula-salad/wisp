@@ -1,5 +1,5 @@
 // Package agent implements the in-guest runtime: exec sessions, and the
-// HTTP/WebSocket server spritesd proxies to over vsock.
+// HTTP/WebSocket server wispd proxies to over vsock.
 package agent
 
 import (

@@ -1,6 +1,6 @@
-// The mini-sprites dashboard. Plain ES modules, no build step. It talks to the
+// The wisp dashboard. Plain ES modules, no build step. It talks to the
 // ordinary /v1 API and to /ui/api (status, metrics history, suspend/wake),
-// authenticated by the cookie /ui/login sets plus the X-Mini-Sprites-UI header.
+// authenticated by the cookie /ui/login sets plus the X-Wisp-UI header.
 
 import { timeSeries, lanes, bars, sparkline, heatmap, fmtTime, fmtTimeSec } from './charts.js';
 
@@ -55,7 +55,7 @@ const stateBadge = (st, busy) => html`<span class="state ${st}${busy ? ' busy' :
 class ApiError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
 async function api(path, opts = {}) {
-  const headers = { 'X-Mini-Sprites-UI': '1', ...(opts.headers || {}) };
+  const headers = { 'X-Wisp-UI': '1', ...(opts.headers || {}) };
   let body = opts.body;
   if (body !== undefined && typeof body !== 'string' && !(body instanceof Blob)) {
     body = JSON.stringify(body);
@@ -533,7 +533,7 @@ function HostView(root) {
         <dt>Networking</dt><dd>${h.networking ? `${h.taps_used} of ${h.taps_total} taps in use` : 'off (--net=false)'}</dd>
         <dt>Policy helper</dt><dd>${h.policy_helper.reachable ? '✓ reachable' : '✕ unavailable'}${h.policy_helper.detail ? html` <span class="faint">· ${h.policy_helper.detail}</span>` : ''}</dd>`);
       const o = st.orphans || [], od = st.other_daemons || [];
-      $('#h-orphans').innerHTML = String(html`<header><h2>Stray processes</h2><span class="note">Firecrackers no daemon owns, and other spritesd instances</span></header>
+      $('#h-orphans').innerHTML = String(html`<header><h2>Stray processes</h2><span class="note">Firecrackers no daemon owns, and other wispd instances</span></header>
         ${!o.length && !od.length ? html`<p class="faint" style="margin:0">None. Every VM on this host belongs to this daemon.</p>` : ''}
         ${o.length ? html`<div class="table-wrap"><table><thead><tr><th>PID</th><th>Directory</th><th class="num">Memory</th><th>Parent</th></tr></thead><tbody>
           ${o.map((p) => html`<tr><td class="mono">${p.pid}</td><td class="mono">${p.cwd}</td><td class="num">${fmtBytes(p.rss_bytes)}</td><td>${p.parent_name} (${p.parent_pid})</td></tr>`)}</tbody></table></div>` : ''}
@@ -1176,7 +1176,7 @@ function PolicyTab(root, name) {
 }
 
 function RawTab(root, name) {
-  root.innerHTML = '<div class="grid two"><section class="card"><header><h2>API record</h2><span class="note">GET /v1/sprites/{name}</span></header><pre class="json" id="raw-api"></pre></section><section class="card"><header><h2>Operator status</h2><span class="note">spritesd status</span></header><pre class="json" id="raw-st"></pre></section></div>';
+  root.innerHTML = '<div class="grid two"><section class="card"><header><h2>API record</h2><span class="note">GET /v1/sprites/{name}</span></header><pre class="json" id="raw-api"></pre></section><section class="card"><header><h2>Operator status</h2><span class="note">wispd status</span></header><pre class="json" id="raw-st"></pre></section></div>';
   return {
     update(s) {
       $('#raw-api').textContent = JSON.stringify(s.api, null, 2);

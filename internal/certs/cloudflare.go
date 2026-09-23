@@ -98,7 +98,7 @@ func (c *Cloudflare) Present(ctx context.Context, fqdn, value string) (func(cont
 	// Cloudflare wants TXT content in its quoted presentation form.
 	err = c.call(ctx, http.MethodPost, "/zones/"+zone+"/dns_records", map[string]any{
 		"type": "TXT", "name": strings.TrimSuffix(fqdn, "."), "content": `"` + value + `"`, "ttl": 60,
-		"comment": "mini-sprites ACME challenge; safe to delete",
+		"comment": "wisp ACME challenge; safe to delete",
 	}, &rec)
 	if err != nil {
 		return nil, err

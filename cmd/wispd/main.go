@@ -1,4 +1,4 @@
-// spritesd is a single-host implementation of the Sprites API: persistent,
+// wispd is a single-host implementation of the Sprites API: persistent,
 // hardware-isolated Linux environments backed by Firecracker microVMs that
 // suspend when idle and wake on demand.
 package main
@@ -21,22 +21,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/certs"
-	"github.com/jhgaylor/mini-sprites/internal/confine"
-	"github.com/jhgaylor/mini-sprites/internal/server"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/certs"
+	"github.com/jhgaylor/wisp/internal/confine"
+	"github.com/jhgaylor/wisp/internal/server"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 func defaultDataDir() string {
-	if d := os.Getenv("MINI_SPRITES_DATA"); d != "" {
+	if d := os.Getenv("WISP_DATA"); d != "" {
 		return d
 	}
 	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
-		return filepath.Join(d, "mini-sprites")
+		return filepath.Join(d, "wisp")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "mini-sprites")
+	return filepath.Join(home, ".local", "share", "wisp")
 }
 
 // loadToken reads the API token, generating one on first run.
@@ -54,7 +54,7 @@ func loadSecret(path, prefix string) (string, error) {
 }
 
 func main() {
-	// The confinement shim: spritesd re-execs itself to put a Landlock domain
+	// The confinement shim: wispd re-execs itself to put a Landlock domain
 	// on a VMM before exec'ing Firecracker (internal/confine). It never returns.
 	if len(os.Args) > 1 && os.Args[1] == confine.ShimArg {
 		confine.RunShim(os.Args[2:])
@@ -91,11 +91,11 @@ func main() {
 	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are <name>.<url-domain>; to serve them beyond this machine, point a wildcard DNS record here and see --public-listen")
 	control := flag.Bool("control", true, "serve the multiplexed /control channel; --control=false makes every SDK fall back to per-operation WebSockets")
 	controlGo := flag.Bool("control-for-go-sdk", false, "also offer /control to the official Go SDK (by default it is answered 404 there and falls back to per-operation WebSockets, because its ProxyPorts races on a control socket)")
-	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one spritesd per host may own it, so run extra dev/test instances with --net=false")
+	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one wispd per host may own it, so run extra dev/test instances with --net=false")
 	autoEvery := flag.Duration("auto-checkpoint-interval", time.Hour, "take an automatic checkpoint of a sprite whose disk changed and whose newest checkpoint is older than this (0 = only before restores)")
 	autoKeep := flag.Int("auto-checkpoint-keep", 3, "automatic checkpoints kept per sprite; each is a full disk clone (0 = take none)")
 	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
-	netdSocket := flag.String("netd-socket", "", "mini-sprites-netd socket, the root helper that backs restrictive network policies (default /run/mini-sprites/netd.sock)")
+	netdSocket := flag.String("netd-socket", "", "wisp-netd socket, the root helper that backs restrictive network policies (default /run/wisp/netd.sock)")
 	org := flag.String("org", "local", "organization name reported in API responses")
 	publicListen := flag.String("public-listen", "", "serve sprite URLs, and only sprite URLs, over HTTPS on this address; the one to forward a router port to. Needs --url-domain set to a real domain with a wildcard record, and a certificate: --tls-cert/--tls-key, or a Cloudflare token for an automatic one")
 	publicPort := flag.Int("public-port", 443, "the port clients reach --public-listen on (the router's side of the forward); used in the URLs the API reports")
@@ -110,7 +110,7 @@ func main() {
 	domainsPer := flag.Int("max-domains-per-sprite", 5, "custom domains one sprite may have (0 = no limit)")
 	domainsTotal := flag.Int("max-domains", 50, "custom domains across all sprites (0 = no limit)")
 	domainOrders := flag.Int("acme-orders-per-hour", 10, "certificate orders per hour for custom domains, across all of them; keeps a misconfigured domain from spending the CA's rate limits")
-	confineMode := flag.String("confine", os.Getenv("MINI_SPRITES_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
+	confineMode := flag.String("confine", os.Getenv("WISP_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
 	backupOpts := backupFlags(flag.CommandLine)
 	maxSprites := flag.Int("max-sprites", 0, "most sprites that may exist; creating another is refused (0 = no limit)")
 	maxRunning := flag.Int("max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
@@ -181,9 +181,9 @@ func main() {
 	if err != nil {
 		fatal(log, err)
 	}
-	// One cgroup subtree per data directory, so a second spritesd (dev, tests)
+	// One cgroup subtree per data directory, so a second wispd (dev, tests)
 	// on the same host does not sweep away the first one's VM cgroups.
-	conf, err := confine.Open(mode, "mini-sprites-"+cgroupTag(abs))
+	conf, err := confine.Open(mode, "wisp-"+cgroupTag(abs))
 	if err != nil {
 		fatal(log, err)
 	}
@@ -256,7 +256,7 @@ func main() {
 	go http.Serve(statusLn, api.StatusHandler(*listen))
 
 	go func() {
-		log.Info("spritesd listening", "addr", *listen, "data", abs, "token_file", filepath.Join(abs, "token"))
+		log.Info("wispd listening", "addr", *listen, "data", abs, "token_file", filepath.Join(abs, "token"))
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			fatal(log, err)
 		}
@@ -305,7 +305,7 @@ func publicCerts(data, domain, certFile, keyFile, email, directory string, log *
 }
 
 // cgroupTag derives a stable, filesystem-safe suffix from the data directory,
-// so two spritesd instances on one host get separate cgroup subtrees.
+// so two wispd instances on one host get separate cgroup subtrees.
 func cgroupTag(dataDir string) string {
 	h := fnv.New32a()
 	h.Write([]byte(dataDir))

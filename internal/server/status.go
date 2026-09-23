@@ -12,29 +12,29 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/netd"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/netd"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
-// The operator's view of one host (`spritesd status`). A running daemon serves
+// The operator's view of one host (`wispd status`). A running daemon serves
 // it on a unix socket in the data directory, where the filesystem permission is
 // the authentication; with no daemon up, OfflineStatus answers from the files.
 // The JSON field names are an interface: scripts read them.
 
 // StatusSocket is the socket's name inside the data directory.
-const StatusSocket = "spritesd.sock"
+const StatusSocket = "wispd.sock"
 
 type Status struct {
 	// Daemon is nil when the answer was read from the files, with no daemon running.
 	Daemon  *DaemonStatus  `json:"daemon"`
 	Host    HostStatus     `json:"host"`
 	Sprites []SpriteStatus `json:"sprites"`
-	// Orphans are Firecracker processes of this user that no running spritesd
+	// Orphans are Firecracker processes of this user that no running wispd
 	// is the parent of. They are reported, never killed: another data directory
 	// or somebody's experiment may own them.
 	Orphans []VMProcess `json:"orphans"`
-	// OtherDaemons are spritesd processes of this user besides the one answering.
+	// OtherDaemons are wispd processes of this user besides the one answering.
 	OtherDaemons []OtherDaemon `json:"other_daemons"`
 }
 
@@ -55,7 +55,7 @@ type HostStatus struct {
 	Networking bool `json:"networking"`
 	TapsTotal  int  `json:"taps_total"`
 	TapsUsed   int  `json:"taps_used"`
-	// PolicyHelper is mini-sprites-netd, without which restrictive network policies are refused.
+	// PolicyHelper is wisp-netd, without which restrictive network policies are refused.
 	PolicyHelper HelperStatus `json:"policy_helper"`
 	Running      int          `json:"running"`
 	Warm         int          `json:"warm"`
@@ -143,7 +143,7 @@ type VMProcess struct {
 	// once its starter died, otherwise whatever started it by hand.
 	ParentPid  int    `json:"parent_pid"`
 	ParentName string `json:"parent_name"`
-	// InDataDir marks a VM inside this data directory: left by a spritesd that
+	// InDataDir marks a VM inside this data directory: left by a wispd that
 	// died, and reaped by the next one to start.
 	InDataDir bool `json:"in_data_dir"`
 }
@@ -221,10 +221,10 @@ func scanProcs(vmRoot string, self int) (orphans []VMProcess, others []OtherDaem
 		case !ok:
 		case isExe(p.exe, "firecracker"):
 			vms = append(vms, p)
-		case isExe(p.exe, "spritesd") && pid != self && pid != os.Getpid():
+		case isExe(p.exe, "wispd") && pid != self && pid != os.Getpid():
 			b, _ := os.ReadFile("/proc/" + e.Name() + "/cmdline")
 			cmd := strings.Split(strings.TrimRight(string(b), "\x00"), "\x00")
-			// `spritesd status` and friends are not daemons.
+			// `wispd status` and friends are not daemons.
 			if len(cmd) > 1 && !strings.HasPrefix(cmd[1], "-") {
 				continue
 			}

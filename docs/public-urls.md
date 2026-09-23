@@ -7,10 +7,10 @@ the same listener as the API. To put the URLs on the internet without putting th
 ```sh
 # once, in Cloudflare: an A record  *.widgets.wtf -> your public IP  (DNS only, grey cloud),
 # and an API token with Zone:Read + DNS:Edit on that zone
-(umask 077; echo "$TOKEN" > ~/.local/share/mini-sprites/cloudflare-token)
+(umask 077; echo "$TOKEN" > ~/.local/share/wisp/cloudflare-token)
 # once, on the router: forward external 443 -> this machine's 8443
 
-./bin/spritesd --url-domain widgets.wtf --public-listen :8443
+./bin/wispd --url-domain widgets.wtf --public-listen :8443
 ```
 
 - `--public-listen` serves sprite URLs over HTTPS and **nothing else**: the management API has
@@ -112,7 +112,7 @@ custom domain to the passthrough route, for example in the `IngressRouteTCP` `sp
   routes:
     - match: HostSNIRegexp(`^[a-z0-9-]+\.widgets\.wtf$`) || HostSNI(`game.example.com`)
       services:
-        - name: spritesd-public
+        - name: wispd-public
           port: 8443
 ```
 

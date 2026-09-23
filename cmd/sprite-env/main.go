@@ -495,7 +495,7 @@ func followEvents(q url.Values, all bool, count int, out io.Writer) error {
 		if attempt > 0 {
 			time.Sleep(time.Second)
 		}
-		req, _ := http.NewRequest(http.MethodGet, "http://sprite/mini-sprites/v1/events?"+q.Encode(), nil)
+		req, _ := http.NewRequest(http.MethodGet, "http://sprite/wisp/v1/events?"+q.Encode(), nil)
 		switch {
 		case last != "":
 			req.Header.Set("Last-Event-ID", last)

@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 }
 
 // needGoSDKControl skips a test that drives the control channel with the official Go
-// SDK. By default spritesd answers that SDK's /control probe with 404, because its
+// SDK. By default wispd answers that SDK's /control probe with 404, because its
 // ProxyPorts races on a control socket; these tests need a daemon started with
 // --control-for-go-sdk, and SPRITES_E2E_GO_CONTROL=1 to say so. The raw-socket
 // tests below cover the channel itself either way.
@@ -42,7 +42,7 @@ func needGoSDKControl(t *testing.T) {
 	}
 }
 
-// dialSprite opens one of a sprite's WebSocket endpoints through spritesd.
+// dialSprite opens one of a sprite's WebSocket endpoints through wispd.
 func dialSprite(t *testing.T, sprite, endpoint string) *websocket.Conn {
 	t.Helper()
 	u := "ws" + strings.TrimPrefix(os.Getenv("SPRITES_E2E_URL"), "http") + "/v1/sprites/" + sprite + endpoint

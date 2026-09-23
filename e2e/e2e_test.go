@@ -1,9 +1,9 @@
 //go:build e2e
 
-// Package e2e drives a running spritesd with the official Sprites Go SDK, so
+// Package e2e drives a running wispd with the official Sprites Go SDK, so
 // wire compatibility is checked against the real client rather than our own.
 //
-//	SPRITES_E2E_URL=http://127.0.0.1:7788 SPRITES_E2E_TOKEN=$(cat ~/.local/share/mini-sprites/token) \
+//	SPRITES_E2E_URL=http://127.0.0.1:7788 SPRITES_E2E_TOKEN=$(cat ~/.local/share/wisp/token) \
 //	  go test -tags e2e -count=1 -v ./e2e/
 package e2e
 

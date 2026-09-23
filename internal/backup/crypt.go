@@ -32,7 +32,7 @@ import (
 // The key never leaves this host. A key kept only on the machine the backup is
 // protecting against losing is not a backup; docs/backups.md says so.
 
-const keyCheckMessage = "mini-sprites-backup-key-check"
+const keyCheckMessage = "wisp-backup-key-check"
 
 type crypter struct {
 	idKey []byte // keys the chunk IDs
@@ -43,7 +43,7 @@ type crypter struct {
 // chunks is never also the key that seals them.
 func subkey(key []byte, purpose string) []byte {
 	h := hmac.New(sha256.New, key)
-	h.Write([]byte("mini-sprites backup: " + purpose))
+	h.Write([]byte("wisp backup: " + purpose))
 	return h.Sum(nil)
 }
 

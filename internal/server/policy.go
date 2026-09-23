@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/netpolicy"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/netpolicy"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 type networkPolicyJSON struct {

@@ -16,7 +16,7 @@ A sprite suspends after `--idle-timeout` (30s) with nothing keeping it awake.
 
 It goes cold after `--warm-ttl` (1h), which drops memory state: processes are gone, the
 filesystem is intact. TCP connections never survive a suspend. The guest clock is stepped to
-host time on every resume. On SIGTERM, spritesd suspends every running sprite so they resume
+host time on every resume. On SIGTERM, wispd suspends every running sprite so they resume
 warm after a restart.
 
 **Tasks** are explicit keep-awake holds, created from inside the sprite as upstream does:
@@ -25,7 +25,7 @@ warm after a restart.
 curl --unix-socket /.sprite/api.sock -X POST http://sprite/v1/tasks -d '{"name":"build","expire":"10m"}'
 ```
 
-They last at most 1h, are refreshed with PUT, and do not survive a cold boot or a spritesd
+They last at most 1h, are refreshed with PUT, and do not survive a cold boot or a wispd
 restart. `/v1/sprites/{name}/tasks` exposes the same thing from outside (our extension).
 
 ## Leases: sprites that delete themselves
@@ -42,23 +42,23 @@ curl -X POST "$SPRITES_API_URL/v1/sprites" -d '{"name":"preview-412","ttl_second
 curl -X POST "$SPRITES_API_URL/v1/sprites" -d '{"name":"demo","expires_at":"2026-10-01T09:00:00Z"}'
 
 # renew, protect, release — the lease endpoint is outside /v1, like the event stream
-curl -X POST "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease" -d '{"ttl_seconds":3600}'
-curl -X POST "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease" -d '{"protected":true}'
-curl -X DELETE "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease"   # no deadline at all
-curl "$SPRITES_API_URL/mini-sprites/v1/sprites/preview-412/lease"
+curl -X POST "$SPRITES_API_URL/wisp/v1/sprites/preview-412/lease" -d '{"ttl_seconds":3600}'
+curl -X POST "$SPRITES_API_URL/wisp/v1/sprites/preview-412/lease" -d '{"protected":true}'
+curl -X DELETE "$SPRITES_API_URL/wisp/v1/sprites/preview-412/lease"   # no deadline at all
+curl "$SPRITES_API_URL/wisp/v1/sprites/preview-412/lease"
 ```
 
 - `expires_at` (RFC3339) and `ttl_seconds` are two ways to say the same thing; giving both is
   an error, and so is a deadline already in the past. `expires_at: ""` or `ttl_seconds: 0`
   clears the lease, and a request that mentions neither leaves it alone — an SDK that knows
   nothing of leases cannot drop one by accident. The same fields work on
-  `PUT /v1/sprites/{name}`, and both appear on the sprite in `GET`, in `spritesd status --json`
+  `PUT /v1/sprites/{name}`, and both appear on the sprite in `GET`, in `wispd status --json`
   and in the web UI's sprite overview.
 - `protected: true` holds the deletion off without clearing the deadline, for the sprite
   somebody turns out to still be using. The deadline stays visible and stays in the past;
   clearing the protection hands the sprite straight back to the reaper.
 - The reaper runs on the same 30 s janitor tick as the warm-TTL sweep, and **once at
-  startup**: a lease that ran out while spritesd was down has still run out.
+  startup**: a lease that ran out while wispd was down has still run out.
 - Expiry is deletion, exactly what `DELETE /v1/sprites/{name}` does and by the same code —
   a running sprite is stopped first, and its address, tap, disks, checkpoints and custom
   domains are released. It is **not** a suspend, and it does **not** take a backup first:
@@ -95,9 +95,9 @@ not its RAM size:
   after the free) and Firecracker hands it back to the host. A resumed sprite that allocated
   and freed 1 GiB three times sat at 111 MB of host RSS; without reporting it keeps whatever
   it once touched.
-- **At suspend**, spritesd inflates the balloon over the guest's free memory, so it does not
+- **At suspend**, wispd inflates the balloon over the guest's free memory, so it does not
   wait for reporting to catch up. Firecracker then writes the whole memory file (it has no
-  sparse mode), unsynced, and spritesd copies it to a new file leaving a hole wherever a page
+  sparse mode), unsynced, and wispd copies it to a new file leaving a hole wherever a page
   is zero, syncs the copy, and deletes the original. A hole reads back as zeros, so the
   snapshot's contents are unchanged. (Punching holes in place was tried first: ext4 and XFS
   write a range's dirty pages to disk before punching it, so every zero still hit the disk.)
@@ -125,7 +125,7 @@ was 1.2 to 2.5 s before and is 1.16 to 1.21 s now (the first suspend after a col
 suspend): 2049 MiB before, because Firecracker fsynced the whole file; 124 MiB now with
 `--confine=off`, and 0.8 to 1.1 GiB with the default cgroup confinement, whose per-cgroup
 dirty limits make the kernel write back part of the whole-RAM file while Firecracker is
-still writing it, before spritesd can delete it. A suspend still needs the full RAM size
+still writing it, before wispd can delete it. A suspend still needs the full RAM size
 free on the volume for a moment, and up to half as much again while the copy exists; the
 disk guard reserves both.
 
@@ -141,7 +141,7 @@ the suspend-time squeeze keeps snapshots small either way.
 `resources.memory.autoscale` is enforced with the balloon. Upstream describes a sprite that
 starts with some memory and grows towards a ceiling under pressure. Here the VM boots with
 the ceiling (`limit_mb` + 128 MiB, as without autoscale) and the balloon holds everything
-above a grant that starts at 1 GiB. Once a second spritesd reads the guest's balloon
+above a grant that starts at 1 GiB. Once a second wispd reads the guest's balloon
 statistics: when available memory drops below a fifth of the grant it doubles the grant,
 and after 30 s of using less than half it shrinks it back towards what is in use (never
 below the start). Page cache does not count as pressure, so a sprite that reads a lot of

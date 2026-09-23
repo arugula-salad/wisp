@@ -95,7 +95,7 @@ type controlOp struct {
 type controlConn struct {
 	srv *Server
 	ws  *websocket.Conn
-	env []string // sprite-level environment, supplied by spritesd on the URL
+	env []string // sprite-level environment, supplied by wispd on the URL
 
 	wmu sync.Mutex // the op's output and our envelopes share the socket
 

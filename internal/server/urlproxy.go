@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // bufferedConn replays bytes the HTTP response parser read past the 101.

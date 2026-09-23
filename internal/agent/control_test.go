@@ -257,7 +257,7 @@ func TestControlAutoStartFromQuery(t *testing.T) {
 	if r := readOp(t, conn); r.stdout.String() != "auto\n" || exitCodeOf(r) != 0 {
 		t.Fatalf("stdout=%q closing=%v", r.stdout.String(), r.closing)
 	}
-	// env on the URL is the sprite-level environment spritesd supplies; an op's own env wins.
+	// env on the URL is the sprite-level environment wispd supplies; an op's own env wins.
 	startOp(t, conn, "exec", map[string]any{"cmd": []string{"sh", "-c", "echo $FROM_SPRITE"}, "env": []string{"FROM_SPRITE=2"}})
 	if r := readOp(t, conn); r.stdout.String() != "2\n" {
 		t.Fatalf("stdout=%q", r.stdout.String())

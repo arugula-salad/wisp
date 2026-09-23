@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Measures what the Landlock + cgroup confinement costs, by timing the two
-# latencies that matter against the same spritesd run with --confine=off and
+# latencies that matter against the same wispd run with --confine=off and
 # --confine=best-effort:
 #
 #   cold boot  a fresh Firecracker, kernel + initrd, up to the guest agent
@@ -11,22 +11,22 @@
 #
 #   ./scripts/measure-confine-latency.sh [iterations]
 #
-# It runs its own spritesd on a private data directory with --net=false, so it
+# It runs its own wispd on a private data directory with --net=false, so it
 # does not disturb the main one or fight over the tap pool.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 ITER="${1:-10}"
-DEST="${MINI_SPRITES_LAT_DATA:-/tmp/ms-lat}"
-PORT="${MINI_SPRITES_LAT_PORT:-7801}"
+DEST="${WISP_LAT_DATA:-/tmp/ms-lat}"
+PORT="${WISP_LAT_PORT:-7801}"
 URL="http://127.0.0.1:$PORT"
 IDLE=2s
 
 command -v jq >/dev/null || { echo "needs jq" >&2; exit 1; }
-[ -x ./bin/spritesd ] || { echo "run: make build" >&2; exit 1; }
+[ -x ./bin/wispd ] || { echo "run: make build" >&2; exit 1; }
 
 ./scripts/dev-data.sh "$DEST" >/dev/null
-MAIN="${MINI_SPRITES_MAIN_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/mini-sprites}"
+MAIN="${WISP_MAIN_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}"
 ln -sfn "$MAIN/initrd.cpio" "$DEST/initrd.cpio"
 
 DAEMON=""
@@ -52,13 +52,13 @@ wait_status() {
 
 run_mode() {
   local mode="$1" name=lat cold=() warm=()
-  ./bin/spritesd --data "$DEST" --listen "127.0.0.1:$PORT" --net=false \
-    --idle-timeout="$IDLE" --confine="$mode" >"$DEST/spritesd.log" 2>&1 &
+  ./bin/wispd --data "$DEST" --listen "127.0.0.1:$PORT" --net=false \
+    --idle-timeout="$IDLE" --confine="$mode" >"$DEST/wispd.log" 2>&1 &
   DAEMON=$!
   for _ in $(seq 100); do curl -sf -o /dev/null "$URL/v1/sprites" -H "Authorization: Bearer $(cat "$DEST/token" 2>/dev/null)" && break; sleep 0.1; done
   AUTH=(-H "Authorization: Bearer $(cat "$DEST/token")")
 
-  echo "--- confine=$mode: $(grep -o 'detail=.*' "$DEST/spritesd.log" | head -1)"
+  echo "--- confine=$mode: $(grep -o 'detail=.*' "$DEST/wispd.log" | head -1)"
   for _ in $(seq "$ITER"); do
     curl -s -X POST "$URL/v1/sprites" "${AUTH[@]}" -H 'Content-Type: application/json' \
       -d "{\"name\":\"$name\"}" -o /dev/null
@@ -78,6 +78,6 @@ run_mode() {
   DAEMON=""
 }
 
-echo "mini-sprites confinement cost, $ITER iterations each"
+echo "wisp confinement cost, $ITER iterations each"
 run_mode off
 run_mode best-effort

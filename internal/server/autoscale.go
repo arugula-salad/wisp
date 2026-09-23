@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // Memory autoscale (resources.memory.autoscale). Upstream describes it as a

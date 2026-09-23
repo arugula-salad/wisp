@@ -20,7 +20,7 @@ import (
 // operator flags with no default, so each subtest needs a daemon started with
 // the limit and the same number in the environment:
 //
-//	spritesd --mem-mib 1024 --max-running-memory-mib 1024 --max-concurrent-boots 1 ...
+//	wispd --mem-mib 1024 --max-running-memory-mib 1024 --max-concurrent-boots 1 ...
 //	SPRITES_E2E_MEM_MIB=1024 SPRITES_E2E_MAX_RUNNING_MEMORY_MIB=1024 \
 //	  SPRITES_E2E_MAX_CONCURRENT_BOOTS=1 go test -tags e2e -run Admission ./e2e/
 //

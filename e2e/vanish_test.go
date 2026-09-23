@@ -14,7 +14,7 @@ import (
 // TestExecEndsWhenTheSpriteIsRestored: a checkpoint restore kills the VM under
 // any running exec, by design. The client must find out promptly. Over the
 // control channel the official SDK does not notice a dead socket on its own
-// (its reader stops without waking the operation), so spritesd has to say so.
+// (its reader stops without waking the operation), so wispd has to say so.
 func TestExecEndsWhenTheSpriteIsRestored(t *testing.T) {
 	c := client(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

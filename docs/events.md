@@ -4,7 +4,7 @@ The Sprites API pushes nothing: to follow sprites, a client polls. This is our o
 outside upstream's `/v1` so it cannot collide with anything the official API has or adds.
 Everything that changes a sprite reports to one in-process event bus, which serves:
 
-- a **server-sent event stream** at `GET /mini-sprites/v1/events` on the API (bearer token);
+- a **server-sent event stream** at `GET /wisp/v1/events` on the API (bearer token);
 - **webhooks**, POSTed to URLs the operator names with `--webhook`;
 - the same stream **from inside a spawner sprite**, limited to the sprites it created.
 
@@ -53,7 +53,7 @@ services. They need an agent from this version, which a sprite gets on its next 
 
 ```sh
 curl -N -H "Authorization: Bearer $SPRITE_TOKEN" \
-  "$SPRITES_API_URL/mini-sprites/v1/events?sprite=dev,web&type=sprite.,service.crashed"
+  "$SPRITES_API_URL/wisp/v1/events?sprite=dev,web&type=sprite.,service.crashed"
 ```
 
 - **Filters**: `sprite` (names) and `type` (prefixes), each comma-separated or repeated.
@@ -84,7 +84,7 @@ front sprite showing live status of the games it handed out, with no token insid
 sprite-env sprites events                          # follow, one JSON event per line
 sprite-env sprites events --all --type service.    # start with what is still buffered
 sprite-env sprites events --sprite game-42 --count 1 --type sprite.deleted   # wait for one
-# or: curl -N --unix-socket /.sprite/api.sock http://sprite/mini-sprites/v1/events
+# or: curl -N --unix-socket /.sprite/api.sock http://sprite/wisp/v1/events
 ```
 
 The stream does not keep the sprite awake. Suspending it cuts the connection (vsock does not
@@ -95,21 +95,21 @@ without a spawn policy gets `403 spawn_disabled`, as for the other spawner route
 ## Webhooks
 
 ```sh
-spritesd --webhook https://hooks.example.com/sprites --webhook-types sprite.,service.crashed
+wispd --webhook https://hooks.example.com/sprites --webhook-types sprite.,service.crashed
 ```
 
 - `--webhook` is repeatable; each URL gets every event (or those matching
   `--webhook-types`) as the event JSON in a `POST`.
-- Each delivery is signed. `X-Mini-Sprites-Timestamp` is Unix seconds, and
-  `X-Mini-Sprites-Signature` is `sha256=` and the hex HMAC-SHA256, keyed with the webhook
+- Each delivery is signed. `X-Wisp-Timestamp` is Unix seconds, and
+  `X-Wisp-Signature` is `sha256=` and the hex HMAC-SHA256, keyed with the webhook
   secret, of `<timestamp>.<body>`. The secret is `--webhook-secret-file`, by default
   `<data>/webhook-secret`, generated on first use. Verify in constant time and reject old
-  timestamps to stop replays. `X-Mini-Sprites-Event` and `X-Mini-Sprites-Event-Id` carry the
+  timestamps to stop replays. `X-Wisp-Event` and `X-Wisp-Event-Id` carry the
   type and ID.
 - A network error, `5xx` or `429` is retried 5 times, 1 s, 2 s, 4 s, 8 s and 16 s apart; any
   other `4xx` is final. Deliveries to one URL are in order, one at a time.
 - Each URL has a queue of 1024 events. When a receiver is slow or down long enough to fill
-  it, new events are dropped and counted, never waited for. `GET /mini-sprites/v1/webhooks`
+  it, new events are dropped and counted, never waited for. `GET /wisp/v1/webhooks`
   shows per URL: queued, delivered, failed, dropped and the last error (credentials and query
   strings in URLs are redacted, there and in the log).
 

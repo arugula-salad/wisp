@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // The guest channel is how a sprite asks the host for things only the host can
@@ -17,7 +17,7 @@ import (
 // bound to that one sprite, so there is no token and no sprite name in the
 // paths: a guest cannot address anything but itself.
 
-// guestAPIPort must match hostAPIPort in cmd/sprite-agent.
+// guestAPIPort must match hostAPIPort in cmd/wisp-agent.
 const guestAPIPort = 1025
 
 // guestChan is one VM's channel. It lives exactly as long as the VM process:

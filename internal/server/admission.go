@@ -6,8 +6,8 @@ import (
 	"math"
 	"sync"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // Host admission for the two things a count ceiling cannot express.
@@ -49,7 +49,7 @@ import (
 //   - Host page cache for sprite disks is not accounted, and on a busy volume
 //     it is not small.
 //   - Firecracker's own overhead beyond guest RAM, the snapshot written during
-//     a suspend, spritesd itself and anything else on the host are not
+//     a suspend, wispd itself and anything else on the host are not
 //     accounted either.
 //   - A sprite already running is never evicted to fit a new one. The budget
 //     only ever refuses arrivals.
@@ -120,7 +120,7 @@ func (a *admission) reserveMemory(rt *runtime, name string, mib int) error {
 			Message: fmt.Sprintf("running sprites already hold %d MiB of the host's %d MiB memory budget (--max-running-memory-mib) and %s needs %d MiB more; one frees up when a sprite goes idle",
 				a.reserved, a.budgetMiB, name, mib)}
 	}
-	// Recorded even with no budget configured, so `spritesd status` can report
+	// Recorded even with no budget configured, so `wispd status` can report
 	// what a budget would have to be to hold what is running now.
 	a.held[rt] = mib
 	a.reserved += mib
@@ -155,7 +155,7 @@ func (a *admission) releaseBoot() {
 	a.mu.Unlock()
 }
 
-// usage is the live view for `spritesd status`.
+// usage is the live view for `wispd status`.
 func (a *admission) usage() (reservedMiB, boots int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

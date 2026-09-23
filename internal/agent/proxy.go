@@ -99,7 +99,7 @@ func (s *Server) serveProxy(host string, port int, in <-chan wsFrame, send func(
 	}
 }
 
-// handleTCP gives spritesd a raw byte stream to a guest port: after the 101
+// handleTCP gives wispd a raw byte stream to a guest port: after the 101
 // the vsock connection simply becomes the TCP connection. Used for sprite URLs.
 func (s *Server) handleTCP(w http.ResponseWriter, r *http.Request) {
 	// port=http means "wherever this sprite's URL should go": the service that

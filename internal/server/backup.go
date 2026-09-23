@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/backup"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/backup"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // The backup tier runs entirely behind the lifecycle. A suspend is the natural
@@ -72,7 +72,7 @@ func newBackupManager(s *Server, cfg backup.Config) *backupManager {
 	m := &backupManager{srv: s, cfg: cfg, state: map[string]*backupState{},
 		pending: map[string]string{}, wake: make(chan struct{}, 1)}
 	go m.run()
-	// Reaching the bucket is not a condition of starting: spritesd is still a
+	// Reaching the bucket is not a condition of starting: wispd is still a
 	// working sprite host without durability, and the error belongs in the log and
 	// in sprite status, not in a refusal to boot or a slower one.
 	go func() {
@@ -396,7 +396,7 @@ func (m *backupManager) capture(ctx context.Context, sp store.Sprite) (*capture,
 
 // periodic keeps a long-running sprite's recovery point from drifting, and is the
 // retry for everything else: a backup that failed, one that was deferred, and one
-// that was queued when spritesd shut down.
+// that was queued when wispd shut down.
 func (m *backupManager) periodic() {
 	every := m.srv.opts.Backup.Interval
 	tick := min(max(every/10, time.Second), 5*time.Minute)

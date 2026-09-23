@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // Spawning is a sprite creating and managing sprites of its own, which is what
