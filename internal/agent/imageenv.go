@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// A sprite created from a container image (spritesd's images.go) carries the
+// A sprite created from a container image (wispd's images.go) carries the
 // image's environment in /.sprite/image.json: PATH additions such as
 // /usr/local/go/bin, NODE_VERSION and the like, which the image's own tools
 // expect. Every exec session and service gets it on top of the base

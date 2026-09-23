@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fills a real, small filesystem under a private spritesd and checks the disk
+# Fills a real, small filesystem under a private wispd and checks the disk
 # guard end to end, with real microVMs: refusals instead of a full disk, the
 # oldest warm sprite turned cold to make room for a suspend, a sprite stopped
 # cold when nothing can make room, a shutdown that suspends only as many as
@@ -26,13 +26,13 @@ RESERVE=300      # --disk-reserve-mib
 mkdir -p "$ROOT"
 [ -z "$(ls -A "$ROOT")" ] || { echo "$ROOT is not empty" >&2; exit 1; }
 "$REPO/scripts/dev-data.sh" "$ROOT" >/dev/null
-MINI_SPRITES_DATA="$ROOT" "$REPO/scripts/build-initrd.sh" >/dev/null
+WISP_DATA="$ROOT" "$REPO/scripts/build-initrd.sh" >/dev/null
 
-"$REPO/bin/spritesd" --data "$ROOT" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 4s \
+"$REPO/bin/wispd" --data "$ROOT" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 4s \
   --mem-mib $MEM --disk-reserve-mib $RESERVE --disk-warn-percent 50 >"$ROOT/daemon.log" 2>&1 &
 DAEMON=$!
 trap 'kill $DAEMON 2>/dev/null; wait $DAEMON 2>/dev/null; echo "log: $ROOT/daemon.log"' EXIT
-for _ in $(seq 50); do [ -S "$ROOT/spritesd.sock" ] && break; sleep 0.1; done
+for _ in $(seq 50); do [ -S "$ROOT/wispd.sock" ] && break; sleep 0.1; done
 TOKEN="$(cat "$ROOT/token")"
 
 pass=0; fail=0
@@ -85,7 +85,7 @@ echo "   $(free_mib) MiB free while s1 runs"
 check "s1 stopped" wait_state s1 cold
 check "s2 kept its memory state, since dropping it would not have helped" [ "$(state s2)" = warm ]
 check "the log explains" logged 'sprite stopped cold instead.*sprite=s1'
-check "no firecracker is left running" [ "$("$REPO/bin/spritesd" status --data "$ROOT" --json | python3 -c 'import json,sys; print(sum(1 for s in json.load(sys.stdin)["sprites"] if s.get("vmm_pid")))')" = 0 ]
+check "no firecracker is left running" [ "$("$REPO/bin/wispd" status --data "$ROOT" --json | python3 -c 'import json,sys; print(sum(1 for s in json.load(sys.stdin)["sprites"] if s.get("vmm_pid")))')" = 0 ]
 check "the low-space warning was logged" logged 'sprite volume is running out of space'
 
 echo "4. a shutdown with room for one snapshot suspends one sprite and stops the rest cold"
@@ -100,15 +100,15 @@ echo "   $(free_mib) MiB free with two sprites running"
 check "which is room for one snapshot, not two" [ "$(free_mib)" -ge $((MEM + 64)) -a "$(free_mib)" -lt $((2 * (MEM + 64))) ]
 kill $DAEMON; wait $DAEMON 2>/dev/null || true
 check "no snapshot write ran out of space" bash -c "! grep -q 'suspend on shutdown failed\|No space left' '$ROOT/daemon.log'"
-warm=$("$REPO/bin/spritesd" status --data "$ROOT" --json | python3 -c 'import json,sys; print(sum(1 for s in json.load(sys.stdin)["sprites"] if s["state"]=="warm"))')
+warm=$("$REPO/bin/wispd" status --data "$ROOT" --json | python3 -c 'import json,sys; print(sum(1 for s in json.load(sys.stdin)["sprites"] if s["state"]=="warm"))')
 check "exactly one sprite is warm afterwards (got $warm)" [ "$warm" = 1 ]
-check "no firecracker outlived the daemon" [ "$("$REPO/bin/spritesd" status --data "$ROOT" --json | python3 -c 'import json,sys; print(len([o for o in json.load(sys.stdin)["orphans"] if o["in_data_dir"]]))')" = 0 ]
+check "no firecracker outlived the daemon" [ "$("$REPO/bin/wispd" status --data "$ROOT" --json | python3 -c 'import json,sys; print(len([o for o in json.load(sys.stdin)["orphans"] if o["in_data_dir"]]))')" = 0 ]
 
 echo "5. nothing is corrupted"
 rm -f "$ROOT/vm/.filler"
-"$REPO/bin/spritesd" --data "$ROOT" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 4s --mem-mib $MEM >>"$ROOT/daemon.log" 2>&1 &
+"$REPO/bin/wispd" --data "$ROOT" --listen "127.0.0.1:$PORT" --net=false --idle-timeout 4s --mem-mib $MEM >>"$ROOT/daemon.log" 2>&1 &
 DAEMON=$!
-for _ in $(seq 50); do [ -S "$ROOT/spritesd.sock" ] && break; sleep 0.1; done
+for _ in $(seq 50); do [ -S "$ROOT/wispd.sock" ] && break; sleep 0.1; done
 check "s1 has both writes" [ "$(run s1 sh -c 'cat ~/marker' | tr '\n' ' ')" = "kept-s1 again-s1 " ]
 check "s2 has its write"  [ "$(run s2 sh -c 'cat ~/marker' | tr '\n' ' ')" = "kept-s2 " ]
 check "no I/O errors on any guest console" bash -c "! grep -il 'i/o error\|ext4-fs error' '$ROOT'/vm/*/console.log"

@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // The sprite volume holds disks, checkpoints and one guest-RAM-sized snapshot

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time privileged host setup for guest networking. Everything else in
-# mini-sprites runs unprivileged.
+# wisp runs unprivileged.
 #
 #   sudo ./scripts/setup-host.sh            # apply now + install a boot-time unit
 #   sudo ./scripts/setup-host.sh --remove   # undo everything
@@ -8,19 +8,19 @@
 # Creates:
 #   - bridge msbr0 (<prefix>.0.1/16, default 10.209.0.1) and a pool of tap devices mstap0..N owned by
 #     the invoking user, so an unprivileged Firecracker can open them
-#   - nftables table `inet mini_sprites`: NAT to the internet, and isolation:
+#   - nftables table `inet wisp`: NAT to the internet, and isolation:
 #     sprites cannot reach each other, the host, or private/LAN/tailnet ranges
 #   - if ufw is active: a `ufw route allow in on msbr0` rule. ufw's forward policy is
 #     DROP and a drop in any netfilter table is final, so ours alone cannot admit the
 #     traffic. Isolation still holds: our table drops private destinations regardless.
 #   - network policy plumbing: sprites in the nft set `restricted4` have their DNS and
-#     TCP redirected to spritesd's policy listeners on the bridge address, and everything
+#     TCP redirected to wispd's policy listeners on the bridge address, and everything
 #     else they send dropped. The set starts empty, so this costs other sprites nothing.
-#     spritesd cannot edit an nft set (it is unprivileged), so if bin/mini-sprites-netd
-#     has been built (`make netd`) it is installed as mini-sprites-netd.service: a root
+#     wispd cannot edit an nft set (it is unprivileged), so if bin/wisp-netd
+#     has been built (`make netd`) it is installed as wisp-netd.service: a root
 #     helper that does exactly one thing, replace that set's members, for the owning user.
 #     Without it everything else works and restrictive policies are refused.
-#   - mini-sprites-net.service to re-apply the above at boot
+#   - wisp-net.service to re-apply the above at boot
 #
 #   ./scripts/setup-host.sh --print-rules   # show the nftables ruleset; needs no root
 set -euo pipefail
@@ -28,28 +28,28 @@ trap 'echo "setup-host.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 BR=msbr0
 TAP_PREFIX=mstap
-# First two octets of the sprite /16. spritesd reads the network back off the
+# First two octets of the sprite /16. wispd reads the network back off the
 # bridge, so this is the only place it is configured. Not 10.88: that is podman's default.
-PREFIX="${MINI_SPRITES_NET_PREFIX:-10.209}"
+PREFIX="${WISP_NET_PREFIX:-10.209}"
 NET="$PREFIX.0.0/16"
 GW="$PREFIX.0.1"
 TAPS="${TAPS:-32}"
-UNIT=/etc/systemd/system/mini-sprites-net.service
-INSTALLED=/usr/local/sbin/mini-sprites-net
-# Where spritesd's policy listeners are (egressDNSPort / egressProxyPort in
+UNIT=/etc/systemd/system/wisp-net.service
+INSTALLED=/usr/local/sbin/wisp-net
+# Where wispd's policy listeners are (egressDNSPort / egressProxyPort in
 # internal/server/egress.go). Keep the two files in step.
 POLICY_DNS_PORT=7853
 POLICY_PROXY_PORT=7880
-NETD_SRC="$(cd "$(dirname "$0")/.." && pwd)/bin/mini-sprites-netd"
-NETD_BIN=/usr/local/sbin/mini-sprites-netd
-NETD_UNIT=/etc/systemd/system/mini-sprites-netd.service
+NETD_SRC="$(cd "$(dirname "$0")/.." && pwd)/bin/wisp-netd"
+NETD_BIN=/usr/local/sbin/wisp-netd
+NETD_UNIT=/etc/systemd/system/wisp-netd.service
 
 # KEEP is restricted4's membership to start with (see apply).
 ruleset() {
   cat <<EOF
-table inet mini_sprites
-delete table inet mini_sprites
-table inet mini_sprites {
+table inet wisp
+delete table inet wisp
+table inet wisp {
   set private4 {
     type ipv4_addr; flags interval
     elements = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8 }
@@ -90,19 +90,19 @@ EOF
 if [ "${1:-}" = --print-rules ]; then KEEP="${KEEP:-}"; ruleset; exit 0; fi
 
 [ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
-OWNER="${MINI_SPRITES_OWNER:-${SUDO_USER:-}}"
+OWNER="${WISP_OWNER:-${SUDO_USER:-}}"
 
 ufw_active() { command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; }
 
 remove() {
-  nft delete table inet mini_sprites 2>/dev/null || true
+  nft delete table inet wisp 2>/dev/null || true
   if ufw_active; then
     ufw route delete allow in on "$BR" >/dev/null 2>&1 || true
     ufw delete allow in on "$BR" to any port "$POLICY_DNS_PORT" >/dev/null 2>&1 || true
     ufw delete allow in on "$BR" to any port "$POLICY_PROXY_PORT" proto tcp >/dev/null 2>&1 || true
   fi
   if [ -f "$NETD_UNIT" ]; then
-    systemctl disable --now mini-sprites-netd.service 2>/dev/null || true
+    systemctl disable --now wisp-netd.service 2>/dev/null || true
     rm -f "$NETD_UNIT" "$NETD_BIN"
     systemctl daemon-reload
   fi
@@ -111,11 +111,11 @@ remove() {
   done
   ip link delete "$BR" 2>/dev/null || true
   if [ -f "$UNIT" ]; then
-    systemctl disable --now mini-sprites-net.service 2>/dev/null || true
+    systemctl disable --now wisp-net.service 2>/dev/null || true
     rm -f "$UNIT" "$INSTALLED"
     systemctl daemon-reload
   fi
-  echo "removed mini-sprites host networking (net.ipv4.ip_forward left as is)"
+  echo "removed wisp host networking (net.ipv4.ip_forward left as is)"
 }
 
 # Another interface owning (part of) our range would silently steal the return
@@ -126,7 +126,7 @@ check_collision() {
   if [ -n "$clash" ]; then
     echo "error: $NET overlaps routes this host already has:" >&2
     echo "$clash" | sed 's/^/    /' >&2
-    echo "pick another /16, e.g.: sudo MINI_SPRITES_NET_PREFIX=10.210 $0" >&2
+    echo "pick another /16, e.g.: sudo WISP_NET_PREFIX=10.210 $0" >&2
     exit 1
   fi
 }
@@ -159,11 +159,11 @@ apply() {
   fi
 
   # Re-applying replaces the whole table. Carry restricted4's members over within the
-  # same transaction: an empty set would un-restrict running sprites until spritesd's
+  # same transaction: an empty set would un-restrict running sprites until wispd's
   # next push.
   # On a first run the set does not exist and nft fails; under pipefail + set -e that
   # would end the script without a word, so the failure is absorbed here.
-  KEEP=$(nft list set inet mini_sprites restricted4 2>/dev/null | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p' || true)
+  KEEP=$(nft list set inet wisp restricted4 2>/dev/null | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p' || true)
   ruleset | nft -f -
 }
 
@@ -171,14 +171,14 @@ install_unit() {
   install -m 0755 "$0" "$INSTALLED"
   cat > "$UNIT" <<EOF
 [Unit]
-Description=mini-sprites guest networking (bridge, taps, nftables)
+Description=wisp guest networking (bridge, taps, nftables)
 After=network-pre.target
 Wants=network-pre.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-Environment=MINI_SPRITES_OWNER=$OWNER TAPS=$TAPS MINI_SPRITES_NET_PREFIX=$PREFIX
+Environment=WISP_OWNER=$OWNER TAPS=$TAPS WISP_NET_PREFIX=$PREFIX
 ExecStart=$INSTALLED --no-install
 ExecStop=$INSTALLED --remove-runtime
 
@@ -186,11 +186,11 @@ ExecStop=$INSTALLED --remove-runtime
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable mini-sprites-net.service >/dev/null
+  systemctl enable wisp-net.service >/dev/null
 }
 
 # The root helper behind restrictive network policies. Optional: without it
-# spritesd refuses such policies rather than accept what it cannot enforce.
+# wispd refuses such policies rather than accept what it cannot enforce.
 install_netd() {
   if [ ! -x "$NETD_SRC" ]; then
     echo "note: $NETD_SRC is not built, so no network policy support (run 'make netd' as yourself, then this script again)"
@@ -199,13 +199,13 @@ install_netd() {
   install -m 0755 "$NETD_SRC" "$NETD_BIN"
   cat > "$NETD_UNIT" <<EOF
 [Unit]
-Description=mini-sprites network policy helper (members of nft set restricted4)
-After=mini-sprites-net.service
-Wants=mini-sprites-net.service
+Description=wisp network policy helper (members of nft set restricted4)
+After=wisp-net.service
+Wants=wisp-net.service
 
 [Service]
 ExecStart=$NETD_BIN --owner $OWNER --net $NET
-RuntimeDirectory=mini-sprites
+RuntimeDirectory=wisp
 Restart=on-failure
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -217,14 +217,14 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable mini-sprites-netd.service >/dev/null
-  systemctl restart mini-sprites-netd.service
+  systemctl enable wisp-netd.service >/dev/null
+  systemctl restart wisp-netd.service
 }
 
 case "${1:-}" in
   --remove) remove ;;
   --remove-runtime)
-    nft delete table inet mini_sprites 2>/dev/null || true
+    nft delete table inet wisp 2>/dev/null || true
     for dev in /sys/class/net/${TAP_PREFIX}*; do [ -e "$dev" ] && ip link delete "$(basename "$dev")" || true; done
     ip link delete "$BR" 2>/dev/null || true ;;
   --no-install) apply ;;
@@ -232,7 +232,7 @@ case "${1:-}" in
     apply
     install_unit
     echo "ok: bridge $BR ($GW/16), $TAPS taps owned by $OWNER, NAT + isolation rules, boot unit installed"
-    if install_netd; then echo "ok: network policy helper mini-sprites-netd.service started (socket /run/mini-sprites/netd.sock, for $OWNER)"; fi
-    echo "restart spritesd to pick up networking; suspended sprites will cold-boot once to gain a NIC" ;;
+    if install_netd; then echo "ok: network policy helper wisp-netd.service started (socket /run/wisp/netd.sock, for $OWNER)"; fi
+    echo "restart wispd to pick up networking; suspended sprites will cold-boot once to gain a NIC" ;;
   *) echo "usage: $0 [--remove | --print-rules]" >&2; exit 2 ;;
 esac

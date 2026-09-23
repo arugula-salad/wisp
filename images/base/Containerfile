@@ -1,5 +1,5 @@
 # Userland for new sprites. This is only a filesystem: there is no init system
-# in here, the sprite-agent (booted from the initramfs) is PID 1.
+# in here, the wisp-agent (booted from the initramfs) is PID 1.
 FROM docker.io/library/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive

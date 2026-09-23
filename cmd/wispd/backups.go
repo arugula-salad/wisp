@@ -12,13 +12,13 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/backup"
-	"github.com/jhgaylor/mini-sprites/internal/server"
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/backup"
+	"github.com/jhgaylor/wisp/internal/server"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
-// The backup tier's two offline commands: `spritesd restore`, which rebuilds
-// machine directories from the bucket onto a fresh host, and `spritesd backups`,
+// The backup tier's two offline commands: `wispd restore`, which rebuilds
+// machine directories from the bucket onto a fresh host, and `wispd backups`,
 // which lists, forgets and garbage-collects what is up there. Both talk to the bucket
 // directly; neither needs a running daemon, and restore must not have one.
 
@@ -33,8 +33,8 @@ func backupFlags(fs *flag.FlagSet) func() server.BackupOptions {
 	parallel := fs.Int("backup-parallel", 4, "concurrent chunk transfers; each holds 4 MiB")
 	rate := fs.Int64("backup-rate-limit", 0, "cap backup traffic in bytes/second (0 = unlimited)")
 	interval := fs.Duration("backup-interval", 6*time.Hour, "re-upload a sprite whose disk changed this long after its last backup; also the retry for a failed one (0 = only on suspend)")
-	retention := fs.Duration("backup-retention", 30*24*time.Hour, "how long a deleted sprite's backups are kept by `spritesd backups prune`")
-	keep := fs.Int("backup-keep", 0, "manifests to keep per sprite in `spritesd backups prune` (0 = all)")
+	retention := fs.Duration("backup-retention", 30*24*time.Hour, "how long a deleted sprite's backups are kept by `wispd backups prune`")
+	keep := fs.Int("backup-keep", 0, "manifests to keep per sprite in `wispd backups prune` (0 = all)")
 	return func() server.BackupOptions {
 		return server.BackupOptions{Endpoint: *endpoint, Bucket: *bucket, Region: *region,
 			CredentialsFile: *creds, KeyFile: *key, Parallel: *parallel, RateLimit: *rate,
@@ -53,18 +53,18 @@ func openRepo(ctx context.Context, opts server.BackupOptions, log *slog.Logger) 
 
 // runRestore rebuilds sprites from the bucket into a data directory.
 func runRestore(args []string) int {
-	fs := flag.NewFlagSet("spritesd restore", flag.ExitOnError)
+	fs := flag.NewFlagSet("wispd restore", flag.ExitOnError)
 	data := fs.String("data", defaultDataDir(), "data directory to restore into")
 	all := fs.Bool("all", false, "restore every sprite in the bucket that has not been deleted")
-	manifest := fs.String("manifest", "", "restore this manifest instead of the newest (a stamp from `spritesd backups list`)")
+	manifest := fs.String("manifest", "", "restore this manifest instead of the newest (a stamp from `wispd backups list`)")
 	force := fs.Bool("force", false, "replace a sprite that already exists in the data directory")
 	rename := fs.String("rename", "", "restore under this name instead of the one in the backup")
 	backupOpts := backupFlags(fs)
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), `Usage: spritesd restore [flags] [sprite ...]
+		fmt.Fprintf(fs.Output(), `Usage: wispd restore [flags] [sprite ...]
 
 Rebuilds each named sprite's machine directory from the backup bucket. Stop
-spritesd first: it holds the data directory's sprite list in memory.
+wispd first: it holds the data directory's sprite list in memory.
 
 A restored sprite boots cold. Its filesystem and checkpoints come back; the warm
 memory snapshot does not, because it is only valid on the machine that took it.
@@ -110,7 +110,7 @@ memory snapshot does not, because it is only valid on the machine that took it.
 	if failures > 0 {
 		return 1
 	}
-	fmt.Printf("restored %d sprite(s) into %s\nStart spritesd to use them.\n", len(wanted), abs)
+	fmt.Printf("restored %d sprite(s) into %s\nStart wispd to use them.\n", len(wanted), abs)
 	return 0
 }
 
@@ -201,14 +201,14 @@ func restoreOne(ctx context.Context, repo *backup.Repo, st *store.Store,
 	return nil
 }
 
-// runBackups is `spritesd backups list|prune|forget`.
+// runBackups is `wispd backups list|prune|forget`.
 func runBackups(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: spritesd backups list|prune|forget [flags] [sprite ...]")
+		fmt.Fprintln(os.Stderr, "Usage: wispd backups list|prune|forget [flags] [sprite ...]")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	fs := flag.NewFlagSet("spritesd backups "+sub, flag.ExitOnError)
+	fs := flag.NewFlagSet("wispd backups "+sub, flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "report what prune would delete, and delete nothing")
 	grace := fs.Duration("grace", time.Hour, "prune leaves unreferenced chunks younger than this alone: they may belong to a backup that has not written its manifest yet")
 	backupOpts := backupFlags(fs)
@@ -292,7 +292,7 @@ func runBackups(args []string) int {
 			if err != nil {
 				return fail(err)
 			}
-			fmt.Printf("forgot %s (%s): %d manifests; run `spritesd backups prune` to collect its chunks\n", info.Name, info.ID, n)
+			fmt.Printf("forgot %s (%s): %d manifests; run `wispd backups prune` to collect its chunks\n", info.Name, info.ID, n)
 		}
 		return 0
 	}

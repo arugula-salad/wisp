@@ -17,10 +17,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/server"
+	"github.com/jhgaylor/wisp/internal/server"
 )
 
-// `spritesd status`: what is on this host. It asks the running daemon over the
+// `wispd status`: what is on this host. It asks the running daemon over the
 // unix socket in the data directory, and falls back to reading the files when
 // there is none, so it needs neither the API token nor a daemon.
 
@@ -30,7 +30,7 @@ func listenStatus(dataDir string) (net.Listener, error) {
 	path := filepath.Join(dataDir, server.StatusSocket)
 	if c, err := net.DialTimeout("unix", path, time.Second); err == nil {
 		c.Close()
-		return nil, fmt.Errorf("another spritesd is already running on %s (its socket %s answers)", dataDir, path)
+		return nil, fmt.Errorf("another wispd is already running on %s (its socket %s answers)", dataDir, path)
 	}
 	os.Remove(path) // left behind by a daemon that died
 	old := syscall.Umask(0o177)
@@ -46,7 +46,7 @@ func fetchStatus(dataDir string) (server.Status, error) {
 			return d.DialContext(ctx, "unix", path)
 		}}}
 	var st server.Status
-	resp, err := client.Get("http://spritesd/status")
+	resp, err := client.Get("http://wispd/status")
 	if err != nil {
 		return st, err
 	}
@@ -61,7 +61,7 @@ func runStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	data := fs.String("data", defaultDataDir(), "data directory")
 	asJSON := fs.Bool("json", false, "print the full status as JSON")
-	netdSocket := fs.String("netd-socket", "", "mini-sprites-netd socket to look for when no daemon is running (default /run/mini-sprites/netd.sock)")
+	netdSocket := fs.String("netd-socket", "", "wisp-netd socket to look for when no daemon is running (default /run/wisp/netd.sock)")
 	fs.Parse(args)
 	abs, err := filepath.Abs(*data)
 	if err != nil {
@@ -91,7 +91,7 @@ func runStatus(args []string) int {
 	return 0
 }
 
-// daemonDataDir works out which data directory another spritesd serves, from
+// daemonDataDir works out which data directory another wispd serves, from
 // its command line. (Its environment may differ from ours; that much is a guess.)
 func daemonDataDir(d server.OtherDaemon) string {
 	dir := defaultDataDir()
@@ -159,9 +159,9 @@ func limit(n int) string {
 func printStatus(w io.Writer, st server.Status) {
 	h := st.Host
 	if d := st.Daemon; d != nil {
-		fmt.Fprintf(w, "spritesd   pid %d, up %s, API on %s\n", d.Pid, time.Since(d.StartedAt).Round(time.Second), d.Listen)
+		fmt.Fprintf(w, "wispd   pid %d, up %s, API on %s\n", d.Pid, time.Since(d.StartedAt).Round(time.Second), d.Listen)
 	} else {
-		fmt.Fprintln(w, "spritesd   NOT RUNNING on this data directory; read from its files")
+		fmt.Fprintln(w, "wispd   NOT RUNNING on this data directory; read from its files")
 		for _, d := range st.OtherDaemons {
 			if daemonDataDir(d) == h.DataDir {
 				fmt.Fprintf(w, "           ...except that pid %d looks like it serves this directory without the status socket (an older build?).\n", d.Pid)
@@ -188,7 +188,7 @@ func printStatus(w io.Writer, st server.Status) {
 		fmt.Fprintf(w, "image      %s; %s free on its filesystem%s\n", v.Image, size(v.HostFree), note)
 	}
 	if h.Images.Count > 0 {
-		fmt.Fprintf(w, "images     %d cached disk(s) from container images, %s on the volume (spritesd images list)\n", h.Images.Count, size(h.Images.Bytes))
+		fmt.Fprintf(w, "images     %d cached disk(s) from container images, %s on the volume (wispd images list)\n", h.Images.Count, size(h.Images.Bytes))
 	}
 	fmt.Fprintf(w, "sprites    %d running (%s), %d warm, %d cold; %d in all (%s)\n",
 		h.Running, limit(h.MaxRunning), h.Warm, h.Cold, len(st.Sprites), limit(h.MaxSprites))
@@ -260,16 +260,16 @@ func printStatus(w io.Writer, st server.Status) {
 	}
 
 	for _, d := range st.OtherDaemons {
-		fmt.Fprintf(w, "\nother spritesd: pid %d with %d VMs: %s\n", d.Pid, d.VMs, strings.Join(d.Cmd, " "))
+		fmt.Fprintf(w, "\nother wispd: pid %d with %d VMs: %s\n", d.Pid, d.VMs, strings.Join(d.Cmd, " "))
 	}
 	if len(st.Orphans) > 0 {
-		fmt.Fprintf(w, "\nORPHANED VMs: %d firecracker process(es) of yours that no running spritesd started. Not touched; kill them yourself if they are stale.\n", len(st.Orphans))
+		fmt.Fprintf(w, "\nORPHANED VMs: %d firecracker process(es) of yours that no running wispd started. Not touched; kill them yourself if they are stale.\n", len(st.Orphans))
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "  PID\tRSS\tPARENT\tCWD\t")
 		for _, o := range st.Orphans {
 			note := ""
 			if o.InDataDir {
-				note = "in this data directory: the next spritesd to start here reaps it"
+				note = "in this data directory: the next wispd to start here reaps it"
 			}
 			fmt.Fprintf(tw, "  %d\t%s\t%s (%d)\t%s\t%s\n", o.Pid, size(o.RSS), o.ParentName, o.ParentPid, o.Cwd, note)
 		}

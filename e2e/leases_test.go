@@ -26,7 +26,7 @@ func lease(t *testing.T, name string) (expiresAt string, protected bool) {
 		ExpiresAt *string `json:"expires_at"`
 		Protected bool    `json:"protected"`
 	}
-	body := want(t, http.MethodGet, "/mini-sprites/v1/sprites/"+name+"/lease", "", http.StatusOK)
+	body := want(t, http.MethodGet, "/wisp/v1/sprites/"+name+"/lease", "", http.StatusOK)
 	if err := json.Unmarshal([]byte(body), &l); err != nil {
 		t.Fatalf("lease %s: %v: %s", name, err, body)
 	}
@@ -81,21 +81,21 @@ func TestLeases(t *testing.T) {
 	}
 
 	t.Run("renewal moves the deadline", func(t *testing.T) {
-		body := want(t, http.MethodPost, "/mini-sprites/v1/sprites/"+leased+"/lease", `{"ttl_seconds":90}`, http.StatusOK)
+		body := want(t, http.MethodPost, "/wisp/v1/sprites/"+leased+"/lease", `{"ttl_seconds":90}`, http.StatusOK)
 		second, _ := lease(t, leased)
 		if second <= first {
 			t.Fatalf("renewed to %s, which is not after %s (%s)", second, first, body)
 		}
 		// A deadline in the past is a typo, not an instruction to delete.
-		want(t, http.MethodPost, "/mini-sprites/v1/sprites/"+leased+"/lease",
+		want(t, http.MethodPost, "/wisp/v1/sprites/"+leased+"/lease",
 			`{"expires_at":"2020-01-01T00:00:00Z"}`, http.StatusBadRequest)
-		want(t, http.MethodPost, "/mini-sprites/v1/sprites/"+leased+"/lease",
+		want(t, http.MethodPost, "/wisp/v1/sprites/"+leased+"/lease",
 			`{"ttl_seconds":30,"expires_at":"2099-01-01T00:00:00Z"}`, http.StatusBadRequest)
 	})
 
 	t.Run("protection outlives the deadline", func(t *testing.T) {
-		want(t, http.MethodPost, "/mini-sprites/v1/sprites/"+leased+"/lease", `{"protected":true}`, http.StatusOK)
-		want(t, http.MethodPost, "/mini-sprites/v1/sprites/"+leased+"/lease", `{"ttl_seconds":5}`, http.StatusOK)
+		want(t, http.MethodPost, "/wisp/v1/sprites/"+leased+"/lease", `{"protected":true}`, http.StatusOK)
+		want(t, http.MethodPost, "/wisp/v1/sprites/"+leased+"/lease", `{"ttl_seconds":5}`, http.StatusOK)
 		if _, prot := lease(t, leased); !prot {
 			t.Fatal("the renewal cleared the protection")
 		}
@@ -111,7 +111,7 @@ func TestLeases(t *testing.T) {
 	})
 
 	t.Run("an expired sprite is deleted whole", func(t *testing.T) {
-		want(t, http.MethodPost, "/mini-sprites/v1/sprites/"+leased+"/lease", `{"ttl_seconds":10,"protected":false}`, http.StatusOK)
+		want(t, http.MethodPost, "/wisp/v1/sprites/"+leased+"/lease", `{"ttl_seconds":10,"protected":false}`, http.StatusOK)
 		gone(t, leased, 2*janitorPeriod)
 		// And its name is free again, which it would not be if the record or the
 		// address had been left behind.

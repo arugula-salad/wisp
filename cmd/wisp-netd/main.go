@@ -1,6 +1,6 @@
-// mini-sprites-netd is the one privileged piece of network policy: a root
-// service that lets the unprivileged spritesd replace the membership of the
-// nftables set `inet mini_sprites restricted4`, and nothing else. Installed and
+// wisp-netd is the one privileged piece of network policy: a root
+// service that lets the unprivileged wispd replace the membership of the
+// nftables set `inet wisp restricted4`, and nothing else. Installed and
 // started by scripts/setup-host.sh.
 package main
 
@@ -16,12 +16,12 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/jhgaylor/mini-sprites/internal/netd"
+	"github.com/jhgaylor/wisp/internal/netd"
 )
 
 func main() {
 	socket := flag.String("socket", netd.DefaultSocket, "unix socket to listen on")
-	owner := flag.String("owner", "", "user that runs spritesd; the socket is theirs alone")
+	owner := flag.String("owner", "", "user that runs wispd; the socket is theirs alone")
 	network := flag.String("net", "", "sprite network, e.g. 10.209.0.0/16; addresses outside it are refused")
 	nft := flag.String("nft", "/usr/sbin/nft", "nft binary")
 	flag.Parse()
@@ -58,7 +58,7 @@ func run(log *slog.Logger, socket, owner, network, nft string) error {
 	if err := os.Chown(socket, uid, gid); err != nil {
 		return err
 	}
-	log.Info("mini-sprites-netd listening", "socket", socket, "owner", owner, "net", prefix)
+	log.Info("wisp-netd listening", "socket", socket, "owner", owner, "net", prefix)
 	srv := &netd.Server{Net: prefix.Masked(), OwnerUID: uid, Apply: netd.NftApply(nft), Log: log}
 	return srv.Serve(ln)
 }

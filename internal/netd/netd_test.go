@@ -22,13 +22,13 @@ func TestScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "flush set inet mini_sprites restricted4\n" +
-		"add element inet mini_sprites restricted4 { 10.209.0.3, 10.209.1.7 }\n"
+	want := "flush set inet wisp restricted4\n" +
+		"add element inet wisp restricted4 { 10.209.0.3, 10.209.1.7 }\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 	// Emptying the set is a flush alone: "add element { }" is a syntax error in nft.
-	if got, err := Script(spriteNet, nil); err != nil || got != "flush set inet mini_sprites restricted4\n" {
+	if got, err := Script(spriteNet, nil); err != nil || got != "flush set inet wisp restricted4\n" {
 		t.Errorf("empty: %q, %v", got, err)
 	}
 }
@@ -46,7 +46,7 @@ func TestScriptRejects(t *testing.T) {
 		"v4-mapped":             {"::ffff:10.209.0.2"},
 		"empty string":          {""},
 		"a hostname":            {"sprite.local"},
-		"nft injection":         {"10.209.0.2 }; flush ruleset; add element inet mini_sprites restricted4 { 10.209.0.3"},
+		"nft injection":         {"10.209.0.2 }; flush ruleset; add element inet wisp restricted4 { 10.209.0.3"},
 		"newline injection":     {"10.209.0.2\nflush ruleset"},
 		"trailing garbage":      {"10.209.0.2,"},
 		"zone":                  {"10.209.0.2%eth0"},
@@ -183,10 +183,10 @@ func TestNftApplyFeedsStdin(t *testing.T) {
 	out := filepath.Join(dir, "got")
 	fake := filepath.Join(dir, "nft")
 	os.WriteFile(fake, []byte("#!/bin/sh\n[ \"$1\" = -f ] && [ \"$2\" = - ] || exit 9\ncat > "+out+"\n"), 0o755)
-	if err := NftApply(fake)("flush set inet mini_sprites restricted4\n"); err != nil {
+	if err := NftApply(fake)("flush set inet wisp restricted4\n"); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(out); string(b) != "flush set inet mini_sprites restricted4\n" {
+	if b, _ := os.ReadFile(out); string(b) != "flush set inet wisp restricted4\n" {
 		t.Errorf("nft got %q", b)
 	}
 	os.WriteFile(fake, []byte("#!/bin/sh\necho 'Error: no such table' >&2; exit 1\n"), 0o755)

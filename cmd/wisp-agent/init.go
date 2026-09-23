@@ -11,7 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// cmdline returns the sprite.* parameters spritesd put on the kernel command line.
+// cmdline returns the sprite.* parameters wispd put on the kernel command line.
 func cmdline() map[string]string {
 	out := map[string]string{}
 	b, _ := os.ReadFile("/proc/cmdline")
@@ -113,7 +113,7 @@ func installTools(root string) {
 }
 
 // installSudo gives a disk with no sudo of its own (most container images: see
-// spritesd's images.go) a stand-in: sprite-env, setuid root, which acts as a
+// wispd's images.go) a stand-in: sprite-env, setuid root, which acts as a
 // passwordless sudo for the sprite user (cmd/sprite-env/sudo.go). Once the disk
 // has a real sudo (apt install sudo), the stand-in is taken away again.
 func installSudo(root string, b []byte) {
@@ -182,7 +182,7 @@ func runInit() {
 	setupNetwork(p)
 
 	for {
-		proc, err := os.StartProcess("/proc/self/exe", []string{"sprite-agent", "serve"}, &os.ProcAttr{
+		proc, err := os.StartProcess("/proc/self/exe", []string{"wisp-agent", "serve"}, &os.ProcAttr{
 			Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
 			Env:   []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root"},
 		})

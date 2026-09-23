@@ -17,7 +17,7 @@ import (
 // TestNetworkPolicy drives the policy API with the official SDK. What a
 // restrictive policy should do depends on the daemon under test:
 //
-//	SPRITES_E2E_NETD=absent   no mini-sprites-netd (or --net=false): it must be refused
+//	SPRITES_E2E_NETD=absent   no wisp-netd (or --net=false): it must be refused
 //	SPRITES_E2E_NETD=present  helper installed: it must be accepted and round-trip
 //
 // Unset, either is accepted and the one observed is logged. Enforcement itself is

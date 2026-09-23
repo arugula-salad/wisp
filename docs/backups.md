@@ -2,13 +2,13 @@
 
 Off unless `--backup-bucket` is set; without it nothing in the lifecycle changes.
 
-Point spritesd at any S3-compatible bucket and every sprite's disk and checkpoints are
+Point wispd at any S3-compatible bucket and every sprite's disk and checkpoints are
 backed up to it, incrementally, after each suspend:
 
 ```sh
-./bin/spritesd \
-  --backup-endpoint http://garage-s3:3900 --backup-bucket mini-sprites \
-  --backup-region home-cloud --backup-credentials-file ~/.config/mini-sprites/backup.env
+./bin/wispd \
+  --backup-endpoint http://garage-s3:3900 --backup-bucket wisp \
+  --backup-region home-cloud --backup-credentials-file ~/.config/wisp/backup.env
 ```
 
 The credentials file holds `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` lines (with or
@@ -28,9 +28,9 @@ reads the local disk, and waking on another machine means downloading the disk f
   mid-upload wakes normally; where the disk is being read in place, the upload is the one
   that gives way, within a fraction of a second and before any manifest is written, and is
   retried once the sprite is suspended again.
-- Anything missed is caught up: every `--backup-interval`/10 (at most 5 minutes) spritesd
+- Anything missed is caught up: every `--backup-interval`/10 (at most 5 minutes) wispd
   looks for stopped sprites whose disk is newer than their recovery point — a backup that
-  failed, was deferred, or was still queued when spritesd shut down — and retries with a
+  failed, was deferred, or was still queued when wispd shut down — and retries with a
   backoff. Recovery points are read back from the bucket at startup, so a restart neither
   forgets them nor re-reads every disk.
 - Uploads are incremental and deduplicated: files are cut into 4 MiB content-addressed
@@ -51,23 +51,23 @@ reads the local disk, and waking on another machine means downloading the disk f
 - Failures are visible, never fatal: an unreachable bucket is logged and reported in
   `GET /v1/sprites/<name>` under a non-upstream `backup` field (`phase`, `last_backup_at`,
   `last_uploaded_bytes`, `last_backup_size_bytes`, `error`, `failures`). Suspends, wakes and
-  everything else carry on, including starting up: a bucket that is down when spritesd
+  everything else carry on, including starting up: a bucket that is down when wispd
   starts is retried until it answers.
 
 Losing the machine, and getting it back somewhere else:
 
 ```sh
-spritesd backups list                          # what is in the bucket, and every manifest
-spritesd restore --all                         # or: spritesd restore dev [--manifest <stamp>]
-spritesd backups prune --dry-run               # then without --dry-run
-spritesd backups forget scratch                # drop one sprite's backups now, whatever the retention
+wispd backups list                          # what is in the bucket, and every manifest
+wispd restore --all                         # or: wispd restore dev [--manifest <stamp>]
+wispd backups prune --dry-run               # then without --dry-run
+wispd backups forget scratch                # drop one sprite's backups now, whatever the retention
 ```
 
-`restore` rebuilds machine directories in `--data` and must run with spritesd **stopped**. A
+`restore` rebuilds machine directories in `--data` and must run with wispd **stopped**. A
 restored sprite gets an address that is free on the new host. Deleting a sprite leaves a
 tombstone rather than removing its backup, so losing a machine and deleting a sprite do not
 look the same; `prune` retires tombstoned sprites after `--backup-retention` (30 days) and
-collects chunks nothing references any more. It is safe to run beside a live spritesd: it
+collects chunks nothing references any more. It is safe to run beside a live wispd: it
 announces itself in the bucket, backups stand aside until it has finished, and one that
 was overtaken by it checks its chunks again before committing. All of these take the same
 `--backup-*` flags as the daemon, before any sprite names.

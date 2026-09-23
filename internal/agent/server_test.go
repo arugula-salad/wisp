@@ -217,7 +217,7 @@ func TestExecPost(t *testing.T) {
 	ts, _ := newTestServer(t)
 	u := ts.URL + "/exec?cmd=sh&cmd=-c&cmd=" + url.QueryEscape("tr a-z A-Z; echo warn >&2; exit 4") + "&stdin=true"
 
-	// Length framing: what spritesd consumes. Unambiguous however the bytes are chunked.
+	// Length framing: what wispd consumes. Unambiguous however the bytes are chunked.
 	resp, err := http.Post(u+"&framing=length", "", strings.NewReader("shout"))
 	if err != nil {
 		t.Fatal(err)

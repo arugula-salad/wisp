@@ -20,7 +20,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/confine"
+	"github.com/jhgaylor/wisp/internal/confine"
 )
 
 // File names inside a machine directory. Firecracker runs with the directory
@@ -145,7 +145,7 @@ func PidOf(dir string) (int, bool) {
 	return pid, strings.Contains(filepath.Base(exe), "firecracker") && cwd == dir
 }
 
-// ReapOrphan kills a Firecracker left behind in dir by a previous spritesd that
+// ReapOrphan kills a Firecracker left behind in dir by a previous wispd that
 // died without cleaning up. Its memory state is unrecoverable, so the sprite goes cold.
 func ReapOrphan(dir string) {
 	// Guard against pid reuse: only signal it if it really is a firecracker in this dir.
@@ -159,7 +159,7 @@ func ReapOrphan(dir string) {
 func DiscardSnapshot(dir string) {
 	os.Remove(filepath.Join(dir, snapState))
 	os.Remove(filepath.Join(dir, snapMem))
-	os.Remove(filepath.Join(dir, sparseMem)) // left by a spritesd that died mid-suspend
+	os.Remove(filepath.Join(dir, sparseMem)) // left by a wispd that died mid-suspend
 }
 
 func launch(h Host, cfg Config) (*Machine, error) {
@@ -175,7 +175,7 @@ func launch(h Host, cfg Config) (*Machine, error) {
 	cmd := exec.Command(h.Firecracker, "--api-sock", apiSock, "--level", "Warning")
 	cmd.Dir = cfg.Dir
 	cmd.Stdout, cmd.Stderr = console, console
-	// Own process group so a ^C in spritesd's terminal doesn't hit the VMs directly.
+	// Own process group so a ^C in wispd's terminal doesn't hit the VMs directly.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Sandbox the VMM. The shim execs Firecracker, so the pid below stays the
 	// Firecracker pid and ReapOrphan keeps recognising it.
@@ -415,7 +415,7 @@ func (m *Machine) Kill() {
 // Closing the listener removes the socket file.
 func ListenGuest(dir string, port uint32) (net.Listener, error) {
 	path := filepath.Join(dir, fmt.Sprintf("%s_%d", vsockSock, port))
-	os.Remove(path) // left behind by a spritesd that died
+	os.Remove(path) // left behind by a wispd that died
 	return net.Listen("unix", path)
 }
 

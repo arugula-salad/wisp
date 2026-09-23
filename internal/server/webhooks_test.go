@@ -43,8 +43,8 @@ func TestWebhookSignsAndRetries(t *testing.T) {
 		}
 		var e Event
 		json.Unmarshal(body, &e)
-		if r.Header.Get("X-Mini-Sprites-Event") != e.Type {
-			t.Errorf("type header %q for %q", r.Header.Get("X-Mini-Sprites-Event"), e.Type)
+		if r.Header.Get("X-Wisp-Event") != e.Type {
+			t.Errorf("type header %q for %q", r.Header.Get("X-Wisp-Event"), e.Type)
 		}
 		mu.Lock()
 		got = append(got, e)

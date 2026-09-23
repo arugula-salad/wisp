@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-// Reporter sends service reports to spritesd over the host channel, where
+// Reporter sends service reports to wispd over the host channel, where
 // they become events on the sprite's stream. Reporting is best effort and never
 // holds up a service: reports queue in a small buffer and are dropped when it
-// is full or spritesd cannot be reached after a few tries.
+// is full or wispd cannot be reached after a few tries.
 type Reporter struct {
 	client *http.Client
 	q      chan ServiceReport

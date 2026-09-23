@@ -127,7 +127,7 @@ type ServiceEvent struct {
 	LogFiles  map[string]string `json:"log_files,omitempty"`
 }
 
-// ServiceReport is a service lifecycle change the supervisor tells spritesd
+// ServiceReport is a service lifecycle change the supervisor tells wispd
 // about (see Reporter): started, crashed (exited on its own; a restart is
 // scheduled), stopped (on purpose) or failed (could not be launched).
 type ServiceReport struct {

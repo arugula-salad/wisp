@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/s3/s3test"
+	"github.com/jhgaylor/wisp/internal/s3/s3test"
 )
 
 func newTestClient(t *testing.T, srv *s3test.Server) *Client {
@@ -67,8 +67,13 @@ func TestURIEncode(t *testing.T) {
 // TestSignatureGolden pins the whole Authorization header for a fixed clock,
 // credential and request. It is a regression guard, not a proof of correctness:
 // the proof is a real request to Garage, which scripts/verify-backup.sh makes.
+//
+// The bucket is a neutral fixture rather than this project's name, because the
+// bucket is part of the canonical request: renaming the project would otherwise
+// invalidate the signature below and look like a signer regression. The value
+// was derived from the SigV4 spec independently of the implementation.
 func TestSignatureGolden(t *testing.T) {
-	c, err := New(Config{Endpoint: "http://garage-s3:3900", Bucket: "mini-sprites",
+	c, err := New(Config{Endpoint: "http://garage-s3:3900", Bucket: "example-bucket",
 		Region: "home-cloud", AccessKey: "GKexample", SecretKey: "secretexample"})
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +91,7 @@ func TestSignatureGolden(t *testing.T) {
 	}
 	want := "AWS4-HMAC-SHA256 Credential=GKexample/20260920/home-cloud/s3/aws4_request, " +
 		"SignedHeaders=host;x-amz-content-sha256;x-amz-date, " +
-		"Signature=e0f9cdc1379bec4c172aa8503148a7c2923d5157785223d4f4b05ae29c3358f8"
+		"Signature=ee5f64e4e88a07ea316849d7dd4242a7e718af7f6f4801254d01c089e1ceca7f"
 	if got := req.Header.Get("Authorization"); got != want {
 		t.Errorf("Authorization\n got %s\nwant %s", got, want)
 	}

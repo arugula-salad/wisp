@@ -1,4 +1,4 @@
-# mini-sprites
+# wisp
 
 A single-host implementation of the [Sprites](https://sprites.dev) API: persistent,
 hardware-isolated Linux environments on Firecracker microVMs that suspend when idle
@@ -13,26 +13,26 @@ own machine.
 client (sprite CLI / SDK / curl)
    │  REST + WebSocket, Bearer token              http://<name>.sprites.localhost:7788
    ▼                                                        │
-spritesd ── lifecycle engine: wake on request, suspend when idle, go cold after a TTL
+wispd ── lifecycle engine: wake on request, suspend when idle, go cold after a TTL
    │  vsock, both directions (no guest network needed)
    ▼
-Firecracker microVM ── sprite-agent as PID 1 (from an initramfs) ── your ext4 disk
+Firecracker microVM ── wisp-agent as PID 1 (from an initramfs) ── your ext4 disk
                        └─ /.sprite/api.sock + sprite-env, for use from inside
 ```
 
 ## Install
 
-Needs Linux with read/write access to `/dev/kvm`, Go, and rootless podman. spritesd runs as
+Needs Linux with read/write access to `/dev/kvm`, Go, and rootless podman. wispd runs as
 you; nothing below needs root until the optional step at the end.
 
 ```sh
-git clone https://github.com/jhgaylor/mini-sprites && cd mini-sprites
+git clone https://github.com/jhgaylor/wisp && cd wisp
 make deps image          # Firecracker + a guest kernel, then the base disk image
 make install-service     # build, install as a systemd user service, start on 127.0.0.1:7788
 ```
 
 `make run` instead of `make install-service` runs it in the foreground, for trying it out.
-Either way the API token is written to `~/.local/share/mini-sprites/token` on first start.
+Either way the API token is written to `~/.local/share/wisp/token` on first start.
 
 Give sprites a network (once, needs root). Without it they have no NIC; exec, checkpoints,
 sprite URLs and the TCP proxy still work, because those travel over vsock.
@@ -42,7 +42,7 @@ make netd && sudo ./scripts/setup-host.sh
 ```
 
 More in [host setup](docs/host-setup.md) (networking, and instant copy-on-write clones) and
-[operating it](docs/operations.md) (the service, surviving reboots, `spritesd status`, limits).
+[operating it](docs/operations.md) (the service, surviving reboots, `wispd status`, limits).
 
 ## Use it
 
@@ -50,7 +50,7 @@ Everything that speaks the Sprites API needs two things: where the server is, an
 
 ```sh
 export SPRITES_API_URL=http://127.0.0.1:7788
-export SPRITE_TOKEN=$(cat ~/.local/share/mini-sprites/token)
+export SPRITE_TOKEN=$(cat ~/.local/share/wisp/token)
 ```
 
 ### With an official SDK
@@ -106,7 +106,7 @@ fmt.Print(string(out))
 
 ### In a browser
 
-spritesd serves a dashboard on the API address: open <http://127.0.0.1:7788/> and paste the
+wispd serves a dashboard on the API address: open <http://127.0.0.1:7788/> and paste the
 token. It shows every sprite and the host at a glance, with an hour of CPU, memory, disk and
 state history, request traffic and latency, and lets you open a terminal in any sprite, browse its files, take and restore
 checkpoints, and edit its policies ([web UI](docs/web-ui.md)).
@@ -154,7 +154,7 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 | | |
 |---|---|
 | [Host setup](docs/host-setup.md) | Guest networking and the reflink volume: the two optional steps that need root once |
-| [Operating it](docs/operations.md) | Running as a service, reboots, `spritesd status`, limits, disk pressure, what is not built |
+| [Operating it](docs/operations.md) | Running as a service, reboots, `wispd status`, limits, disk pressure, what is not built |
 | [Lifecycle](docs/lifecycle.md) | `running` / `warm` / `cold`, what keeps a sprite awake, tasks, what a sprite costs in memory, autoscale |
 | [Web UI](docs/web-ui.md) | The browser dashboard: what it shows, how it signs in, reaching it from another machine |
 | [API coverage](docs/api.md) | What is implemented, and `sprite-env` for use from inside a sprite |

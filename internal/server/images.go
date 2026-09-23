@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/ociimage"
+	"github.com/jhgaylor/wisp/internal/ociimage"
 )
 
 // A sprite can start from a container image instead of the base image
-// (`"from": {"image": "docker.io/library/node:22"}`, our extension). spritesd
+// (`"from": {"image": "docker.io/library/node:22"}`, our extension). wispd
 // pulls the image with rootless podman, flattens it into an ext4 disk with the
 // sprite account added (ociimage.Rewrite), and keeps that disk, keyed by image
 // ID, in a cache on the sprite volume. Every later create from the same image
@@ -31,7 +31,7 @@ import (
 // A create that misses the cache pulls; a pull can take minutes, so it runs
 // detached from the request, and a client that gives up can retry and find it
 // done. From inside a sprite only cached images are accepted, so a guest can
-// never make the host fetch anything. `spritesd images pull|list|rm` manages
+// never make the host fetch anything. `wispd images pull|list|rm` manages
 // the cache over the operator socket.
 
 // imagesDirName is the cache under vm/. The store ignores directories without
@@ -552,7 +552,7 @@ func (s *Server) imageSource(ctx context.Context, raw string, parent bool) (disk
 		return disk, img, ref, release, nil
 	case errors.Is(err, errImageNotCached):
 		return "", img, ref, nil, &createError{http.StatusNotFound, "image_not_cached",
-			fmt.Sprintf("image %s is not in this host's image cache; from inside a sprite only cached images can be used (the operator adds them with `spritesd images pull`)", ref)}
+			fmt.Sprintf("image %s is not in this host's image cache; from inside a sprite only cached images can be used (the operator adds them with `wispd images pull`)", ref)}
 	case errors.Is(err, errNoRoom):
 		return "", img, ref, nil, &createError{http.StatusInsufficientStorage, "insufficient_storage", err.Error()}
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):

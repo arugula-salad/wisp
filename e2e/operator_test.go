@@ -18,7 +18,7 @@ import (
 // and of a refused create or wake. The limit cases need a daemon started with
 // the limits and told to the test:
 //
-//	spritesd --max-sprites 4 --max-running 1 ...
+//	wispd --max-sprites 4 --max-running 1 ...
 //	SPRITES_E2E_MAX_SPRITES=4 SPRITES_E2E_MAX_RUNNING=1 go test -tags e2e -run Operator ./e2e/
 //
 // on a daemon with no other sprites, since the limits count all of them.

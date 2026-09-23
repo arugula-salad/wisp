@@ -5,18 +5,18 @@
   <img alt="The dashboard's overview: sprites by state, CPU and memory in use, the sprite volume, charts of state, CPU and memory over time, and a lane per sprite showing when it was running, warm or cold" src="images/dashboard-light.png">
 </picture>
 
-spritesd serves a dashboard from the API listener, at `/ui/` (the bare `/` redirects there).
+wispd serves a dashboard from the API listener, at `/ui/` (the bare `/` redirects there).
 With the defaults that is <http://127.0.0.1:7788/>. It is plain HTML, CSS and JavaScript
 embedded in the binary (`internal/webui`), with a vendored xterm.js for the terminal: no build
 step, and nothing loaded from the internet.
 
 ## Signing in
 
-Paste the API token, from `<data>/token` (by default `~/.local/share/mini-sprites/token`).
+Paste the API token, from `<data>/token` (by default `~/.local/share/wisp/token`).
 The page trades it for an HttpOnly, SameSite=Strict cookie derived from the token, so rotating
 the token signs every browser out. The cookie alone authorizes nothing: every request must also
-carry an `X-Mini-Sprites-UI` header, which a page on another origin (a sprite's own URL
-included) cannot add without a CORS preflight spritesd never answers, or be a WebSocket whose
+carry an `X-Wisp-UI` header, which a page on another origin (a sprite's own URL
+included) cannot add without a CORS preflight wispd never answers, or be a WebSocket whose
 `Origin` is the dashboard's own host. The public listener (`--public-listen`) serves sprite URLs
 only, never the dashboard.
 
@@ -44,7 +44,7 @@ only, never the dashboard.
   percentiles; a live tail and the slowest requests. Filter by kind (sprite URLs, API, calls from
   inside sprites, the web UI itself) and by sprite, from 15 minutes to 24 hours.
 - **Host**: host memory, load and volume over time, the daemon, and stray Firecracker or
-  spritesd processes (as `spritesd status` reports them).
+  wispd processes (as `wispd status` reports them).
 
 Overview, Traffic, Ops and Host keep their headline figures on top and split the charts into
 tabs, so a tab fits on a screen; each page remembers the last tab in the browser.
@@ -53,14 +53,14 @@ Tabs that talk to the guest (terminal, files, services) wake the sprite; the fil
 tabs ask first. The dashboard itself never keeps a sprite awake.
 
 Besides `/v1`, it uses four endpoints of its own under `/ui/api/`: `status` (the same JSON as
-`spritesd status --json`), `metrics` (the history below), `http` (request metrics, below) and
+`wispd status --json`), `metrics` (the history below), `http` (request metrics, below) and
 `sprites/{name}/wake|suspend|cool`.
 Suspend keeps memory (warm); cool drops a warm sprite's snapshot, as `--warm-ttl` would. Nothing
 in the dashboard kills a running VM.
 
 ## Metrics history
 
-spritesd samples every 5 seconds and keeps one hour in memory: counts by state, CPU and resident
+wispd samples every 5 seconds and keeps one hour in memory: counts by state, CPU and resident
 memory of each sprite's Firecracker process, host memory and load, and volume usage. Disk figures
 per sprite (which read extent maps) are refreshed every minute and whenever a sprite appears or
 goes. The history is not persisted: a restart starts it over, and the charts show the gap.

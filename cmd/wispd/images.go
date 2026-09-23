@@ -18,14 +18,14 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/server"
+	"github.com/jhgaylor/wisp/internal/server"
 )
 
-// `spritesd images`: the cache of sprite disks built from container images.
+// `wispd images`: the cache of sprite disks built from container images.
 // It talks to the running daemon over the operator socket, like status, since
 // the daemon owns the cache; list alone also works with no daemon.
 
-const imagesUsage = `usage: spritesd images <command> [--data <dir>]
+const imagesUsage = `usage: wispd images <command> [--data <dir>]
 
   pull <ref>        pull the image (again) and build its sprite disk; a moved tag replaces the old disk
   list [--json]     the cached images
@@ -75,7 +75,7 @@ func runImages(args []string) int {
 	}
 	fail := func(err error) int {
 		if noDaemon(err) {
-			fmt.Fprintf(os.Stderr, "no spritesd is running on %s; images %s needs one\n", abs, verb)
+			fmt.Fprintf(os.Stderr, "no wispd is running on %s; images %s needs one\n", abs, verb)
 		} else {
 			fmt.Fprintln(os.Stderr, err)
 		}
@@ -84,7 +84,7 @@ func runImages(args []string) int {
 	switch verb {
 	case "list", "ls":
 		var imgs []server.CachedImage
-		resp, err := operatorClient(abs, 30*time.Second).Get("http://spritesd/images")
+		resp, err := operatorClient(abs, 30*time.Second).Get("http://wispd/images")
 		switch {
 		case err == nil:
 			defer resp.Body.Close()
@@ -111,7 +111,7 @@ func runImages(args []string) int {
 			return 2
 		}
 		// No client timeout: a large image takes minutes, and the daemon streams progress.
-		resp, err := operatorClient(abs, 0).Post("http://spritesd/images/pull?ref="+url.QueryEscape(pos[0]), "", nil)
+		resp, err := operatorClient(abs, 0).Post("http://wispd/images/pull?ref="+url.QueryEscape(pos[0]), "", nil)
 		if err != nil {
 			return fail(err)
 		}
@@ -136,7 +136,7 @@ func runImages(args []string) int {
 			}
 			fmt.Fprintln(os.Stderr, line)
 		}
-		fmt.Fprintln(os.Stderr, "the daemon hung up before the pull finished; it continues in the background (see spritesd images list)")
+		fmt.Fprintln(os.Stderr, "the daemon hung up before the pull finished; it continues in the background (see wispd images list)")
 		return 1
 
 	case "rm", "remove", "delete":
@@ -144,7 +144,7 @@ func runImages(args []string) int {
 			fmt.Fprint(os.Stderr, imagesUsage)
 			return 2
 		}
-		req, _ := http.NewRequest(http.MethodDelete, "http://spritesd/images?key="+url.QueryEscape(pos[0]), nil)
+		req, _ := http.NewRequest(http.MethodDelete, "http://wispd/images?key="+url.QueryEscape(pos[0]), nil)
 		resp, err := operatorClient(abs, 30*time.Second).Do(req)
 		if err != nil {
 			return fail(err)

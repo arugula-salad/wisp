@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/s3"
+	"github.com/jhgaylor/wisp/internal/s3"
 )
 
 // PruneOptions controls garbage collection.
@@ -46,7 +46,7 @@ type PruneStats struct {
 // manifest that referenced it is gone. The grace period covers the other
 // direction, a chunk uploaded by a backup whose manifest does not exist yet.
 //
-// A running spritesd keeps an index of the chunks it believes are in the bucket,
+// A running wispd keeps an index of the chunks it believes are in the bucket,
 // and this runs in another process. The marker written before anything is deleted
 // is how that daemon finds out: a backup that sees it move relists the bucket and
 // goes round again rather than commit a manifest naming a chunk that has gone,

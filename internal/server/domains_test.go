@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/certs"
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/certs"
+	"github.com/jhgaylor/wisp/internal/store"
 	"github.com/miekg/dns"
 )
 

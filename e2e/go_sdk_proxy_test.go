@@ -19,7 +19,7 @@ import (
 // its README shows, must be able to forward a port. It could not while the
 // server offered it /control: over control the SDK's pool reader and its proxy
 // handshake both read the one socket, and the forward hung whenever the pool
-// reader won. spritesd therefore answers that SDK's /control probe with 404.
+// reader won. wispd therefore answers that SDK's /control probe with 404.
 func TestGoSDKProxyPortsWithDefaultOptions(t *testing.T) {
 	if os.Getenv("SPRITES_E2E_GO_CONTROL") != "" {
 		t.Skip("the daemon offers /control to the Go SDK, where this is known to race")

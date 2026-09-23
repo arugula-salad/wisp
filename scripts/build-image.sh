@@ -5,9 +5,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-DATA="${MINI_SPRITES_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/mini-sprites}"
+DATA="${WISP_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}"
 DISK_GB="${SPRITE_DISK_GB:-20}"
-TAG=mini-sprites-base
+TAG=wisp-base
 OUT="$DATA/images/base.ext4"
 
 mkdir -p "$DATA/images"

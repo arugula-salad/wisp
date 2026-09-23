@@ -147,7 +147,7 @@ func account(ctx context.Context, dir, directoryURL, email string, hc *http.Clie
 	if err != nil {
 		return nil, fmt.Errorf("account key: %w", err)
 	}
-	cl := &acme.Client{Key: accountKey, DirectoryURL: directoryURL, HTTPClient: hc, UserAgent: "mini-sprites"}
+	cl := &acme.Client{Key: accountKey, DirectoryURL: directoryURL, HTTPClient: hc, UserAgent: "wisp"}
 	acct := &acme.Account{}
 	if email != "" {
 		acct.Contact = []string{"mailto:" + email}

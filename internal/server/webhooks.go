@@ -36,8 +36,8 @@ const (
 	webhookAttempts = 6 // the first try and five retries: 1s, 2s, 4s, 8s, 16s apart
 	webhookTimeout  = 10 * time.Second
 
-	sigHeader = "X-Mini-Sprites-Signature"
-	tsHeader  = "X-Mini-Sprites-Timestamp"
+	sigHeader = "X-Wisp-Signature"
+	tsHeader  = "X-Wisp-Timestamp"
 )
 
 type webhook struct {
@@ -57,7 +57,7 @@ type webhook struct {
 	lastDropLog                time.Time
 }
 
-// WebhookStatus is one webhook's line in GET /mini-sprites/v1/webhooks.
+// WebhookStatus is one webhook's line in GET /wisp/v1/webhooks.
 type WebhookStatus struct {
 	URL       string     `json:"url"`
 	Queued    int        `json:"queued"`
@@ -148,9 +148,9 @@ func (h *webhook) post(e Event, body []byte) (retry bool, err error) {
 	}
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "mini-sprites-webhook/1")
-	req.Header.Set("X-Mini-Sprites-Event", e.Type)
-	req.Header.Set("X-Mini-Sprites-Event-Id", strconv.FormatUint(e.ID, 10))
+	req.Header.Set("User-Agent", "wisp-webhook/1")
+	req.Header.Set("X-Wisp-Event", e.Type)
+	req.Header.Set("X-Wisp-Event-Id", strconv.FormatUint(e.ID, 10))
 	req.Header.Set(tsHeader, ts)
 	req.Header.Set(sigHeader, signWebhook(h.secret, ts, body))
 	resp, err := h.client.Do(req)

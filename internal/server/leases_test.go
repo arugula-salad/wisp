@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
-func leaseURL(name string) string { return "/mini-sprites/v1/sprites/" + name + "/lease" }
+func leaseURL(name string) string { return "/wisp/v1/sprites/" + name + "/lease" }
 
 // leaseNow reads the lease the API reports.
 func leaseNow(t *testing.T, h http.Handler, name string) leaseJSON {
@@ -57,7 +57,7 @@ func leaseEvents(s *Server) *eventSub {
 	return sub
 }
 
-// restart is a second daemon on the same data directory, as a spritesd stopped
+// restart is a second daemon on the same data directory, as a wispd stopped
 // and started again.
 func restart(t *testing.T, s *Server) (*Server, http.Handler) {
 	t.Helper()

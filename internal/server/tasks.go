@@ -3,13 +3,13 @@ package server
 import (
 	"net/http"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // Upstream's Tasks API (explicit keep-awake holds) is served inside the sprite,
 // on /.sprite/api.sock, and the guest agent owns the table. These routes expose
 // the same API from outside as /v1/sprites/{name}/tasks; that part is a
-// mini-sprites extension. The lifecycle engine honors holds in watch().
+// wisp extension. The lifecycle engine honors holds in watch().
 
 func (s *Server) registerTasks(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/sprites/{name}/tasks", s.tasks)

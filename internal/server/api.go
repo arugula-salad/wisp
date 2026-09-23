@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/backup"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/backup"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // apiVersion is reported in Sprite-Version; SDKs use it to pick endpoint
@@ -137,7 +137,7 @@ func (s *Server) Handler() http.Handler {
 	// Ours, outside /v1 (events.go, webhooks.go, leases.go).
 	s.registerLeases(mux)
 	mux.HandleFunc("GET "+eventsPath, s.serveAPIEvents)
-	mux.HandleFunc("GET /mini-sprites/v1/webhooks", s.serveWebhookStatus)
+	mux.HandleFunc("GET /wisp/v1/webhooks", s.serveWebhookStatus)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
@@ -501,7 +501,7 @@ func (s *Server) destroy(sp store.Sprite) error {
 	s.life.egress.forget(sp)
 	s.syncDomains() // its custom domains go with it
 	// Tombstone rather than delete: losing this machine and deleting a sprite must
-	// not look the same to the bucket. `spritesd backups prune` retires it later.
+	// not look the same to the bucket. `wispd backups prune` retires it later.
 	s.backups.MarkDeleted(sp)
 	s.log.Info("sprite deleted", "sprite", sp.Name)
 	s.life.emit(sp, "sprite.deleted", nil)

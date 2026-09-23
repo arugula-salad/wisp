@@ -4,7 +4,7 @@
   lives and dies with this machine's disk. With one, the recovery point is the last completed
   upload — the sprite's last suspend, or `--backup-interval` for a long-running one. Upstream
   keeps the local disk as a cache and syncs chunks continuously, so it can wake a sprite on a
-  different host without a full download; that tier is [#2](https://github.com/jhgaylor/mini-sprites/issues/2)'s second half and is not built.
+  different host without a full download; that tier is [#2](https://github.com/jhgaylor/wisp/issues/2)'s second half and is not built.
 - Disk is 20 GB sparse by default (`SPRITE_DISK_GB` at image build) rather than 100 GB, and
   Firecracker has no discard, so space freed in a guest is not returned to the host.
 - RAM is set per sprite (`--mem-mib`, `config.ram_mb`, or a resources policy), but a running
@@ -39,13 +39,13 @@
 - **`ProxyPorts` races on a control socket.** Over `/control` the SDK's pool reader and its
   proxy handshake both read the one WebSocket, and the forward hangs whenever the pool reader
   wins (about two times in three, measured), with no fallback. Nothing a server sends can
-  settle a race between two readers in the client, so spritesd answers *that SDK's* `/control`
+  settle a race between two readers in the client, so wispd answers *that SDK's* `/control`
   probe (`User-Agent: sprites-go-sdk/`) with 404. It takes that to mean "no control channel"
   and uses a socket per operation, which costs it nothing: it never reuses a control socket
   anyway. The JS and Python SDKs, where control is opt-in and does multiplex, still get it.
   `--control-for-go-sdk` offers it to the Go SDK too; `--control=false` turns it off for all.
 - **A control connection that dies mid-operation is never reported to the operation.**
-  spritesd terminates the `/control` WebSocket itself, so that when a VM goes away under a
+  wispd terminates the `/control` WebSocket itself, so that when a VM goes away under a
   running exec (a checkpoint restore does this by design) the client is told instead of
   hanging until its context expires.
 - Over control the SDK does not send an initial TTY size; resize after start.

@@ -6,12 +6,12 @@
 #   sudo ./scripts/setup-storage.sh            # create + mount + migrate existing sprites
 #   sudo ./scripts/setup-storage.sh --remove   # move sprites back to a plain directory
 #   sudo SPRITE_VOLUME_GB=300 ./scripts/setup-storage.sh --grow      # make the volume bigger
-#   sudo SPRITE_VOLUME_GB=300 SPRITE_VOLUME_IMAGE=/data/mini-sprites/sprites.xfs \
+#   sudo SPRITE_VOLUME_GB=300 SPRITE_VOLUME_IMAGE=/data/wisp/sprites.xfs \
 #        ./scripts/setup-storage.sh --grow      # ...and move its image to a roomier disk
 #
 # It makes an XFS filesystem (reflink=1) inside one image file, <data>/sprites.xfs unless
 # SPRITE_VOLUME_IMAGE says otherwise, loop-mounted at <data>/vm, and installs
-# mini-sprites-storage.service to mount it at boot. Nothing else is touched. spritesd needs
+# wisp-storage.service to mount it at boot. Nothing else is touched. wispd needs
 # no configuration: it probes for reflink support at startup, and finds the image behind
 # the mount by itself.
 #
@@ -25,14 +25,14 @@ set -euo pipefail
 trap 'echo "setup-storage.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 [ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
-OWNER="${MINI_SPRITES_OWNER:-${SUDO_USER:-}}"
+OWNER="${WISP_OWNER:-${SUDO_USER:-}}"
 [ -n "$OWNER" ] && id "$OWNER" >/dev/null 2>&1 || { echo "cannot determine owning user; run via sudo from your account" >&2; exit 1; }
 OWNER_HOME=$(getent passwd "$OWNER" | cut -d: -f6)
 OWNER_GROUP=$(id -gn "$OWNER")
-DATA="${MINI_SPRITES_DATA:-$OWNER_HOME/.local/share/mini-sprites}"
+DATA="${WISP_DATA:-$OWNER_HOME/.local/share/wisp}"
 MNT="$DATA/vm"
 SIZE_GB="${SPRITE_VOLUME_GB:-40}"
-UNIT=/etc/systemd/system/mini-sprites-storage.service
+UNIT=/etc/systemd/system/wisp-storage.service
 
 mounted() { mountpoint -q "$MNT"; }
 
@@ -50,8 +50,8 @@ CUR_IMG="$(current_image || true)"
 IMG="${SPRITE_VOLUME_IMAGE:-${CUR_IMG:-$DATA/sprites.xfs}}"
 
 require_idle() {
-  if pgrep -u "$OWNER" -x spritesd >/dev/null; then
-    echo "spritesd is running; stop it first (it suspends its sprites on SIGTERM)" >&2
+  if pgrep -u "$OWNER" -x wispd >/dev/null; then
+    echo "wispd is running; stop it first (it suspends its sprites on SIGTERM)" >&2
     exit 1
   fi
   if pgrep -u "$OWNER" -x firecracker >/dev/null; then
@@ -73,7 +73,7 @@ kb_free() { df -k --output=avail "$1" | tail -1 | tr -d ' '; }
 install_unit() {
   cat > "$UNIT" <<EOF
 [Unit]
-Description=mini-sprites reflink volume ($IMG on $MNT)
+Description=wisp reflink volume ($IMG on $MNT)
 RequiresMountsFor=$DATA $(dirname "$IMG")
 ConditionPathExists=$IMG
 
@@ -87,7 +87,7 @@ ExecStop=/usr/bin/umount $MNT
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable mini-sprites-storage.service >/dev/null
+  systemctl enable wisp-storage.service >/dev/null
 }
 
 create() {
@@ -140,8 +140,8 @@ create() {
     rm -rf "$old"
   fi
   install_unit
-  echo "ok: $(findmnt -no FSTYPE,SIZE "$MNT") reflink volume mounted at $MNT (image $IMG, mounted at boot by mini-sprites-storage.service)"
-  echo "start spritesd; its log should say the sprite volume supports reflinks"
+  echo "ok: $(findmnt -no FSTYPE,SIZE "$MNT") reflink volume mounted at $MNT (image $IMG, mounted at boot by wisp-storage.service)"
+  echo "start wispd; its log should say the sprite volume supports reflinks"
 }
 
 grow() {
@@ -196,7 +196,7 @@ grow() {
   install_unit
   [ "$moving" = 0 ] || rm -f "$CUR_IMG"
   echo "ok: $(findmnt -no FSTYPE,SIZE,AVAIL "$MNT") at $MNT (image $IMG$([ "$moving" = 1 ] && echo ", moved from $CUR_IMG"))"
-  echo "start spritesd again; every sprite is as it was"
+  echo "start wispd again; every sprite is as it was"
 }
 
 remove() {
@@ -220,7 +220,7 @@ remove() {
   fi
   if [ -f "$UNIT" ]; then
     # --now runs ExecStop (umount) too; it is already unmounted by then, hence the || true.
-    systemctl disable --now mini-sprites-storage.service >/dev/null 2>&1 || true
+    systemctl disable --now wisp-storage.service >/dev/null 2>&1 || true
     rm -f "$UNIT"
     systemctl daemon-reload
   fi

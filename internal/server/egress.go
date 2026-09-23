@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/netd"
-	"github.com/jhgaylor/mini-sprites/internal/netpolicy"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/netd"
+	"github.com/jhgaylor/wisp/internal/netpolicy"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // Ports the nftables rules from setup-host.sh redirect restricted sprites to.
@@ -34,8 +34,8 @@ var errUnenforceable = errors.New("network policy cannot be enforced")
 // which makes the kernel hand its DNS and TCP to the listeners here and drop
 // the rest. Everyone else stays on the plain NAT path and never touches this.
 //
-// spritesd is unprivileged, so set membership is changed through the root
-// helper mini-sprites-netd. Every push carries the complete membership.
+// wispd is unprivileged, so set membership is changed through the root
+// helper wisp-netd. Every push carries the complete membership.
 type egress struct {
 	log     *slog.Logger
 	store   *store.Store
@@ -62,7 +62,7 @@ func newEgress(opts Options, st *store.Store, log *slog.Logger, gateway net.IP, 
 	e.push = func(ctx context.Context, addrs []netip.Addr) error { return netd.Push(ctx, socket, addrs) }
 	gw, ok := netip.AddrFromSlice(gateway.To4())
 	if !ok {
-		e.down = "this spritesd has no guest network (see scripts/setup-host.sh, --net)"
+		e.down = "this wispd has no guest network (see scripts/setup-host.sh, --net)"
 		return e
 	}
 	e.gateway = gw
@@ -194,7 +194,7 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 			sp.NetworkRules = prev
 			e.enf.Set(a, sp.Name, e.compile(sp))
 		}
-		return fmt.Errorf("%w: mini-sprites-netd: %v (is the helper installed? sudo scripts/setup-host.sh)", errUnenforceable, err)
+		return fmt.Errorf("%w: wisp-netd: %v (is the helper installed? sudo scripts/setup-host.sh)", errUnenforceable, err)
 	}
 	return nil
 }
@@ -219,7 +219,7 @@ func (e *egress) admit(sp store.Sprite) error {
 		return fmt.Errorf("%w: %s", errUnenforceable, e.down)
 	}
 	if err := e.syncLocked(); err != nil {
-		return fmt.Errorf("%w: mini-sprites-netd: %v", errUnenforceable, err)
+		return fmt.Errorf("%w: wisp-netd: %v", errUnenforceable, err)
 	}
 	return nil
 }

@@ -23,7 +23,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // Server is the agent's HTTP surface. Public paths mirror the Sprites API with
-// the /v1/sprites/{name} prefix stripped; /internal/* is for spritesd only.
+// the /v1/sprites/{name} prefix stripped; /internal/* is for wispd only.
 type Server struct {
 	Sessions *Manager
 	// Services is optional; without it the services API answers 404.
@@ -281,7 +281,7 @@ const maxPostFrame = 16 * 1024
 // body is upstream's format: frames of one stream-ID byte plus payload (stdout,
 // stderr, then an exit frame carrying the exit code), with NO length field —
 // each frame is exactly one HTTP chunk. That only survives hops that preserve
-// chunk boundaries, which a reverse proxy does not, so spritesd asks for
+// chunk boundaries, which a reverse proxy does not, so wispd asks for
 // framing=length (ID, big-endian uint32 length, payload) on the vsock hop and
 // re-chunks for the client itself.
 func (s *Server) handleExecPost(w http.ResponseWriter, r *http.Request) {
@@ -423,7 +423,7 @@ func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePresuspend flushes the page cache ahead of a suspend or checkpoint.
-// ?idle=1 says the idle timer is about to suspend the sprite. spritesd does not
+// ?idle=1 says the idle timer is about to suspend the sprite. wispd does not
 // pin control sockets, so an op can start on one at any moment; this is the
 // last look before the VM freezes, and the answer is 409 if one has.
 func (s *Server) handlePresuspend(w http.ResponseWriter, r *http.Request) {
@@ -451,7 +451,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleResumed is called by spritesd after a snapshot restore: the guest
+// handleResumed is called by wispd after a snapshot restore: the guest
 // clock is frozen at suspend time, so step it to the host's wall clock.
 func (s *Server) handleResumed(w http.ResponseWriter, r *http.Request) {
 	var body struct {

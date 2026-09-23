@@ -1,5 +1,5 @@
-// Package netd is the protocol between spritesd (unprivileged) and
-// mini-sprites-netd (root). The helper exists because editing an nftables set
+// Package netd is the protocol between wispd (unprivileged) and
+// wisp-netd (root). The helper exists because editing an nftables set
 // needs CAP_NET_ADMIN, and it is deliberately incapable of anything else: one
 // request type, which replaces the members of one set with addresses from one network.
 package netd
@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	DefaultSocket = "/run/mini-sprites/netd.sock"
-	// The set setup-host.sh declares; its rules divert members to spritesd.
-	nftSet = "inet mini_sprites restricted4"
+	DefaultSocket = "/run/wisp/netd.sock"
+	// The set setup-host.sh declares; its rules divert members to wispd.
+	nftSet = "inet wisp restricted4"
 	// A /16 cannot hold more sprites than this, so neither can a valid request.
 	maxAddrs   = 1 << 16
 	maxRequest = 2 << 20
@@ -72,7 +72,7 @@ func Push(ctx context.Context, socket string, addrs []netip.Addr) error {
 // Server is the helper's side.
 type Server struct {
 	// Net is the sprite network. Nothing outside it can be put in the set, so
-	// the worst a compromised spritesd can do is restrict its own sprites.
+	// the worst a compromised wispd can do is restrict its own sprites.
 	Net netip.Prefix
 	// OwnerUID is the only non-root user whose requests are honoured. The
 	// socket's mode already says so; this does not depend on the mode surviving.

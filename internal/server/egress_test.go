@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/netd"
-	"github.com/jhgaylor/mini-sprites/internal/netpolicy"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/netd"
+	"github.com/jhgaylor/wisp/internal/netpolicy"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-// fakeHelper stands in for mini-sprites-netd: it records each pushed membership, or fails.
+// fakeHelper stands in for wisp-netd: it records each pushed membership, or fails.
 type fakeHelper struct {
 	mu     sync.Mutex
 	pushes [][]string
@@ -151,7 +151,7 @@ func TestDeletingARestrictedSpriteShrinksTheSet(t *testing.T) {
 }
 
 func TestRestrictivePolicyFailsClosedWithoutHelper(t *testing.T) {
-	helper := &fakeHelper{err: errors.New("dial unix /run/mini-sprites/netd.sock: connect: no such file or directory")}
+	helper := &fakeHelper{err: errors.New("dial unix /run/wisp/netd.sock: connect: no such file or directory")}
 	s, st := newTestServer(t, helper)
 	a := addSprite(t, st, "a")
 
@@ -205,7 +205,7 @@ func TestRestrictivePolicyRefusedWithoutGuestNetwork(t *testing.T) {
 	helper := &fakeHelper{}
 	s, st := newTestServer(t, helper)
 	s.life.egress.gateway = netip.Addr{}
-	s.life.egress.down = "this spritesd has no guest network"
+	s.life.egress.down = "this wispd has no guest network"
 	addSprite(t, st, "a")
 	w := call(s, "POST", "/v1/sprites/a/policy/network", allowGithub)
 	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "no guest network") {
@@ -311,7 +311,7 @@ func TestPolicyReachesNftThroughTheRealHelper(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	want := "flush set inet mini_sprites restricted4\nadd element inet mini_sprites restricted4 { 10.209.0.2 }\n"
+	want := "flush set inet wisp restricted4\nadd element inet wisp restricted4 { 10.209.0.2 }\n"
 	if len(scripts) != 1 || scripts[0] != want {
 		t.Errorf("nft was given %q", scripts)
 	}

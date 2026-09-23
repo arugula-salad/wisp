@@ -24,7 +24,7 @@ import (
 const helperEnv = "CONFINE_TEST_HELPER"
 
 // TestMain doubles as both halves of the launch. It must dispatch the shim
-// argument before anything else, exactly as cmd/spritesd's main does: the
+// argument before anything else, exactly as cmd/wispd's main does: the
 // stand-in inherits CONFINE_TEST_HELPER through the shim's execve, so checking
 // the environment first would run the probes in the unconfined outer process
 // and quietly pass every test.
@@ -295,7 +295,7 @@ func TestLandlockPathnameUnixSockets(t *testing.T) {
 	}
 }
 
-// TestLandlockScopesSignals checks that a confined VMM cannot signal spritesd
+// TestLandlockScopesSignals checks that a confined VMM cannot signal wispd
 // or any other process outside its domain. Needs ABI 6.
 func TestLandlockScopesSignals(t *testing.T) {
 	requireLandlock(t, abiScope)
@@ -392,7 +392,7 @@ func TestParseMode(t *testing.T) {
 
 // TestOffIsNil: ModeOff must leave the launch path exactly as it was.
 func TestOffIsNil(t *testing.T) {
-	c, err := Open(ModeOff, "mini-sprites-test")
+	c, err := Open(ModeOff, "wisp-test")
 	if err != nil || c != nil {
 		t.Fatalf("Open(ModeOff) = %v, %v; want nil, nil", c, err)
 	}

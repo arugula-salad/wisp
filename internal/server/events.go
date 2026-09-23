@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // The event stream is ours, not upstream's: the Sprites API pushes nothing, so
@@ -28,7 +28,7 @@ import (
 // eventsPath is where the stream is served, on the API and on the guest
 // socket alike. The prefix keeps it clear of anything upstream has, or might
 // add, under /v1.
-const eventsPath = "/mini-sprites/v1/events"
+const eventsPath = "/wisp/v1/events"
 
 const (
 	eventRing      = 1024 // events kept for resuming
@@ -274,7 +274,7 @@ func (b *eventBus) serveEvents(w http.ResponseWriter, r *http.Request, scope fun
 		return write(fmt.Sprintf("data: %s\n\n", data))
 	}
 
-	if !write("retry: 2000\n: mini-sprites event stream\n\n") {
+	if !write("retry: 2000\n: wisp event stream\n\n") {
 		return
 	}
 	if gap != nil && !notice("stream.gap", gap) {

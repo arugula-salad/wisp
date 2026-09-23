@@ -17,7 +17,7 @@ import (
 
 func testCgroups(t *testing.T) *Cgroups {
 	t.Helper()
-	c, err := openCgroups("mini-sprites-test-" + strconv.Itoa(os.Getpid()))
+	c, err := openCgroups("wisp-test-" + strconv.Itoa(os.Getpid()))
 	if err != nil {
 		t.Skipf("no delegated cgroup v2 subtree here: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestCgroupRemovedWhenProcessExits(t *testing.T) {
 	}
 }
 
-// TestSweepLeavesLiveCgroups: a second spritesd's Sweep must not delete a
+// TestSweepLeavesLiveCgroups: a second wispd's Sweep must not delete a
 // cgroup that still holds a running VMM. (rmdir on a populated cgroup is EBUSY,
 // so this is really a check that Sweep does not try to empty one first.)
 func TestSweepLeavesLiveCgroups(t *testing.T) {
@@ -157,11 +157,11 @@ func TestSweepLeavesLiveCgroups(t *testing.T) {
 
 // TestOpenDoesNotSweep pins down an ordering that is easy to get wrong and
 // silent when it is: Open must leave stale leaves alone, because at startup the
-// orphaned VMMs from the previous spritesd are still running and a populated
+// orphaned VMMs from the previous wispd are still running and a populated
 // cgroup cannot be removed. Only SweepStale, called after vmm.ReapOrphan, may
 // clear them.
 func TestOpenDoesNotSweep(t *testing.T) {
-	name := "mini-sprites-test-sweep-" + strconv.Itoa(os.Getpid())
+	name := "wisp-test-sweep-" + strconv.Itoa(os.Getpid())
 	first, err := openCgroups(name)
 	if err != nil {
 		t.Skipf("no delegated cgroup v2 subtree here: %v", err)

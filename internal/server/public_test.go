@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 func publicTestServer(t *testing.T) *Server {

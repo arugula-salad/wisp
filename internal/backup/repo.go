@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/s3"
+	"github.com/jhgaylor/wisp/internal/s3"
 )
 
 type Config struct {
@@ -137,7 +137,7 @@ func (r *Repo) checkConfig(ctx context.Context) error {
 // chunks it already has. An index that omits a chunk (a concurrent writer's) costs
 // a redundant PUT of an identical object. An index that still lists a chunk a
 // prune has since collected would cost the backup, so every Save reads the marker
-// `spritesd backups prune` leaves (one small GET) and relists when it has moved.
+// `wispd backups prune` leaves (one small GET) and relists when it has moved.
 func (r *Repo) seed(ctx context.Context) (pruned string, err error) {
 	if pruned, err = r.lastPrune(ctx); err != nil {
 		return "", err
@@ -173,7 +173,7 @@ func (r *Repo) invalidate() {
 	r.mu.Unlock()
 }
 
-// ErrPruneRunning means `spritesd backups prune` is at work on this bucket. A
+// ErrPruneRunning means `wispd backups prune` is at work on this bucket. A
 // backup cannot know which chunks it is about to collect, so it stands aside; it
 // is a reason to try again later, not a failure.
 var ErrPruneRunning = errors.New("a prune of this bucket is in progress")

@@ -35,7 +35,7 @@ func openEvents(t *testing.T, query string, header http.Header) <-chan frame {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, os.Getenv("SPRITES_E2E_URL")+"/mini-sprites/v1/events?"+query, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, os.Getenv("SPRITES_E2E_URL")+"/wisp/v1/events?"+query, nil)
 	req.Header.Set("Authorization", "Bearer "+os.Getenv("SPRITES_E2E_TOKEN"))
 	for k, v := range header {
 		req.Header[k] = v
@@ -116,7 +116,7 @@ func uiAction(t *testing.T, name, action string) {
 		t.Fatalf("ui login: %v %v", err, resp)
 	}
 	req, _ := http.NewRequest(http.MethodPost, base+"/ui/api/sprites/"+name+"/"+action, nil)
-	req.Header.Set("X-Mini-Sprites-UI", "1")
+	req.Header.Set("X-Wisp-UI", "1")
 	for _, c := range resp.Cookies() {
 		req.AddCookie(c)
 	}

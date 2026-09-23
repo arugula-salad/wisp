@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/mini-sprites/internal/backup"
-	"github.com/jhgaylor/mini-sprites/internal/s3/s3test"
-	"github.com/jhgaylor/mini-sprites/internal/store"
-	"github.com/jhgaylor/mini-sprites/internal/vmm"
+	"github.com/jhgaylor/wisp/internal/backup"
+	"github.com/jhgaylor/wisp/internal/s3/s3test"
+	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
 // newBackupServer is a server with one never-booted sprite and a stub bucket, so
@@ -235,7 +235,7 @@ func TestAWakeDuringAnInPlaceUploadLeavesNoManifest(t *testing.T) {
 	}
 }
 
-// A bucket that is down when spritesd starts is visible on every sprite, costs
+// A bucket that is down when wispd starts is visible on every sprite, costs
 // nothing else, and is picked up again without a restart.
 func TestABucketThatIsDownAtStartupIsReportedAndRetried(t *testing.T) {
 	srv := s3test.New("buck")
@@ -416,7 +416,7 @@ func TestCloneReflinkRefusesToFallBack(t *testing.T) {
 }
 
 // A sprite that never reached the bucket has nothing there to mark as deleted, and
-// a tombstone for it would sit in `spritesd backups list` for the whole retention.
+// a tombstone for it would sit in `wispd backups list` for the whole retention.
 func TestDeletingASpriteThatWasNeverBackedUpLeavesNothing(t *testing.T) {
 	s, sp, srv := newBackupServer(t)
 	s.backups.tombstone(sp)

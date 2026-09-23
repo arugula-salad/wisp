@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // MaxRules bounds a policy so a client cannot make every DNS query expensive.

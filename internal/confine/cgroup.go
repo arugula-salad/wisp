@@ -45,7 +45,7 @@ var wantControllers = []string{"cpu", "memory", "pids"}
 // It needs no root: on a systemd host the user's own `user@<uid>.service` slice
 // already has cpu, memory and pids delegated.
 type Cgroups struct {
-	root string // absolute path of our subtree, e.g. <mount>/user.slice/.../mini-sprites
+	root string // absolute path of our subtree, e.g. <mount>/user.slice/.../wisp
 }
 
 // Limits is one VM's share of the host.
@@ -215,7 +215,7 @@ func removeCgroup(path string) bool {
 	return false
 }
 
-// Sweep removes leaves left by a spritesd that died without cleaning up. A leaf
+// Sweep removes leaves left by a wispd that died without cleaning up. A leaf
 // whose VMM is still running cannot be removed and is left alone, so callers
 // must reap orphaned VMMs first — see Confiner.SweepStale.
 func (c *Cgroups) Sweep() {

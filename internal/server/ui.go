@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/jhgaylor/mini-sprites/internal/webui"
+	"github.com/jhgaylor/wisp/internal/webui"
 )
 
 // The web UI: a single page served from the API listener at /ui/, talking to
@@ -24,21 +24,21 @@ import (
 //
 // A browser cannot put a bearer token on a WebSocket, so the page trades the
 // token for a cookie. The cookie alone authorizes nothing: a request must also
-// carry the X-Mini-Sprites-UI header, which another origin cannot add without
+// carry the X-Wisp-UI header, which another origin cannot add without
 // a CORS preflight we never answer, or be a WebSocket whose Origin is this very
 // host. That keeps a page elsewhere (a sprite's own URL included) from riding
 // the cookie.
 
 const (
-	uiCookie = "mini_sprites_ui"
-	uiHeader = "X-Mini-Sprites-UI"
+	uiCookie = "wisp_ui"
+	uiHeader = "X-Wisp-UI"
 )
 
 // uiSession is the cookie value: derived from the token, so rotating the token
 // signs every browser out and there is no session state to keep.
 func (s *Server) uiSession() string {
 	mac := hmac.New(sha256.New, []byte(s.token))
-	mac.Write([]byte("mini-sprites web ui v1"))
+	mac.Write([]byte("wisp web ui v1"))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

@@ -12,7 +12,7 @@ import (
 
 	sprites "github.com/superfly/sprites-go"
 
-	"github.com/jhgaylor/mini-sprites/internal/store"
+	"github.com/jhgaylor/wisp/internal/store"
 )
 
 // newSprite puts a cold sprite in the store and returns it with its runtime, so

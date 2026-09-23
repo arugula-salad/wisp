@@ -12,7 +12,7 @@ import (
 )
 
 func TestGuestAPISurface(t *testing.T) {
-	// Stands in for spritesd's per-sprite channel.
+	// Stands in for wispd's per-sprite channel.
 	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "host saw "+r.Method+" "+r.URL.RequestURI())
 	}))
@@ -67,7 +67,7 @@ func TestGuestAPISurface(t *testing.T) {
 	}
 
 	// So is the event stream about them.
-	if _, body := do(http.MethodGet, "/mini-sprites/v1/events?type=sprite.", ""); body != "host saw GET /mini-sprites/v1/events?type=sprite." {
+	if _, body := do(http.MethodGet, "/wisp/v1/events?type=sprite.", ""); body != "host saw GET /wisp/v1/events?type=sprite." {
 		t.Errorf("events relayed as %q", body)
 	}
 
@@ -75,7 +75,7 @@ func TestGuestAPISurface(t *testing.T) {
 	// checkpoints and sprites reaches the host.
 	for _, path := range []string{"/exec", "/v1/exec", "/healthz", "/fs/read?path=/etc/shadow", "/v1/fs/read?path=/etc/shadow",
 		"/proxy", "/internal/poweroff", "/v1/internal/poweroff", "/services", "/v1/spritesx", "/sprites", "/v1/checkpointsx",
-		"/internal/service-event", "/mini-sprites/v1/webhooks", "/mini-sprites/v1/eventsx"} {
+		"/internal/service-event", "/wisp/v1/webhooks", "/wisp/v1/eventsx"} {
 		for _, method := range []string{http.MethodGet, http.MethodPost} {
 			if code, body := do(method, path, ""); code != http.StatusNotFound || strings.Contains(body, "host saw") {
 				t.Errorf("%s %s: %d %q, want a local 404", method, path, code, body)

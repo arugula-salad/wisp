@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Runs the official JavaScript and Python Sprites SDKs against a running spritesd, so
+# Runs the official JavaScript and Python Sprites SDKs against a running wispd, so
 # "works with the official SDKs" stays a tested claim for more than the Go one.
 #
-#   SPRITES_API_URL=http://127.0.0.1:7788 SPRITE_TOKEN=$(cat ~/.local/share/mini-sprites/token) ./scripts/probe-sdks.sh
+#   SPRITES_API_URL=http://127.0.0.1:7788 SPRITE_TOKEN=$(cat ~/.local/share/wisp/token) ./scripts/probe-sdks.sh
 #
 # Each probe covers exec (sequential, concurrent, exit codes) with control mode off and
 # on, port proxying where the SDK has it, and an exec whose VM is restored out from
 # under it. Needs node, python3 and git; the SDKs are cloned and built under
-# ${XDG_CACHE_HOME:-~/.cache}/mini-sprites/sdks. Exit status is the number of failures.
+# ${XDG_CACHE_HOME:-~/.cache}/wisp/sdks. Exit status is the number of failures.
 set -euo pipefail
 trap 'echo "probe-sdks.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 API="${SPRITES_API_URL:?set SPRITES_API_URL}"
 TOKEN="${SPRITE_TOKEN:?set SPRITE_TOKEN}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/mini-sprites/sdks"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/wisp/sdks"
 mkdir -p "$CACHE"
 
 [ -d "$CACHE/sprites-js" ] || git clone -q --depth 1 https://github.com/superfly/sprites-js.git "$CACHE/sprites-js"

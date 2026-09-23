@@ -16,10 +16,10 @@ import (
 // These tests boot real microVMs. They need /dev/kvm and the artifacts that
 // `make deps image initrd` put in the data directory, and skip otherwise.
 func testHost(t *testing.T) (Host, string) {
-	data := os.Getenv("MINI_SPRITES_DATA")
+	data := os.Getenv("WISP_DATA")
 	if data == "" {
 		home, _ := os.UserHomeDir()
-		data = filepath.Join(home, ".local", "share", "mini-sprites")
+		data = filepath.Join(home, ".local", "share", "wisp")
 	}
 	h := Host{Firecracker: filepath.Join(data, "bin", "firecracker"),
 		Kernel: filepath.Join(data, "kernel", "vmlinux"), Initrd: filepath.Join(data, "initrd.cpio")}

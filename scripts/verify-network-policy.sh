@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Proves network policy on the REAL host, from inside real guests. Run as yourself
-# (no sudo) after:   make netd && sudo ./scripts/setup-host.sh   and a spritesd
+# (no sudo) after:   make netd && sudo ./scripts/setup-host.sh   and a wispd
 # restart with networking on.
 #
 #   ./scripts/verify-network-policy.sh
@@ -14,7 +14,7 @@
 set -uo pipefail
 
 API="${SPRITES_API_URL:-http://127.0.0.1:7788}"
-TOKEN="${SPRITE_TOKEN:-$(cat "${MINI_SPRITES_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/mini-sprites}/token" 2>/dev/null)}"
+TOKEN="${SPRITE_TOKEN:-$(cat "${WISP_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}/token" 2>/dev/null)}"
 [ -n "$TOKEN" ] || { echo "no token: set SPRITE_TOKEN" >&2; exit 2; }
 for tool in curl jq; do command -v "$tool" >/dev/null || { echo "need $tool" >&2; exit 2; }; done
 
@@ -78,13 +78,13 @@ echo "      restricted sprite is $SHUT_IP; $DENIED is at ${DENIED_IP:-?}"
 echo "-- setting a restrictive policy on $SHUT: allow $ALLOWED and *.nip.io"
 code=$(set_policy "$SHUT" "{\"rules\":[{\"domain\":\"$ALLOWED\",\"action\":\"allow\"},{\"domain\":\"*.nip.io\",\"action\":\"allow\"}]}")
 if [ "$code" = 204 ]; then pass "restrictive policy accepted (204)"; else
-  fail "restrictive policy accepted (204)" "HTTP $code $(cat /tmp/vnp-body.$$) -- is mini-sprites-netd running? systemctl status mini-sprites-netd"
+  fail "restrictive policy accepted (204)" "HTTP $code $(cat /tmp/vnp-body.$$) -- is wisp-netd running? systemctl status wisp-netd"
   echo "cannot continue without an enforced policy"; exit 1
 fi
-if command -v nft >/dev/null && nft list set inet mini_sprites restricted4 >/dev/null 2>&1; then
-  if nft list set inet mini_sprites restricted4 | grep -qw "$SHUT_IP"; then pass "kernel set restricted4 contains $SHUT_IP"; else fail "kernel set restricted4 contains $SHUT_IP" "$(nft list set inet mini_sprites restricted4 | tr -d '\n')"; fi
+if command -v nft >/dev/null && nft list set inet wisp restricted4 >/dev/null 2>&1; then
+  if nft list set inet wisp restricted4 | grep -qw "$SHUT_IP"; then pass "kernel set restricted4 contains $SHUT_IP"; else fail "kernel set restricted4 contains $SHUT_IP" "$(nft list set inet wisp restricted4 | tr -d '\n')"; fi
 else
-  skip "kernel set restricted4 contains $SHUT_IP" "nft list needs root; check with: sudo nft list set inet mini_sprites restricted4"
+  skip "kernel set restricted4 contains $SHUT_IP" "nft list needs root; check with: sudo nft list set inet wisp restricted4"
 fi
 
 echo "-- allowed"
@@ -143,5 +143,5 @@ if [ "$got" = '{"rules":[]}' ]; then pass "GET reports the cleared policy"; else
 
 echo
 echo "== $passes passed, $fails failed, $skips skipped"
-echo "   spritesd logs each refusal: grep 'egress denied\|egress dns refused' in its output"
+echo "   wispd logs each refusal: grep 'egress denied\|egress dns refused' in its output"
 exit "$fails"
