@@ -151,6 +151,8 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 
 ## Documentation
 
+[Project website](https://jhgaylor.github.io/wisp/) · [Website preview and publishing](docs/site.md)
+
 | | |
 |---|---|
 | [Host setup](docs/host-setup.md) | Guest networking and the reflink volume: the two optional steps that need root once |

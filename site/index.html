@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Persistent Linux environments on your own hardware. wisp brings a Sprites-compatible API, Firecracker microVMs, and a full browser dashboard to a single host.">
+  <meta name="theme-color" content="#f5f5ef">
+  <meta property="og:title" content="wisp — Small VMs. Your machine.">
+  <meta property="og:description" content="Persistent, hardware-isolated Linux environments that sleep when idle and wake when you need them.">
+  <meta property="og:type" content="website">
+  <title>wisp — Small VMs. Your machine.</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="header wrap">
+  <a class="brand" href="#" aria-label="wisp home"><img src="assets/favicon.svg" width="28" height="28" alt="">wisp<span class="brand-note">a little cloud, at home</span></a>
+  <nav aria-label="Main navigation"><a href="#tour">The dashboard</a><a href="#start">Get started</a><a href="https://github.com/jhgaylor/wisp" class="repo-link">GitHub <span aria-hidden="true">↗</span></a></nav>
+</header>
+<main id="main">
+  <section class="hero wrap">
+    <div class="eyebrow"><span class="status-dot"></span> SELF-HOSTED · FIRECRACKER · SPRITES API</div>
+    <h1>Small VMs.<br><span>Your machine.</span></h1>
+    <div class="hero-bottom"><p>Real Linux environments that remember where you left off.<br class="desktop-break"> Run them on your own hardware. Let them sleep between requests.</p><a class="button primary" href="#start">Run your first sprite <span aria-hidden="true">↗</span></a></div>
+    <div class="hero-screen"><div class="window-bar"><span><i></i><i></i><i></i></span><span>wisp / overview</span><span class="live-label"><b></b> a real host, in view</span></div>
+      <a href="assets/screenshots/overview.webp" class="screenshot-link" data-caption="Overview — state history and activity across 31 sprites on a real host."><img src="assets/screenshots/overview.webp" width="1440" height="1789" alt="The live wisp overview with 31 sprites, host resource totals, state charts, and per-sprite activity lanes." fetchpriority="high"></a>
+    </div>
+    <div class="image-foot"><span>One host. Every sprite. The whole picture.</span><span>Actual dashboard captures · click any image to explore <span aria-hidden="true">↗</span></span></div>
+  </section>
+  <section class="principles wrap" aria-label="Why wisp">
+    <article><span class="number">01 / ISOLATED</span><h2>A real kernel.<br> A space of its own.</h2><p>Each sprite runs in a Firecracker microVM, with hardware isolation and a persistent ext4 disk.</p></article>
+    <article><span class="number">02 / PERSISTENT</span><h2>Step away.<br> Pick up where you left off.</h2><p>Idle sprites suspend with memory intact. The next request wakes them. Even a cold sprite keeps its files.</p></article>
+    <article><span class="number">03 / FAMILIAR</span><h2>Your tools.<br> A new home.</h2><p>Use the official <code>sprite</code> CLI and Go, Python, or JavaScript SDKs. Point them at your host and go.</p></article>
+  </section>
+  <section class="tour" id="tour"><div class="wrap">
+    <div class="section-heading"><div><div class="eyebrow">A LOOK INSIDE</div><h2>Your host, without<br>the guesswork.</h2></div><p>From the big picture to a shell inside a VM.<br>It all ships with the daemon.</p></div>
+    <div class="gallery-controls" hidden><div class="filters" role="group" aria-label="Filter screenshots"><button class="active" data-filter="all" aria-pressed="true">All views</button><button data-filter="fleet" aria-pressed="false">Fleet & host</button><button data-filter="observability" aria-pressed="false">Traffic & ops</button><button data-filter="workspace" aria-pressed="false">Inside a sprite</button></div><span id="gallery-count" role="status"></span></div>
+    <div class="gallery">
+      <figure class="gallery-card" data-category="fleet">
+        <a class="screenshot-link" href="assets/screenshots/resources.webp" data-caption="Resource usage — Follow CPU and memory across the host, then see what each running sprite uses."><img src="assets/screenshots/resources.webp" alt="Resource usage: Follow CPU and memory across the host, then see what each running sprite uses." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">01 / FLEET</span><h3>Resource usage</h3><p>Follow CPU and memory across the host, then see what each running sprite uses.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="fleet">
+        <a class="screenshot-link" href="assets/screenshots/sprites.webp" data-caption="Every sprite, at a glance — Scan state, CPU sparklines, memory, disk, and checkpoints in one table."><img src="assets/screenshots/sprites.webp" alt="Every sprite, at a glance: Scan state, CPU sparklines, memory, disk, and checkpoints in one table." width="1440" height="1608" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">02 / FLEET</span><h3>Every sprite, at a glance</h3><p>Scan state, CPU sparklines, memory, disk, and checkpoints in one table.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="workspace">
+        <a class="screenshot-link" href="assets/screenshots/terminal.webp" data-caption="A shell, right here — Open a terminal inside a microVM. An attached session keeps the sprite awake."><img src="assets/screenshots/terminal.webp" alt="A shell, right here: Open a terminal inside a microVM. An attached session keeps the sprite awake." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">03 / WORKSPACE</span><h3>A shell, right here</h3><p>Open a terminal inside a microVM. An attached session keeps the sprite awake.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="workspace">
+        <a class="screenshot-link" href="assets/screenshots/sprite.webp" data-caption="Zoom in on a workspace — Inspect one sprite’s resources, state, URL, and recent activity."><img src="assets/screenshots/sprite.webp" alt="Zoom in on a workspace: Inspect one sprite’s resources, state, URL, and recent activity." width="1440" height="1172" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">04 / WORKSPACE</span><h3>Zoom in on a workspace</h3><p>Inspect one sprite’s resources, state, URL, and recent activity.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="observability">
+        <a class="screenshot-link" href="assets/screenshots/traffic.webp" data-caption="See who is stopping by — Track visitors, page views, requests, and errors for your sprite URLs."><img src="assets/screenshots/traffic.webp" alt="See who is stopping by: Track visitors, page views, requests, and errors for your sprite URLs." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">05 / OBSERVABILITY</span><h3>See who is stopping by</h3><p>Track visitors, page views, requests, and errors for your sprite URLs.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="observability">
+        <a class="screenshot-link" href="assets/screenshots/ops.webp" data-caption="Go beyond request counts — Watch throughput, latency percentiles, and a latency heatmap over time."><img src="assets/screenshots/ops.webp" alt="Go beyond request counts: Watch throughput, latency percentiles, and a latency heatmap over time." width="1440" height="1013" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">06 / OBSERVABILITY</span><h3>Go beyond request counts</h3><p>Watch throughput, latency percentiles, and a latency heatmap over time.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="fleet">
+        <a class="screenshot-link" href="assets/screenshots/disk.webp" data-caption="Know where the disk goes — See disk usage by sprite, including exclusive data and shared clone extents."><img src="assets/screenshots/disk.webp" alt="Know where the disk goes: See disk usage by sprite, including exclusive data and shared clone extents." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">07 / FLEET</span><h3>Know where the disk goes</h3><p>See disk usage by sprite, including exclusive data and shared clone extents.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="fleet">
+        <a class="screenshot-link" href="assets/screenshots/host.webp" data-caption="Keep an eye on the host — Watch memory, load, and volume usage on the machine behind your sprites."><img src="assets/screenshots/host.webp" alt="Keep an eye on the host: Watch memory, load, and volume usage on the machine behind your sprites." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">08 / FLEET</span><h3>Keep an eye on the host</h3><p>Watch memory, load, and volume usage on the machine behind your sprites.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="workspace">
+        <a class="screenshot-link" href="assets/screenshots/checkpoints.webp" data-caption="Keep a point to come back to — Create, restore, and clone disk checkpoints from a sprite’s own page."><img src="assets/screenshots/checkpoints.webp" alt="Keep a point to come back to: Create, restore, and clone disk checkpoints from a sprite’s own page." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">09 / WORKSPACE</span><h3>Keep a point to come back to</h3><p>Create, restore, and clone disk checkpoints from a sprite’s own page.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="observability">
+        <a class="screenshot-link" href="assets/screenshots/routes.webp" data-caption="Find the expensive routes — Compare request counts, errors, and latency by API route or sprite URL path."><img src="assets/screenshots/routes.webp" alt="Find the expensive routes: Compare request counts, errors, and latency by API route or sprite URL path." width="1440" height="2033" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">10 / OBSERVABILITY</span><h3>Find the expensive routes</h3><p>Compare request counts, errors, and latency by API route or sprite URL path.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="observability">
+        <a class="screenshot-link" href="assets/screenshots/requests.webp" data-caption="Follow the requests — Inspect the live request tail and the slowest requests in the selected window."><img src="assets/screenshots/requests.webp" alt="Follow the requests: Inspect the live request tail and the slowest requests in the selected window." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">11 / OBSERVABILITY</span><h3>Follow the requests</h3><p>Inspect the live request tail and the slowest requests in the selected window.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="observability">
+        <a class="screenshot-link" href="assets/screenshots/traffic-pages.webp" data-caption="Know what gets visited — Break down traffic by page and by sprite, with visitors, views, and errors."><img src="assets/screenshots/traffic-pages.webp" alt="Know what gets visited: Break down traffic by page and by sprite, with visitors, views, and errors." width="1440" height="1621" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">12 / OBSERVABILITY</span><h3>Know what gets visited</h3><p>Break down traffic by page and by sprite, with visitors, views, and errors.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="observability">
+        <a class="screenshot-link" href="assets/screenshots/traffic-sources.webp" data-caption="Understand your visitors — Explore referrers and the mix of browsers, bots, and tools reaching your apps."><img src="assets/screenshots/traffic-sources.webp" alt="Understand your visitors: Explore referrers and the mix of browsers, bots, and tools reaching your apps." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">13 / OBSERVABILITY</span><h3>Understand your visitors</h3><p>Explore referrers and the mix of browsers, bots, and tools reaching your apps.</p></figcaption>
+      </figure>
+      <figure class="gallery-card" data-category="workspace">
+        <a class="screenshot-link" href="assets/screenshots/policies.webp" data-caption="Set the boundaries — Inspect and edit network, privilege, resource, and spawn policies as JSON."><img src="assets/screenshots/policies.webp" alt="Set the boundaries: Inspect and edit network, privilege, resource, and spawn policies as JSON." width="1440" height="1000" loading="lazy" decoding="async"><span class="expand" aria-hidden="true">↗</span></a>
+        <figcaption><span class="number">14 / WORKSPACE</span><h3>Set the boundaries</h3><p>Inspect and edit network, privilege, resource, and spawn policies as JSON.</p></figcaption>
+      </figure>
+    </div>
+  </div></section>
+  <section class="lifecycle wrap">
+    <div class="section-heading"><div><div class="eyebrow">WORK. REST. REPEAT.</div><h2>Quiet when you’re away.<br>Ready when you’re back.</h2></div><a class="text-link" href="https://github.com/jhgaylor/wisp/blob/main/docs/lifecycle.md">How the lifecycle works ↗</a></div>
+    <div class="states"><article><span class="state-label running"><i></i> RUNNING</span><h3>Doing the work.</h3><p>A Firecracker process runs your Linux environment. Requests and active sessions keep it awake.</p><span class="state-note">After 30 seconds idle →</span></article><article><span class="state-label warm"><i></i> WARM</span><h3>Holding your place.</h3><p>Memory is saved to disk. Processes freeze, then resume when the next request arrives.</p><span class="state-note">After the warm TTL (default: 1 hour) →</span></article><article><span class="state-label cold"><i></i> COLD</span><h3>Keeping your files.</h3><p>Only the disk remains. The next request boots a fresh VM with your filesystem intact.</p><span class="state-note">A request wakes it up ↗</span></article></div>
+  </section>
+  <section class="start" id="start"><div class="wrap start-grid"><div><div class="eyebrow">BRING YOUR OWN HARDWARE</div><h2>Your little cloud<br>starts here.</h2><p>You’ll need Linux, read/write access to <code>/dev/kvm</code>, Go, and rootless Podman.</p><p>The daemon runs as your user. Guest networking is an optional host setup step.</p><a class="text-link" href="https://github.com/jhgaylor/wisp/blob/main/docs/host-setup.md">Read the host setup guide ↗</a></div><div class="code-panel"><div class="code-heading"><span>01 / INSTALL & START</span><button class="copy" data-copy="install" hidden>Copy</button></div><pre><code id="install">git clone https://github.com/jhgaylor/wisp
+cd wisp
+make deps image
+make install-service</code></pre><div class="code-heading"><span>02 / CONNECT YOUR CLI</span><button class="copy" data-copy="connect" hidden>Copy</button></div><pre><code id="connect">export SPRITES_API_URL=http://127.0.0.1:7788
+export SPRITE_TOKEN=$(cat ~/.local/share/wisp/token)
+
+sprite create dev
+sprite exec -s dev -- uname -a</code></pre><p class="code-note">Already have the official sprite CLI? You’re ready.<br>Or connect with the <a href="https://github.com/jhgaylor/wisp#with-an-official-sdk">Python, JavaScript, or Go SDK</a>.</p><div class="open-browser"><span>03 / OPEN YOUR DASHBOARD</span><code>http://127.0.0.1:7788</code><p>Paste the token from <code>~/.local/share/wisp/token</code>.</p></div><span id="copy-status" class="sr-only" role="status"></span></div></div></section>
+  <section class="docs wrap" id="docs"><div class="section-heading"><div><div class="eyebrow">GO A LITTLE DEEPER</div><h2>Make it your own.</h2></div><p>The details, tradeoffs, and operating instructions.</p></div><div class="doc-grid">
+    <a href="https://github.com/jhgaylor/wisp/blob/main/docs/operations.md"><span>01</span><h3>Operate your host ↗</h3><p>Services, reboots, resource limits, and disk pressure.</p></a>
+    <a href="https://github.com/jhgaylor/wisp/blob/main/docs/public-urls.md"><span>02</span><h3>Put an app online ↗</h3><p>Sprite URLs, custom domains, and automatic certificates.</p></a>
+    <a href="https://github.com/jhgaylor/wisp/blob/main/docs/images.md"><span>03</span><h3>Bring a container image ↗</h3><p>Create a sprite from your preferred image and userland.</p></a>
+    <a href="https://github.com/jhgaylor/wisp/blob/main/docs/backups.md"><span>04</span><h3>Back up your sprites ↗</h3><p>Incremental backups to S3-compatible storage and host recovery.</p></a>
+    <a href="https://github.com/jhgaylor/wisp/blob/main/docs/security.md"><span>05</span><h3>Understand the boundaries ↗</h3><p>Network policy, process confinement, and security limitations.</p></a>
+    <a href="https://github.com/jhgaylor/wisp/blob/main/docs/differences.md"><span>06</span><h3>Compare API behavior ↗</h3><p>Deliberate differences from the hosted Sprites product.</p></a>
+  </div></section>
+</main>
+<footer class="wrap"><div><a class="brand" href="#"><img src="assets/favicon.svg" width="24" height="24" alt="">wisp</a><p>A single host. A lot of possibilities.</p></div><div><a href="https://github.com/jhgaylor/wisp">Source on GitHub ↗</a><p>An independent, unofficial project. Not affiliated with or endorsed by Fly.io.<br>Sprites is a Fly.io product; wisp implements a compatible API.</p></div></footer>
+<dialog id="lightbox" aria-labelledby="lightbox-caption"><div class="lightbox-bar"><p id="lightbox-caption"></p><button id="close-lightbox" aria-label="Close screenshot">Close ×</button></div><div class="lightbox-image"><img id="lightbox-img" alt=""></div><a id="original-image" href="#" target="_blank" rel="noopener">Open full-size image ↗</a></dialog>
+</body>
+</html>
