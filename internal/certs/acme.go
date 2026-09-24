@@ -40,6 +40,10 @@ type Manager struct {
 	DirectoryURL string
 	DNS          DNSProvider
 	Log          *slog.Logger
+	// Subdir, if set, keeps the pair in a directory of its own beneath the
+	// CA's, sharing its account: how a second URL domain gets its wildcard
+	// without moving the first one's pair.
+	Subdir string
 
 	// HTTPClient and WaitDNS are for tests against a local CA.
 	HTTPClient *http.Client
@@ -58,8 +62,8 @@ func caDir(dir, directoryURL string) string {
 	return filepath.Join(dir, host)
 }
 
-func (m *Manager) CertFile() string { return filepath.Join(m.dir(), "cert.pem") }
-func (m *Manager) KeyFile() string  { return filepath.Join(m.dir(), "key.pem") }
+func (m *Manager) CertFile() string { return filepath.Join(m.dir(), m.Subdir, "cert.pem") }
+func (m *Manager) KeyFile() string  { return filepath.Join(m.dir(), m.Subdir, "key.pem") }
 
 func (m *Manager) wildcard() string { return "*." + m.Domain }
 
@@ -171,6 +175,9 @@ func (m *Manager) obtain(ctx context.Context) error {
 		if err := m.authorize(ctx, cl, authzURL); err != nil {
 			return err
 		}
+	}
+	if err := os.MkdirAll(filepath.Dir(m.CertFile()), 0o700); err != nil {
+		return err
 	}
 	return finish(ctx, cl, order.URI, m.wildcard(), m.CertFile(), m.KeyFile())
 }

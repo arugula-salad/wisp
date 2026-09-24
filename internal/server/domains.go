@@ -209,8 +209,8 @@ func (s *Server) validDomain(d string) error {
 	if d == "localhost" || strings.HasSuffix(d, ".localhost") {
 		return errors.New("no CA issues certificates for localhost")
 	}
-	if d == s.urlDomain || strings.HasSuffix(d, "."+s.urlDomain) {
-		return fmt.Errorf("names under %s are already sprite URLs", s.urlDomain)
+	if domain, ok := s.underURLDomain(d); ok {
+		return fmt.Errorf("names under %s are already sprite URLs", domain)
 	}
 	return nil
 }
@@ -226,7 +226,11 @@ func (s *Server) checkDomainDNS(ctx context.Context, domain string) error {
 	if !ok {
 		return errors.New("not attached to any sprite")
 	}
-	target := name + "." + s.urlDomain
+	sp, err := s.store.Get(name)
+	if err != nil {
+		return errors.New("not attached to any sprite")
+	}
+	target := name + "." + s.urlDomainOf(sp)
 	got, err := resolveAddrs(ctx, s.domains.cfg.Resolver, domain)
 	if err != nil {
 		return err

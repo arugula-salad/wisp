@@ -66,7 +66,7 @@ func restart(t *testing.T, s *Server) (*Server, http.Handler) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	again := New(s.opts, st, NewLifecycle(s.opts, st, log), log, "tok", "acme", "sprites.localhost", "0")
+	again := New(s.opts, st, NewLifecycle(s.opts, st, log), log, "tok", "acme", []string{"sprites.localhost"}, "0")
 	return again, again.Handler()
 }
 

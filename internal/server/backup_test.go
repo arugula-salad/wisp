@@ -35,7 +35,7 @@ func newBackupServer(t *testing.T, labels ...string) (*Server, store.Sprite, *s3
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	opts := Options{NoNetwork: true, Backup: BackupOptions{
 		Endpoint: srv.URL, Bucket: "buck", Region: "home-cloud", Parallel: 4}}
-	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "org", "sprites.localhost", "0")
+	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "org", []string{"sprites.localhost"}, "0")
 	if s.backups == nil {
 		t.Fatal("backups should be enabled")
 	}
@@ -257,7 +257,7 @@ func TestABucketThatIsDownAtStartupIsReportedAndRetried(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	opts := Options{NoNetwork: true, Backup: BackupOptions{Endpoint: srv.URL, Bucket: "buck", Region: "home-cloud"}}
-	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "org", "sprites.localhost", "0")
+	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "org", []string{"sprites.localhost"}, "0")
 
 	s.backups.Enqueue(*sp, "suspend")
 	if got := waitBackup(t, s, sp.ID); got.Phase != "error" || !strings.Contains(got.Error, "Service Unavailable") || got.LastAt != nil {
@@ -286,7 +286,7 @@ func TestRecoveryPointsSurviveARestart(t *testing.T) {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	opts := Options{NoNetwork: true, Backup: BackupOptions{Endpoint: srv.URL, Bucket: "buck", Region: "home-cloud"}}
-	again := New(opts, s.store, NewLifecycle(opts, s.store, log), log, "tok", "org", "sprites.localhost", "0")
+	again := New(opts, s.store, NewLifecycle(opts, s.store, log), log, "tok", "org", []string{"sprites.localhost"}, "0")
 	if _, err := again.backups.repository(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestRenderOmitsBackupWhenNoBucketIsConfigured(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	opts := Options{NoNetwork: true}
-	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "org", "sprites.localhost", "0")
+	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "org", []string{"sprites.localhost"}, "0")
 	if s.backups != nil {
 		t.Fatal("backups should be off without a bucket")
 	}

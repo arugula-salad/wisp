@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -88,7 +89,7 @@ func main() {
 	mem := flag.Int("mem-mib", 2048, "default guest RAM per sprite (MiB); a warm snapshot takes what the guest was using, up to this")
 	fpr := flag.Bool("free-page-reporting", true, "guests hand freed memory back to the host while they run (balloon free page reporting); memory a guest frees and then touches again is re-faulted, ~2 s/GiB. Takes effect at each sprite's next cold boot")
 	dns := flag.String("dns", "1.1.1.1,8.8.8.8", "nameservers handed to guests")
-	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are <name>.<url-domain>; to serve them beyond this machine, point a wildcard DNS record here and see --public-listen")
+	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are <name>.<url-domain>; to serve them beyond this machine, point a wildcard DNS record here and see --public-listen. A comma-separated list serves several: each sprite is under one of them (url_domain when it is created, its parent's when a sprite makes it), and the first is the default")
 	control := flag.Bool("control", true, "serve the multiplexed /control channel; --control=false makes every SDK fall back to per-operation WebSockets")
 	controlGo := flag.Bool("control-for-go-sdk", false, "also offer /control to the official Go SDK (by default it is answered 404 there and falls back to per-operation WebSockets, because its ProxyPorts races on a control socket)")
 	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one wispd per host may own it, so run extra dev/test instances with --net=false")
@@ -214,22 +215,26 @@ func main() {
 	}
 	life := server.NewLifecycle(opts, st, log)
 
+	urlDomains, err := parseURLDomains(*urlDomain)
+	if err != nil {
+		fatal(log, err)
+	}
 	_, port, _ := net.SplitHostPort(*listen)
-	urlFmt := "http://%s." + *urlDomain + ":" + port
+	urlFmt := "http://%s.%s:" + port
 	if *publicListen != "" {
-		urlFmt = "https://%s." + *urlDomain
+		urlFmt = "https://%s.%s"
 		if *publicPort != 443 {
 			urlFmt += fmt.Sprintf(":%d", *publicPort)
 		}
 	}
-	api := server.New(opts, st, life, log, token, *org, *urlDomain, urlFmt)
+	api := server.New(opts, st, life, log, token, *org, urlDomains, urlFmt)
 	api.StartMetrics()
 	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
 	srv.RegisterOnShutdown(api.CloseEvents) // event streams never finish on their own
 
 	var public *http.Server
 	if *publicListen != "" {
-		cs, err := publicCerts(abs, *urlDomain, *tlsCert, *tlsKey, *acmeEmail, *acmeDir, log)
+		getCert, err := publicCerts(abs, urlDomains, *tlsCert, *tlsKey, *acmeEmail, *acmeDir, log)
 		if err != nil {
 			fatal(log, err)
 		}
@@ -237,7 +242,6 @@ func main() {
 		if err != nil {
 			fatal(log, err)
 		}
-		getCert := cs.GetCertificate
 		if *domainsOn {
 			getCert = api.EnableCustomDomains(context.Background(), server.DomainConfig{
 				ACMEDir: filepath.Join(abs, "acme"), DirectoryURL: *acmeDir, Email: *acmeEmail,
@@ -246,7 +250,7 @@ func main() {
 		}
 		public = server.NewPublicServer(api.PublicHandler(), getCert)
 		go func() {
-			log.Info("serving sprite URLs to the public", "addr", *publicListen, "urls", fmt.Sprintf(urlFmt, "<name>"))
+			log.Info("serving sprite URLs to the public", "addr", *publicListen, "urls", fmt.Sprintf(urlFmt, "<name>", strings.Join(urlDomains, "|")))
 			err := public.ServeTLS(server.LimitListener(ln, *publicConns, *publicConnsPer), "", "")
 			if !errors.Is(err, http.ErrServerClosed) {
 				fatal(log, err)
@@ -277,18 +281,46 @@ func main() {
 	life.Shutdown()
 }
 
+// parseURLDomains reads --url-domain: one domain, or several separated by commas.
+func parseURLDomains(flagValue string) ([]string, error) {
+	var domains []string
+	for _, d := range strings.Split(flagValue, ",") {
+		d = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
+		if d == "" {
+			continue
+		}
+		for _, have := range domains {
+			if d == have || strings.HasSuffix(d, "."+have) || strings.HasSuffix(have, "."+d) {
+				return nil, fmt.Errorf("--url-domain: %s and %s overlap", have, d)
+			}
+		}
+		domains = append(domains, d)
+	}
+	if len(domains) == 0 {
+		return nil, errors.New("--url-domain is empty")
+	}
+	return domains, nil
+}
+
 // publicCerts is the certificate source for the public listener: the operator's
-// own PEM pair, or else one we keep current ourselves over ACME.
-func publicCerts(data, domain, certFile, keyFile, email, directory string, log *slog.Logger) (*certs.Store, error) {
+// own PEM pair (one domain only), or else a wildcard per URL domain that we keep
+// current ourselves over ACME, chosen by the name the client asks for. The first
+// domain's pair stays where it always was.
+func publicCerts(data string, domains []string, certFile, keyFile, email, directory string, log *slog.Logger) (func(*tls.ClientHelloInfo) (*tls.Certificate, error), error) {
 	if (certFile == "") != (keyFile == "") {
 		return nil, errors.New("--tls-cert and --tls-key go together")
 	}
 	if certFile != "" {
+		if len(domains) > 1 {
+			return nil, errors.New("--tls-cert covers one --url-domain; leave it out to have a certificate kept for each")
+		}
 		cs := certs.NewStore(certFile, keyFile, log)
-		return cs, cs.Load()
+		return cs.GetCertificate, cs.Load()
 	}
-	if domain == "localhost" || strings.HasSuffix(domain, ".localhost") {
-		return nil, fmt.Errorf("--public-listen needs --url-domain set to a domain you control, not %s", domain)
+	for _, domain := range domains {
+		if domain == "localhost" || strings.HasSuffix(domain, ".localhost") {
+			return nil, fmt.Errorf("--public-listen needs --url-domain set to domains you control, not %s", domain)
+		}
 	}
 	cfToken := os.Getenv("CLOUDFLARE_API_TOKEN")
 	if b, err := os.ReadFile(filepath.Join(data, "cloudflare-token")); cfToken == "" && err == nil {
@@ -297,11 +329,25 @@ func publicCerts(data, domain, certFile, keyFile, email, directory string, log *
 	if cfToken == "" {
 		return nil, fmt.Errorf("--public-listen needs a certificate: pass --tls-cert and --tls-key, or put a Cloudflare API token in $CLOUDFLARE_API_TOKEN or %s", filepath.Join(data, "cloudflare-token"))
 	}
-	mgr := &certs.Manager{Domain: domain, Email: email, Dir: filepath.Join(data, "acme"), DirectoryURL: directory,
-		DNS: &certs.Cloudflare{Token: cfToken}, Log: log}
-	cs := certs.NewStore(mgr.CertFile(), mgr.KeyFile(), log)
-	go mgr.Run(context.Background(), cs)
-	return cs, nil
+	stores := make([]*certs.Store, len(domains))
+	for i, domain := range domains {
+		mgr := &certs.Manager{Domain: domain, Email: email, Dir: filepath.Join(data, "acme"), DirectoryURL: directory,
+			DNS: &certs.Cloudflare{Token: cfToken}, Log: log}
+		if i > 0 {
+			mgr.Subdir = filepath.Join("url-domains", domain)
+		}
+		stores[i] = certs.NewStore(mgr.CertFile(), mgr.KeyFile(), log)
+		go mgr.Run(context.Background(), stores[i])
+	}
+	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		name := strings.TrimSuffix(strings.ToLower(hello.ServerName), ".")
+		for i, domain := range domains {
+			if name == domain || strings.HasSuffix(name, "."+domain) {
+				return stores[i].GetCertificate(hello)
+			}
+		}
+		return stores[0].GetCertificate(hello) // no SNI, or a name we do not serve: as before
+	}, nil
 }
 
 // cgroupTag derives a stable, filesystem-safe suffix from the data directory,

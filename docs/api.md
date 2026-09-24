@@ -6,6 +6,8 @@
   the source's config and policies. With a reflink volume the clone is instant.
   Also ours: `"from": {"image": "node:22"}` starts it from a container image, pulled with
   rootless podman and cached as a disk; see [sprites from container images](images.md).
+  Also ours: `"url_domain"` on create picks which of `--url-domain`'s domains the sprite's URL
+  is under, and a sprite made from inside gets its parent's; see [several URL domains](public-urls.md#several-url-domains).
 - **Exec**: WebSocket TTY/non-TTY, detach/reattach with output replay,
   `max_run_after_disconnect`, signals, session list, kill, and HTTP POST exec in upstream's
   frame format.

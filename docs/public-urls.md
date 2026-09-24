@@ -48,6 +48,24 @@ the same listener as the API. To put the URLs on the internet without putting th
 - Not handled: updating the A record when a dynamic IP changes, and a port-80 redirect (a
   reverse proxy in front can do the redirect).
 
+## Several URL domains
+
+`--url-domain` takes a comma-separated list, such as `widgets.wtf,arugula.io`. The first is
+the default. Each sprite is under exactly one of them:
+
+- `POST /v1/sprites` takes `"url_domain"`, which must be one of the list; without it the
+  sprite gets the first. A sprite made from inside (a spawner's child) always gets its
+  parent's, whatever it asks for, so a studio on one domain makes its apps on that domain.
+- The API reports it as `url_domain`, next to `url`. A sprite answers only under its own
+  domain: `app-1.arugula.io` is not `app-1.widgets.wtf`'s URL.
+- Each domain gets its own wildcard certificate (DNS-01 through the same Cloudflare token,
+  which needs the extra zone). The first stays in `<data>/acme/<ca>/`; the others are in
+  `<data>/acme/<ca>/url-domains/<domain>/`, and the listener picks one by SNI.
+  `--tls-cert/--tls-key` cover a single domain only.
+- Every domain needs its own wildcard DNS record (and passthrough, behind a proxy), exactly
+  like the first. Sprites made before there were several have no `url_domain` stored and are
+  under the first, so put the domain you already use first.
+
 ## Custom domains
 
 Ours, not upstream's. A sprite can also answer at names you choose, such as

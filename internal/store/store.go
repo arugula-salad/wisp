@@ -90,6 +90,11 @@ type Sprite struct {
 	Privileges *PrivilegesPolicy `json:"privileges_policy,omitempty"`
 	Resources  *ResourcesPolicy  `json:"resources_policy,omitempty"`
 
+	// URLDomain is the domain this sprite's URL is under (<name>.<URLDomain>),
+	// one of wispd's --url-domain list. Empty is the first of them, which is
+	// what every sprite made before there could be several has.
+	URLDomain string `json:"url_domain,omitempty"`
+
 	// ParentID is the sprite that created this one from inside. An ID rather than
 	// a name, because names are reusable after a delete.
 	ParentID string `json:"parent_id,omitempty"`

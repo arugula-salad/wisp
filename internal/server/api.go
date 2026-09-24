@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,16 +38,18 @@ type Server struct {
 	log    *slog.Logger
 	token  string
 	org    string
-	urlFmt string // fmt pattern taking the sprite name
+	urlFmt string // fmt pattern taking the sprite name, then its URL domain
 
-	urlDomain string // sprite URLs are <name>.<urlDomain>
-	storage   *storage
-	images    *imageCache    // disks built from container images (images.go)
-	backups   *backupManager // nil when no backup bucket is configured
-	metrics   *metrics       // history for the web UI (ui.go)
-	httpStats *httpStats     // request counts and latency for the web UI (httpstats.go)
-	webhooks  []*webhook     // webhooks.go
-	leases    *leases        // expiring workspaces (leases.go)
+	// urlDomains are the domains sprite URLs are under, <name>.<domain>; the
+	// first is the default. A sprite answers only under its own (urlDomainOf).
+	urlDomains []string
+	storage    *storage
+	images     *imageCache    // disks built from container images (images.go)
+	backups    *backupManager // nil when no backup bucket is configured
+	metrics    *metrics       // history for the web UI (ui.go)
+	httpStats  *httpStats     // request counts and latency for the web UI (httpstats.go)
+	webhooks   []*webhook     // webhooks.go
+	leases     *leases        // expiring workspaces (leases.go)
 	// guestEvents limits the events a guest may report about itself (guestevents.go).
 	guestEvents *rateLimiter
 	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
@@ -56,9 +59,10 @@ type Server struct {
 
 // New takes urlFmt, the pattern for the URL a sprite is reported to have: where
 // clients reach it, which only the operator knows once a router is involved.
-func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org, urlDomain, urlFmt string) *Server {
+// It is given the sprite's name and then its URL domain, one of urlDomains.
+func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org string, urlDomains []string, urlFmt string) *Server {
 	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
-		urlDomain: urlDomain, urlFmt: urlFmt, started: time.Now()}
+		urlDomains: urlDomains, urlFmt: urlFmt, started: time.Now()}
 	life.guestAPI = s.guestAPI
 	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
 	if s.storage.reflink {
@@ -185,19 +189,21 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 }
 
 type spriteJSON struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Organization  string            `json:"organization"`
-	Status        string            `json:"status"`
-	Config        store.Config      `json:"config"`
-	Environment   map[string]string `json:"environment,omitempty"`
-	URL           string            `json:"url"`
-	URLSettings   store.URLSettings `json:"url_settings"`
-	Labels        []string          `json:"labels,omitempty"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	LastRunningAt *time.Time        `json:"last_running_at,omitempty"`
-	LastWarmingAt *time.Time        `json:"last_warming_at,omitempty"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Organization string            `json:"organization"`
+	Status       string            `json:"status"`
+	Config       store.Config      `json:"config"`
+	Environment  map[string]string `json:"environment,omitempty"`
+	URL          string            `json:"url"`
+	URLSettings  store.URLSettings `json:"url_settings"`
+	// URLDomain is ours: the domain URL is under.
+	URLDomain     string     `json:"url_domain"`
+	Labels        []string   `json:"labels,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	LastRunningAt *time.Time `json:"last_running_at,omitempty"`
+	LastWarmingAt *time.Time `json:"last_warming_at,omitempty"`
 	// ParentID is ours: the sprite that created this one from inside.
 	ParentID string `json:"parent_id,omitempty"`
 	// SourceImage is ours: the container image the sprite was created from.
@@ -215,8 +221,8 @@ type spriteJSON struct {
 func (s *Server) render(sp store.Sprite) spriteJSON {
 	return spriteJSON{
 		ID: sp.ID, Name: sp.Name, Organization: s.org, Status: s.life.Status(sp),
-		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name),
-		URLSettings: sp.URLSettings, Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
+		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name, s.urlDomainOf(sp)),
+		URLSettings: sp.URLSettings, URLDomain: s.urlDomainOf(sp), Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
 		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, ParentID: sp.ParentID,
 		SourceImage: sp.Image, Backup: s.backups.State(sp.ID),
 		ExpiresAt: sp.ExpiresAt, Protected: sp.Protected,
@@ -245,6 +251,9 @@ type createRequest struct {
 	// From starts the sprite as a clone of a checkpoint, or from a container
 	// image, instead of the base image.
 	From *cloneFrom `json:"from"`
+	// URLDomain, ours, is which of the --url-domain list its URL is under;
+	// empty is the first. A sprite made from inside always gets its parent's.
+	URLDomain string `json:"url_domain"`
 	// The workspace lease, ours (leases.go); no lease without one of its fields.
 	leaseRequest
 }
@@ -294,6 +303,19 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		URLSettings: store.URLSettings{Auth: "sprite"}, CreatedAt: now, UpdatedAt: now}
 	if req.URLSettings != nil && req.URLSettings.Auth != "" {
 		sp.URLSettings = *req.URLSettings
+	}
+	switch {
+	case parent != nil:
+		// Like its network policy, a child's URL domain is its parent's: a
+		// studio on one domain makes apps on that domain, whatever it asks for.
+		sp.URLDomain = parent.URLDomain
+	case req.URLDomain != "":
+		d := strings.TrimSuffix(strings.ToLower(req.URLDomain), ".")
+		if !slices.Contains(s.urlDomains, d) {
+			writeErr(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("url_domain must be one of %s", strings.Join(s.urlDomains, ", ")))
+			return
+		}
+		sp.URLDomain = d
 	}
 	if msg := req.apply(sp, now); msg != "" {
 		writeErr(w, http.StatusBadRequest, "bad_request", msg)

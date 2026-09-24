@@ -9,10 +9,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jhgaylor/wisp/internal/store"
 	"github.com/jhgaylor/wisp/internal/vmm"
 )
 
@@ -123,16 +125,44 @@ func dialWhenReady(ctx context.Context, wait time.Duration, dial func(context.Co
 }
 
 // spriteForHost maps "<name>.<url-domain>[:port]", or a custom domain attached
-// to a sprite (domains.go), to a sprite name.
+// to a sprite (domains.go), to a sprite name. A sprite answers only under its
+// own URL domain: app-1.example.com is not app-1.widgets.test's URL.
 func (s *Server) spriteForHost(host string) (string, bool) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
-	if name, ok := strings.CutSuffix(host, "."+s.urlDomain); ok {
-		return name, name != "" && !strings.Contains(name, ".")
+	for _, domain := range s.urlDomains {
+		if name, ok := strings.CutSuffix(host, "."+domain); ok {
+			if name == "" || strings.Contains(name, ".") {
+				return "", false
+			}
+			if sp, err := s.store.Get(name); err == nil && s.urlDomainOf(sp) != domain {
+				return "", false
+			}
+			return name, true
+		}
 	}
 	return s.store.DomainOwner(host)
+}
+
+// urlDomainOf is the domain sp's URL is under. A sprite whose domain is no
+// longer served (dropped from --url-domain) falls back to the default.
+func (s *Server) urlDomainOf(sp store.Sprite) string {
+	if sp.URLDomain != "" && slices.Contains(s.urlDomains, sp.URLDomain) {
+		return sp.URLDomain
+	}
+	return s.urlDomains[0]
+}
+
+// underURLDomain reports the URL domain d is, or is under, if any.
+func (s *Server) underURLDomain(d string) (string, bool) {
+	for _, domain := range s.urlDomains {
+		if d == domain || strings.HasSuffix(d, "."+domain) {
+			return domain, true
+		}
+	}
+	return "", false
 }
 
 // spriteURLProxy is the reverse proxy behind a sprite's URL. dial is how the
