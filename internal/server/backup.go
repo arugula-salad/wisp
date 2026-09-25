@@ -78,7 +78,7 @@ func newBackupManager(s *Server, cfg backup.Config) *backupManager {
 	go func() {
 		m.repository(context.Background())
 		if s.opts.Backup.Interval > 0 {
-			m.periodic()
+			s.life.every(m.periodTick(), m.periodic)
 		}
 	}()
 	return m
@@ -396,50 +396,51 @@ func (m *backupManager) capture(ctx context.Context, sp store.Sprite) (*capture,
 
 // periodic keeps a long-running sprite's recovery point from drifting, and is the
 // retry for everything else: a backup that failed, one that was deferred, and one
-// that was queued when wispd shut down.
+// that was queued when wispd shut down. One pass runs every periodTick.
 func (m *backupManager) periodic() {
-	every := m.srv.opts.Backup.Interval
-	tick := min(max(every/10, time.Second), 5*time.Minute)
-	for range time.Tick(tick) {
-		if _, err := m.repository(context.Background()); err != nil {
-			continue // State reports it; there is nothing to upload to
+	every, tick := m.srv.opts.Backup.Interval, m.periodTick()
+	if _, err := m.repository(context.Background()); err != nil {
+		return // State reports it; there is nothing to upload to
+	}
+	for _, sp := range m.srv.store.List("") {
+		if slices.Contains(sp.Labels, NoBackupLabel) {
+			continue
 		}
-		for _, sp := range m.srv.store.List("") {
-			if slices.Contains(sp.Labels, NoBackupLabel) {
-				continue
-			}
-			st := m.State(sp.ID)
-			if st.Phase == "queued" || st.Phase == "running" {
-				continue
-			}
-			// Back off while it keeps failing, up to the interval itself.
-			if wait := min(tick<<min(st.Failures, 8), every); st.Failures > 0 && time.Since(st.lastAttempt) < wait {
-				continue
-			}
-			// Without reflinks there is nothing consistent to read until it stops, and
-			// its suspend will ask for a backup itself.
-			running := m.srv.life.Status(sp) == "running"
-			if running && !m.srv.storage.reflink {
-				continue
-			}
-			if st.LastAt == nil {
-				m.Enqueue(sp, "first")
-				continue
-			}
-			// Only if something actually changed since that backup.
-			disk, err := os.Stat(filepath.Join(m.srv.store.Dir(sp.ID), vmm.DiskFile))
-			if err != nil || !disk.ModTime().After(*st.LastAt) {
-				continue
-			}
-			if !running {
-				// A stopped sprite whose disk is newer than its recovery point is a
-				// backup that was missed, whatever the reason.
-				m.Enqueue(sp, "catch-up")
-			} else if time.Since(*st.LastAt) >= every {
-				m.Enqueue(sp, "periodic")
-			}
+		st := m.State(sp.ID)
+		if st.Phase == "queued" || st.Phase == "running" {
+			continue
+		}
+		// Back off while it keeps failing, up to the interval itself.
+		if wait := min(tick<<min(st.Failures, 8), every); st.Failures > 0 && time.Since(st.lastAttempt) < wait {
+			continue
+		}
+		// Without reflinks there is nothing consistent to read until it stops, and
+		// its suspend will ask for a backup itself.
+		running := m.srv.life.Status(sp) == "running"
+		if running && !m.srv.storage.reflink {
+			continue
+		}
+		if st.LastAt == nil {
+			m.Enqueue(sp, "first")
+			continue
+		}
+		// Only if something actually changed since that backup.
+		disk, err := os.Stat(filepath.Join(m.srv.store.Dir(sp.ID), vmm.DiskFile))
+		if err != nil || !disk.ModTime().After(*st.LastAt) {
+			continue
+		}
+		if !running {
+			// A stopped sprite whose disk is newer than its recovery point is a
+			// backup that was missed, whatever the reason.
+			m.Enqueue(sp, "catch-up")
+		} else if time.Since(*st.LastAt) >= every {
+			m.Enqueue(sp, "periodic")
 		}
 	}
+}
+
+func (m *backupManager) periodTick() time.Duration {
+	return min(max(m.srv.opts.Backup.Interval/10, time.Second), 5*time.Minute)
 }
 
 // MarkDeleted records a tombstone so that a deleted sprite and a lost machine do

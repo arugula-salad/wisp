@@ -222,3 +222,24 @@ func TestBalloonSqueezeMakesSnapshotSparse(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// DiscardSnapshot also clears what a suspend that failed or died half way
+// through leaves behind, not only a published snapshot.
+func TestDiscardSnapshotClearsPartialSuspend(t *testing.T) {
+	dir := t.TempDir()
+	all := []string{snapState, snapMem, sparseMem, snapState + ".tmp", snapMem + ".tmp"}
+	for _, f := range all {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	DiscardSnapshot(dir)
+	for _, f := range all {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("%s survived DiscardSnapshot", f)
+		}
+	}
+	if HasSnapshot(dir) {
+		t.Error("HasSnapshot after DiscardSnapshot")
+	}
+}

@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -89,16 +90,21 @@ type Confiner struct {
 	cg   *Cgroups // nil if no delegated cgroup subtree
 	// notes records what could not be enabled, for the startup log.
 	notes []string
+	log   *slog.Logger
 }
 
 // Open probes the host and prepares the cgroup subtree. It returns nil for
 // ModeOff. In ModeStrict a missing feature is an error; in ModeBestEffort it is
-// recorded in Describe.
-func Open(mode Mode, name string) (*Confiner, error) {
+// recorded in Describe. log (nil for slog.Default) hears about a VM that
+// starts with less than Describe claims.
+func Open(mode Mode, name string, log *slog.Logger) (*Confiner, error) {
 	if mode == ModeOff {
 		return nil, nil
 	}
-	c := &Confiner{mode: mode, abi: abiVersion()}
+	if log == nil {
+		log = slog.Default()
+	}
+	c := &Confiner{mode: mode, abi: abiVersion(), log: log}
 	if c.abi < 1 {
 		c.notes = append(c.notes, "landlock unavailable (kernel lacks it, or it is not in the boot-time LSM list)")
 	} else if c.abi < abiScope {
@@ -182,6 +188,8 @@ func (c *Confiner) Start(cmd *exec.Cmd, spec Spec, id string, lim Limits) (*Cgro
 		if c.mode == ModeStrict {
 			return nil, err
 		}
+		// Describe says cgroups are on; this VM runs without them.
+		c.log.Warn("VM starts without cgroup limits (confine=best-effort)", "vm", id, "err", err)
 		return nil, nil
 	}
 	if cmd.SysProcAttr == nil {

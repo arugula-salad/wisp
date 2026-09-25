@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arugula-salad/wisp/internal/backup"
@@ -55,6 +56,9 @@ type Server struct {
 	domains     *domains      // custom domains (domains.go); nil without a public listener
 	keys        *keyring      // API keys beside the root token (apikeys.go)
 	started     time.Time
+
+	muxOnce sync.Once
+	mux     *http.ServeMux // routes
 }
 
 // New takes urlFmt, the pattern for the URL a sprite is reported to have: where
@@ -80,7 +84,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
 	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
-		go s.autoCheckpoints()
+		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.autoCheckpoints)
 	}
 	if opts.Backup.Bucket != "" {
 		s.backups = newBackupManager(s, backup.Config{Endpoint: opts.Backup.Endpoint,
@@ -107,7 +111,14 @@ func (s *Server) named(h func(http.ResponseWriter, *http.Request, store.Sprite, 
 	}
 }
 
-func (s *Server) Handler() http.Handler {
+// routes is the bearer API's mux, built once and shared by Handler and
+// BearerHandler.
+func (s *Server) routes() *http.ServeMux {
+	s.muxOnce.Do(func() { s.mux = s.buildRoutes() })
+	return s.mux
+}
+
+func (s *Server) buildRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/sprites", s.createSprite)
 	mux.HandleFunc("GET /v1/sprites", s.listSprites)
@@ -149,8 +160,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
-	ui := s.uiHandler()
+	return mux
+}
 
+// Handler serves the API listener: the bearer API, the dashboard, and sprite
+// URLs by Host.
+func (s *Server) Handler() http.Handler {
+	ui := s.uiHandler()
 	return s.instrument(s.kindOf, false, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch s.kindOf(r) {
 		case kindSprite:
@@ -161,24 +177,40 @@ func (s *Server) Handler() http.Handler {
 			ui.ServeHTTP(w, r)
 			return
 		}
-		w.Header().Set("Sprite-Version", apiVersion)
-		p, ok := s.authenticate(bearer(r))
 		// Under an --api-host name the dashboard's cookie counts for nothing:
 		// that name is the bearer API alone.
-		if !ok && !s.isAPIHost(r.Host) {
-			p, ok = s.uiAuthorized(r)
-		}
-		if !ok {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="wisp"`)
-			writeErr(w, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token")
-			return
-		}
-		if !p.admin() && !readOnly(r) {
-			writeErr(w, http.StatusForbidden, "forbidden", "this API key is read-only")
-			return
-		}
-		mux.ServeHTTP(w, r)
+		s.serveAPI(w, r, !s.isAPIHost(r.Host))
 	}))
+}
+
+// BearerHandler serves --api-listen: the bearer API and nothing else, whatever
+// the Host. No dashboard, no dashboard cookie, no sprite URLs, so what a
+// reverse proxy publishes does not hang on it passing Host through.
+func (s *Server) BearerHandler() http.Handler {
+	kind := func(*http.Request) string { return kindAPI }
+	return s.instrument(kind, false, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.serveAPI(w, r, false)
+	}))
+}
+
+// serveAPI authenticates a request to the bearer API and routes it. cookie
+// says whether the dashboard's session cookie may stand in for a bearer token.
+func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, cookie bool) {
+	w.Header().Set("Sprite-Version", apiVersion)
+	p, ok := s.authenticate(bearer(r))
+	if !ok && cookie {
+		p, ok = s.uiAuthorized(r)
+	}
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="wisp"`)
+		writeErr(w, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token")
+		return
+	}
+	if !p.admin() && !readOnly(r) {
+		writeErr(w, http.StatusForbidden, "forbidden", "this API key is read-only")
+		return
+	}
+	s.routes().ServeHTTP(w, r)
 }
 
 // kindOf sorts a request on the API listener for the request metrics.

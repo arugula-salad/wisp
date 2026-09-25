@@ -50,14 +50,20 @@ until it closes.
 
 ## Serving the API in public
 
-The API listener stays on `127.0.0.1:7788` (or a tailnet address). To serve it in public, put a
-TLS-terminating reverse proxy in front and tell wispd the names it serves the API under:
+The API listener (`--listen`, `127.0.0.1:7788` by default) also serves the dashboard and sprite
+URLs, told apart by the `Host` header. Do not publish it. Give the proxy a listener of its own:
 
 ```sh
-wispd --api-host wisp.widgets.wtf ...
+wispd --api-listen 127.0.0.1:7789 --api-host wisp.widgets.wtf ...
 ```
 
-An `--api-host` name is the bearer API and nothing else:
+`--api-listen` serves the bearer API and nothing else, whatever the `Host`: no dashboard, no
+dashboard cookie, no sprite URLs. What the proxy publishes then does not depend on the proxy
+passing `Host` through unchanged. Put a TLS-terminating reverse proxy in front of it (on this
+host that is a tailnet socket, as for `--listen`).
+
+`--api-host` covers a proxy that is still pointed at `--listen`. On that listener an
+`--api-host` name is also the bearer API and nothing else:
 
 - never a sprite, even when it sits under a `--url-domain` (`wisp.widgets.wtf` under
   `widgets.wtf` is not the sprite `wisp`);
@@ -65,11 +71,14 @@ An `--api-host` name is the bearer API and nothing else:
   nothing on that name. The dashboard stays on the names the proxy does not serve: localhost, a
   tailnet address, an SSH tunnel.
 
-The proxy must pass the `Host` header through unchanged, and the name must be kept out of any
-SNI passthrough route for the wildcard, so the proxy terminates its TLS rather than handing it
-to the public listener. With Traefik (as in [public URLs](public-urls.md)), that is
-`&& !HostSNI(`wisp.widgets.wtf`)` on the passthrough match, plus an ordinary `IngressRoute`
-for `Host(`wisp.widgets.wtf`)` to the API listener with its own certificate.
+That protection holds only while the proxy passes the `Host` header through unchanged, which
+is why `--api-listen` is the one to rely on.
+
+Either way the name must be kept out of any SNI passthrough route for the wildcard, so the
+proxy terminates its TLS rather than handing it to the public listener. With Traefik (as in
+[public URLs](public-urls.md)), that is `&& !HostSNI(`wisp.widgets.wtf`)` on the passthrough
+match, plus an ordinary `IngressRoute` for `Host(`wisp.widgets.wtf`)` to the API listener
+with its own certificate.
 
 Clients then use `SPRITES_API_URL=https://wisp.widgets.wtf` and a key as the token.
 
