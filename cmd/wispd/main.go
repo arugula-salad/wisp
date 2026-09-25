@@ -65,7 +65,8 @@ func main() {
 	// A first argument that is not a flag selects a subcommand; none runs the
 	// daemon. status asks a running daemon (status.go); restore and backups work
 	// offline against the bucket (backups.go); images manages the container
-	// image cache through a running daemon (images.go).
+	// image cache through a running daemon (images.go); keys manages API keys
+	// the same way (keys.go).
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
 		switch cmd := os.Args[1]; cmd {
 		case "status":
@@ -76,8 +77,10 @@ func main() {
 			os.Exit(runBackups(os.Args[2:]))
 		case "images":
 			os.Exit(runImages(os.Args[2:]))
+		case "keys":
+			os.Exit(runKeys(os.Args[2:]))
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (want status, restore, backups or images; no command runs the daemon)\n", cmd)
+			fmt.Fprintf(os.Stderr, "unknown command %q (want status, restore, backups, images or keys; no command runs the daemon)\n", cmd)
 			os.Exit(2)
 		}
 	}
@@ -91,6 +94,7 @@ func main() {
 	fpr := flag.Bool("free-page-reporting", true, "guests hand freed memory back to the host while they run (balloon free page reporting); memory a guest frees and then touches again is re-faulted, ~2 s/GiB. Takes effect at each sprite's next cold boot")
 	dns := flag.String("dns", "1.1.1.1,8.8.8.8", "nameservers handed to guests")
 	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are <name>.<url-domain>; to serve them beyond this machine, point a wildcard DNS record here and see --public-listen. A comma-separated list serves several: each sprite is under one of them (url_domain when it is created, its parent's when a sprite makes it), and the first is the default")
+	apiHosts := flag.String("api-host", "", "comma-separated names a reverse proxy serves the API listener under (e.g. wisp.widgets.wtf). They reach the bearer API alone: never a sprite, even under a --url-domain, and never the dashboard, whose cookie counts for nothing there")
 	control := flag.Bool("control", true, "serve the multiplexed /control channel; --control=false makes every SDK fall back to per-operation WebSockets")
 	controlGo := flag.Bool("control-for-go-sdk", false, "also offer /control to the official Go SDK (by default it is answered 404 there and falls back to per-operation WebSockets, because its ProxyPorts races on a control socket)")
 	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one wispd per host may own it, so run extra dev/test instances with --net=false")
@@ -157,7 +161,7 @@ func main() {
 		MaxSprites: *maxSprites, MaxRunning: *maxRunning, MaxRunningMemoryMiB: *maxRunningMem, MaxConcurrentBoots: *maxBoots,
 		LeaseWarning: *leaseWarn, URLReadyWait: *urlReady,
 		DiskReserve: *diskReserve << 20, DiskWarnPercent: *diskWarn,
-		Listen: *listen,
+		Listen: *listen, APIHosts: parseHosts(*apiHosts),
 	}
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,
@@ -301,6 +305,16 @@ func parseURLDomains(flagValue string) ([]string, error) {
 		return nil, errors.New("--url-domain is empty")
 	}
 	return domains, nil
+}
+
+func parseHosts(flagValue string) []string {
+	var hosts []string
+	for _, h := range strings.Split(flagValue, ",") {
+		if h = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), "."); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
 }
 
 // publicCerts is the certificate source for the public listener: the operator's

@@ -436,5 +436,6 @@ func (s *Server) StatusHandler(listen string) http.Handler {
 		writeJSON(w, http.StatusOK, s.status(r.Context(), started, listen))
 	})
 	s.registerImageOps(mux)
+	s.registerKeyOps(mux, "")
 	return mux
 }
