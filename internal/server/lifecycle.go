@@ -24,7 +24,10 @@ import (
 )
 
 const (
-	agentPort  = 1024
+	agentPort = 1024
+	// The bridge and taps keep the names they had before the project was
+	// renamed wisp: setup-host.sh creates them as root, and the nftables and
+	// ufw rules it installs name them too, so renaming means re-running it.
 	bridgeName = "msbr0"
 	tapPrefix  = "mstap"
 )

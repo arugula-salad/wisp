@@ -42,7 +42,7 @@ func defaultDataDir() string {
 }
 
 // loadToken reads the API token, generating one on first run.
-func loadToken(path string) (string, error) { return loadSecret(path, "msprite_") }
+func loadToken(path string) (string, error) { return loadSecret(path, "wisproot_") }
 
 // loadSecret reads a secret from path, generating a random one on first run.
 func loadSecret(path, prefix string) (string, error) {

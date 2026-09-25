@@ -60,7 +60,7 @@ hello  19610039ea00  warm     -        -     589M  7M    2.0G  0                
 
 ORPHANED VMs: 1 firecracker process(es) of yours that no running wispd started. Not touched; ...
   PID      RSS   PARENT          CWD
-  1083557  915M  systemd (6354)  /tmp/ms-mem/vm/e7a5da5ef31f
+  1083557  915M  systemd (6354)  /tmp/wisp-mem/vm/e7a5da5ef31f
 ```
 
 It needs no token: the running daemon answers on `<data>/wispd.sock` (mode 0600, so the
