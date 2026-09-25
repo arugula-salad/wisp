@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
-	"flag"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -27,7 +26,6 @@ import (
 	"github.com/arugula-salad/wisp/internal/confine"
 	"github.com/arugula-salad/wisp/internal/server"
 	"github.com/arugula-salad/wisp/internal/store"
-	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 func defaultDataDir() string {
@@ -85,62 +83,10 @@ func main() {
 		}
 	}
 
-	data := flag.String("data", defaultDataDir(), "data directory")
-	listen := flag.String("listen", "127.0.0.1:7788", "API listen address")
-	apiListen := flag.String("api-listen", "", "a second listen address serving the bearer API alone, whatever the Host: no dashboard and no sprite URLs. Point a reverse proxy that publishes the API here rather than at --listen")
-	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
-	warmTTL := flag.Duration("warm-ttl", time.Hour, "drop a suspended sprite's memory state (go cold) after this long")
-	vcpus := flag.Int("vcpus", 8, "default vCPUs per sprite")
-	mem := flag.Int("mem-mib", 2048, "default guest RAM per sprite (MiB); a warm snapshot takes what the guest was using, up to this")
-	fpr := flag.Bool("free-page-reporting", true, "guests hand freed memory back to the host while they run (balloon free page reporting); memory a guest frees and then touches again is re-faulted, ~2 s/GiB. Takes effect at each sprite's next cold boot")
-	dns := flag.String("dns", "1.1.1.1,8.8.8.8", "nameservers handed to guests")
-	urlDomain := flag.String("url-domain", "sprites.localhost", "sprite URLs are <name>.<url-domain>; to serve them beyond this machine, point a wildcard DNS record here and see --public-listen. A comma-separated list serves several: each sprite is under one of them (url_domain when it is created, its parent's when a sprite makes it), and the first is the default")
-	apiHosts := flag.String("api-host", "", "comma-separated names a reverse proxy serves the API listener under (e.g. wisp.widgets.wtf). They reach the bearer API alone: never a sprite, even under a --url-domain, and never the dashboard, whose cookie counts for nothing there")
-	control := flag.Bool("control", true, "serve the multiplexed /control channel; --control=false makes every SDK fall back to per-operation WebSockets")
-	controlGo := flag.Bool("control-for-go-sdk", false, "also offer /control to the official Go SDK (by default it is answered 404 there and falls back to per-operation WebSockets, because its ProxyPorts races on a control socket)")
-	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one wispd per host may own it, so run extra dev/test instances with --net=false")
-	autoEvery := flag.Duration("auto-checkpoint-interval", time.Hour, "take an automatic checkpoint of a sprite whose disk changed and whose newest checkpoint is older than this (0 = only before restores)")
-	autoKeep := flag.Int("auto-checkpoint-keep", 3, "automatic checkpoints kept per sprite; each is a full disk clone (0 = take none)")
-	guestLimit := flag.Int("guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
-	netdSocket := flag.String("netd-socket", "", "wisp-netd socket, the root helper that backs restrictive network policies (default /run/wisp/netd.sock)")
-	org := flag.String("org", "local", "organization name reported in API responses")
-	publicListen := flag.String("public-listen", "", "serve sprite URLs, and only sprite URLs, over HTTPS on this address; the one to forward a router port to. Needs --url-domain set to a real domain with a wildcard record, and a certificate: --tls-cert/--tls-key, or a Cloudflare token for an automatic one")
-	publicPort := flag.Int("public-port", 443, "the port clients reach --public-listen on (the router's side of the forward); used in the URLs the API reports")
-	tlsCert := flag.String("tls-cert", "", "PEM certificate chain for *.<url-domain>; re-read when it changes, so an external ACME client can renew it in place")
-	tlsKey := flag.String("tls-key", "", "PEM private key for --tls-cert")
-	acmeEmail := flag.String("acme-email", "", "contact address for the ACME account (optional)")
-	acmeDir := flag.String("acme-directory", certs.LetsEncrypt, "ACME directory used when no --tls-cert is given. A wildcard certificate is requested over DNS-01 through Cloudflare, with the API token read from $CLOUDFLARE_API_TOKEN or <data>/cloudflare-token (needs Zone:Read and DNS:Edit on the zone)")
-	publicConns := flag.Int("public-max-conns", 1024, "open connections allowed on --public-listen (0 = no limit)")
-	publicConnsPer := flag.Int("public-max-conns-per-client", 64, "open connections allowed per IPv4 address or IPv6 /64 on --public-listen (0 = no limit; use 0 behind a CDN, where every client shares the CDN's addresses)")
-	domainsOn := flag.Bool("custom-domains", true, "with --public-listen, let sprites have custom domains (POST /v1/sprites/<name>/domains), each with its own certificate from --acme-directory over TLS-ALPN-01")
-	domainResolver := flag.String("domain-resolver", "1.1.1.1:53", "recursive DNS server that checks a custom domain points here before a certificate is requested for it")
-	domainsPer := flag.Int("max-domains-per-sprite", 5, "custom domains one sprite may have (0 = no limit)")
-	domainsTotal := flag.Int("max-domains", 50, "custom domains across all sprites (0 = no limit)")
-	domainOrders := flag.Int("acme-orders-per-hour", 10, "certificate orders per hour for custom domains, across all of them; keeps a misconfigured domain from spending the CA's rate limits")
-	confineMode := flag.String("confine", os.Getenv("WISP_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
-	backupOpts := backupFlags(flag.CommandLine)
-	maxSprites := flag.Int("max-sprites", 0, "most sprites that may exist; creating another is refused (0 = no limit)")
-	maxRunning := flag.Int("max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
-	maxRunningMem := flag.Int("max-running-memory-mib", 0, "guest RAM (MiB) all running sprites together may hold; waking another is refused until one goes idle (0 = no budget). Each sprite is counted at its ceiling (its memory limit + 128 MiB, or --mem-mib), because a guest with memory autoscale may deflate its balloon back up to that at any time. Set it below this host's RAM: page cache, Firecracker overhead and everything else on the host are not counted")
-	maxBoots := flag.Int("max-concurrent-boots", 0, "cold boots that may be in flight at once; another is refused with a retryable error rather than queued (0 = no limit). Resumes are not capped")
-	leaseWarn := flag.Duration("lease-warning", 5*time.Minute, "how long before a workspace lease expires the sprite.expiring event goes out (0 = the 5 minute default)")
-	urlReady := flag.Duration("url-ready-wait", 10*time.Second, "how long a sprite URL waits for the app inside to accept a connection before answering 503; covers a cold boot and the app's own start (0 = fail on the first refused connection, 60s ceiling)")
-	diskReserve := flag.Int64("disk-reserve-mib", 2048, "free space (MiB) a create, checkpoint or restore must leave on the sprite volume, or it is refused (0 = never refuse)")
-	diskWarn := flag.Int("disk-warn-percent", 10, "warn in the log while less than this share of the sprite volume is free (0 = never)")
-	var webhooks []string
-	flag.Func("webhook", "POST every event (see docs/events.md) as JSON to this URL, signed with the webhook secret; repeatable", func(v string) error {
-		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
-			return errors.New("want an http:// or https:// URL")
-		}
-		webhooks = append(webhooks, v)
-		return nil
-	})
-	webhookSecret := flag.String("webhook-secret-file", "", "the HMAC key for webhook signatures (default <data>/webhook-secret, generated on first use)")
-	webhookTypes := flag.String("webhook-types", "", "comma-separated event type prefixes to send to webhooks, e.g. sprite.,service.crashed (default: every event)")
-	flag.Parse()
+	opts, f := parseFlags()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	abs, err := filepath.Abs(*data)
+	abs, err := filepath.Abs(f.data)
 	if err != nil {
 		fatal(log, err)
 	}
@@ -148,22 +94,10 @@ func main() {
 	if n := len(filepath.Join(abs, "vm", "0123456789ab", "fc.sock")); n > 100 {
 		fatal(log, fmt.Errorf("data directory path is too long for unix sockets (%d bytes): %s", n, abs))
 	}
-	opts := server.Options{
-		DataDir: abs, BaseImage: filepath.Join(abs, "images", "base.ext4"),
-		Host: vmm.Host{
-			Firecracker:         filepath.Join(abs, "bin", "firecracker"),
-			Kernel:              filepath.Join(abs, "kernel", "vmlinux"),
-			Initrd:              filepath.Join(abs, "initrd.cpio"),
-			NoFreePageReporting: !*fpr,
-		},
-		IdleTimeout: *idle, WarmTTL: *warmTTL, DefaultVCPUs: *vcpus, DefaultMemMiB: *mem, DNS: *dns, NoNetwork: !*netOn, NoControl: !*control, ControlForGoSDK: *controlGo,
-		AutoCheckpointInterval: *autoEvery, AutoCheckpointKeep: *autoKeep, GuestCheckpointLimit: *guestLimit,
-		NetdSocket: *netdSocket, Backup: backupOpts(),
-		MaxSprites: *maxSprites, MaxRunning: *maxRunning, MaxRunningMemoryMiB: *maxRunningMem, MaxConcurrentBoots: *maxBoots,
-		LeaseWarning: *leaseWarn, URLReadyWait: *urlReady,
-		DiskReserve: *diskReserve << 20, DiskWarnPercent: *diskWarn,
-		Listen: *listen, APIHosts: parseHosts(*apiHosts),
-	}
+	opts.DataDir, opts.BaseImage = abs, filepath.Join(abs, "images", "base.ext4")
+	opts.Host.Firecracker = filepath.Join(abs, "bin", "firecracker")
+	opts.Host.Kernel = filepath.Join(abs, "kernel", "vmlinux")
+	opts.Host.Initrd = filepath.Join(abs, "initrd.cpio")
 	for what, p := range map[string]string{"firecracker (scripts/fetch-deps.sh)": opts.Host.Firecracker,
 		"guest kernel (scripts/fetch-deps.sh)": opts.Host.Kernel, "initrd (scripts/build-initrd.sh)": opts.Host.Initrd,
 		"base image (scripts/build-image.sh)": opts.BaseImage} {
@@ -184,7 +118,7 @@ func main() {
 	}
 	defer statusLn.Close() // which also removes the socket
 
-	mode, err := confine.ParseMode(*confineMode)
+	mode, err := confine.ParseMode(f.confineMode)
 	if err != nil {
 		fatal(log, err)
 	}
@@ -205,8 +139,8 @@ func main() {
 	if err != nil {
 		fatal(log, err)
 	}
-	if len(webhooks) > 0 {
-		path := *webhookSecret
+	if len(f.webhooks) > 0 {
+		path := f.webhookSecret
 		if path == "" {
 			path = filepath.Join(abs, "webhook-secret")
 		}
@@ -214,71 +148,71 @@ func main() {
 		if err != nil {
 			fatal(log, fmt.Errorf("webhook secret: %w", err))
 		}
-		opts.Webhooks = server.WebhookOptions{URLs: webhooks, Secret: secret}
-		if *webhookTypes != "" {
-			opts.Webhooks.Types = strings.Split(*webhookTypes, ",")
+		opts.Webhooks = server.WebhookOptions{URLs: f.webhooks, Secret: secret}
+		if f.webhookTypes != "" {
+			opts.Webhooks.Types = strings.Split(f.webhookTypes, ",")
 		}
 	}
 	life := server.NewLifecycle(opts, st, log)
 
-	urlDomains, err := parseURLDomains(*urlDomain)
+	urlDomains, err := parseURLDomains(f.urlDomain)
 	if err != nil {
 		fatal(log, err)
 	}
-	_, port, _ := net.SplitHostPort(*listen)
+	_, port, _ := net.SplitHostPort(f.listen)
 	urlFmt := "http://%s.%s:" + port
-	if *publicListen != "" {
+	if f.publicListen != "" {
 		urlFmt = "https://%s.%s"
-		if *publicPort != 443 {
-			urlFmt += fmt.Sprintf(":%d", *publicPort)
+		if f.publicPort != 443 {
+			urlFmt += fmt.Sprintf(":%d", f.publicPort)
 		}
 	}
-	api := server.New(opts, st, life, log, token, *org, urlDomains, urlFmt)
+	api := server.New(opts, st, life, log, token, f.org, urlDomains, urlFmt)
 	api.StartMetrics()
-	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
+	srv := &http.Server{Addr: f.listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
 	srv.RegisterOnShutdown(api.CloseEvents) // event streams never finish on their own
 	var bearerSrv *http.Server
-	if *apiListen != "" {
-		bearerSrv = &http.Server{Addr: *apiListen, ReadHeaderTimeout: 10 * time.Second, Handler: api.BearerHandler()}
+	if f.apiListen != "" {
+		bearerSrv = &http.Server{Addr: f.apiListen, ReadHeaderTimeout: 10 * time.Second, Handler: api.BearerHandler()}
 		bearerSrv.RegisterOnShutdown(api.CloseEvents)
 	}
 
 	var public *http.Server
-	if *publicListen != "" {
-		getCert, err := publicCerts(abs, urlDomains, *tlsCert, *tlsKey, *acmeEmail, *acmeDir, log)
+	if f.publicListen != "" {
+		getCert, err := publicCerts(abs, urlDomains, f.tlsCert, f.tlsKey, f.acmeEmail, f.acmeDir, log)
 		if err != nil {
 			fatal(log, err)
 		}
-		ln, err := net.Listen("tcp", *publicListen)
+		ln, err := net.Listen("tcp", f.publicListen)
 		if err != nil {
 			fatal(log, err)
 		}
-		if *domainsOn {
+		if f.domainsOn {
 			getCert = api.EnableCustomDomains(context.Background(), server.DomainConfig{
-				ACMEDir: filepath.Join(abs, "acme"), DirectoryURL: *acmeDir, Email: *acmeEmail,
-				Resolver: *domainResolver, PerSprite: *domainsPer, Total: *domainsTotal, OrdersPerHour: *domainOrders,
+				ACMEDir: filepath.Join(abs, "acme"), DirectoryURL: f.acmeDir, Email: f.acmeEmail,
+				Resolver: f.domainResolver, PerSprite: f.domainsPer, Total: f.domainsTotal, OrdersPerHour: f.domainOrders,
 			}, getCert)
 		}
 		public = server.NewPublicServer(api.PublicHandler(), getCert)
 		go func() {
-			log.Info("serving sprite URLs to the public", "addr", *publicListen, "urls", fmt.Sprintf(urlFmt, "<name>", strings.Join(urlDomains, "|")))
-			err := public.ServeTLS(server.LimitListener(ln, *publicConns, *publicConnsPer), "", "")
+			log.Info("serving sprite URLs to the public", "addr", f.publicListen, "urls", fmt.Sprintf(urlFmt, "<name>", strings.Join(urlDomains, "|")))
+			err := public.ServeTLS(server.LimitListener(ln, f.publicConns, f.publicConnsPer), "", "")
 			if !errors.Is(err, http.ErrServerClosed) {
 				fatal(log, err)
 			}
 		}()
 	}
-	go http.Serve(statusLn, api.StatusHandler(*listen))
+	go http.Serve(statusLn, api.StatusHandler(f.listen))
 
 	go func() {
-		log.Info("wispd listening", "addr", *listen, "data", abs, "token_file", filepath.Join(abs, "token"))
+		log.Info("wispd listening", "addr", f.listen, "data", abs, "token_file", filepath.Join(abs, "token"))
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			fatal(log, err)
 		}
 	}()
 	if bearerSrv != nil {
 		go func() {
-			log.Info("serving the bearer API alone", "addr", *apiListen)
+			log.Info("serving the bearer API alone", "addr", f.apiListen)
 			if err := bearerSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 				fatal(log, err)
 			}
