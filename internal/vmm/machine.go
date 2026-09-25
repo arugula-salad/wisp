@@ -159,7 +159,10 @@ func ReapOrphan(dir string) {
 func DiscardSnapshot(dir string) {
 	os.Remove(filepath.Join(dir, snapState))
 	os.Remove(filepath.Join(dir, snapMem))
-	os.Remove(filepath.Join(dir, sparseMem)) // left by a wispd that died mid-suspend
+	// Left by a wispd that died mid-suspend.
+	for _, f := range []string{sparseMem, snapState + ".tmp", snapMem + ".tmp"} {
+		os.Remove(filepath.Join(dir, f))
+	}
 }
 
 func launch(h Host, cfg Config) (*Machine, error) {
@@ -190,7 +193,13 @@ func launch(h Host, cfg Config) (*Machine, error) {
 	}
 	// The cgroup itself outlives this fd; the VM is in it now.
 	cg.Close()
-	os.WriteFile(filepath.Join(cfg.Dir, pidFile), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
+	// Without the pid file a VM orphaned by a crash of wispd is never reaped.
+	if err := os.WriteFile(filepath.Join(cfg.Dir, pidFile), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
+		cmd.Process.Kill()
+		cmd.Wait()
+		cg.Remove()
+		return nil, fmt.Errorf("write pid file: %w", err)
+	}
 	sock := filepath.Join(cfg.Dir, apiSock)
 	m := &Machine{host: h, cfg: cfg, cmd: cmd, cg: cg, exited: make(chan struct{}),
 		http: &http.Client{Transport: &http.Transport{
@@ -346,15 +355,17 @@ func (m *Machine) Resume(ctx context.Context) error {
 	return m.api(ctx, http.MethodPatch, "/vm", obj{"state": "Resumed"})
 }
 
-// Suspend snapshots the VM to disk and exits the VMM. On error the VM is resumed.
-func (m *Machine) Suspend(ctx context.Context) error {
+// Suspend snapshots the VM to disk and exits the VMM. If the snapshot cannot
+// be taken the VM is resumed. Once it has been taken the VMM is gone either
+// way: a failure writing it out leaves no snapshot, so the sprite is cold.
+func (m *Machine) Suspend(ctx context.Context) (err error) {
 	if err := m.Pause(ctx); err != nil {
 		return err
 	}
 	tmpState, tmpMem := snapState+".tmp", snapMem+".tmp"
 	// Firecracker would fsync the whole-RAM memory file, zeros and all; the
 	// files are synced below instead, once the memory file is sparse.
-	err := m.api(ctx, http.MethodPut, "/snapshot/create", obj{
+	err = m.api(ctx, http.MethodPut, "/snapshot/create", obj{
 		"snapshot_type": "Full", "snapshot_path": tmpState, "mem_file_path": tmpMem,
 		"sync_snapshot_files": false,
 	})
@@ -367,6 +378,11 @@ func (m *Machine) Suspend(ctx context.Context) error {
 		return err
 	}
 	m.Kill()
+	defer func() {
+		if err != nil {
+			DiscardSnapshot(m.cfg.Dir)
+		}
+	}()
 	// Keep what the guest was using, not its RAM (see sparseCopy). The copy
 	// reads the same as the original, so when it cannot be made the original
 	// is published instead and only disk space is lost. Deleting the original

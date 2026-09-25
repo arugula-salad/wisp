@@ -641,7 +641,11 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 		l.log.Warn("could not squeeze free memory before suspend", "sprite", sp.Name, "err", err)
 	}
 	if err := rt.m.Suspend(ctx); err != nil {
-		l.setBalloon(ctx, sp, rt, rt.m, true) // it is running on: give the memory back
+		select {
+		case <-rt.m.Exited(): // the snapshot was taken but not written: watch reports the exit
+		default:
+			l.setBalloon(ctx, sp, rt, rt.m, true) // it is running on: give the memory back
+		}
 		return err
 	}
 	l.cleanupLocked(rt)
