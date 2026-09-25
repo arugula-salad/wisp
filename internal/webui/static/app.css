@@ -285,3 +285,4 @@ table.sortable th[data-s]:hover, table.sortable th.sorted { color: var(--ink); }
   td.path { max-width: 160px; }
   .page-head .actions .range button { padding: 4px 7px; }
 }
+@media (max-width: 520px) { #who { display: none; } }

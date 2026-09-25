@@ -121,8 +121,9 @@ function showLogin() {
   $('#login-form').onsubmit = async (ev) => {
     ev.preventDefault();
     const res = await fetch('/ui/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: $('#login-token').value }) });
-    if (!res.ok) { $('#login-err').textContent = 'That is not this host\'s API token.'; $('#login-err').hidden = false; return; }
+    if (!res.ok) { $('#login-err').textContent = 'That is not this host\'s root token or one of its API keys.'; $('#login-err').hidden = false; return; }
     $('#login-token').value = '';
+    data.who = null;
     dlg.close();
     loginOpen = false;
     $('#logout').hidden = false;
@@ -163,8 +164,13 @@ async function loadMetrics() {
 }
 
 async function loadAll() {
-  const [status, list] = await Promise.all([api('/ui/api/status'), listSprites(), loadMetrics()]);
+  const [status, list, who] = await Promise.all([api('/ui/api/status'), listSprites(), data.who || api('/ui/api/whoami'), loadMetrics()]);
   data.status = status;
+  if (!data.who) {
+    data.who = who;
+    $('[data-nav="keys"]').hidden = who.scope !== 'admin';
+    $('#who').textContent = who.scope === 'admin' ? who.name : `${who.name} · read-only`;
+  }
   data.sprites = new Map(list.map((s) => [s.name, s]));
   data.loaded = true;
 }
@@ -221,6 +227,7 @@ function route() {
   if (a === 'host') return { name: 'host' };
   if (a === 'traffic') return { name: 'traffic', sprite: b };
   if (a === 'ops') return { name: 'ops' };
+  if (a === 'keys') return { name: 'keys' };
   return { name: 'overview' };
 }
 function mount() {
@@ -230,7 +237,7 @@ function mount() {
   const root = $('#view');
   root.innerHTML = '';
   if (!data.loaded) { root.innerHTML = '<div class="empty"><span class="spin"></span> Loading…</div>'; view = null; return; }
-  view = ({ overview: Overview, sprites: SpritesView, traffic: TrafficView, ops: OpsView, host: HostView, sprite: SpriteView })[r.name](root, r);
+  view = ({ overview: Overview, sprites: SpritesView, traffic: TrafficView, ops: OpsView, host: HostView, keys: KeysView, sprite: SpriteView })[r.name](root, r);
   view.mounted = true;
   view.update?.();
 }
@@ -485,6 +492,62 @@ function SpritesView(root) {
       });
     },
   };
+  return this_;
+}
+
+// ---------- API keys ----------
+
+// Keys are made and revoked here or with `wispd keys`; the bearer API itself has
+// no way to do either. A new key is shown once, in the dialog that makes it.
+function KeysView(root) {
+  root.innerHTML = String(html`
+    <div class="page-head"><div><h1>API keys</h1><div class="sub">Bearer tokens for the API. The root token in <code>&lt;data&gt;/token</code> always works besides these.</div></div>
+      <div class="actions"><button class="primary" id="k-new">＋ New key</button></div></div>
+    <section class="card"><div class="table-wrap"><table>
+      <thead><tr><th>Name</th><th>ID</th><th>Scope</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+      <tbody id="k-body"><tr><td colspan="6" class="empty"><span class="spin"></span></td></tr></tbody></table></div></section>
+    <p class="faint small"><b>admin</b> keys can do everything the root token can. <b>read</b> keys make GET requests only, with no WebSockets: they can list and inspect sprites and read their files, but not exec, proxy or change anything.
+      Revoking a key fails its requests at once and signs out dashboard sessions that used it.</p>`);
+  let keys = null;
+  const load = async () => { try { keys = await api('/ui/api/keys'); this_.update(); } catch (e) { fail(e); } };
+  $('#k-new').onclick = async () => {
+    const fd = await modal(html`<h2>New API key</h2>
+      <label class="field">Name<input name="name" required maxlength="64" placeholder="arcade-lobby" autocomplete="off"></label>
+      <label class="field">Scope<select name="scope"><option value="admin">admin — the whole API</option><option value="read">read — GET only, no WebSockets</option></select></label>`, { submit: 'Create key' });
+    if (!fd) return;
+    let k;
+    try { k = await api('/ui/api/keys', { method: 'POST', body: { name: fd.get('name'), scope: fd.get('scope') } }); } catch (e) { fail(e); return; }
+    const shown = modal(html`<h2>Key “${k.name}” created</h2>
+      <p class="muted">Copy it now: it is not stored and will not be shown again.</p>
+      <input readonly class="mono" value="${k.key}" id="k-secret" style="width:100%">
+      <p class="faint small">Send it as <code>Authorization: Bearer …</code></p>`, { submit: 'Done' });
+    $('#k-secret').select();
+    load();
+    await shown;
+  };
+  $('#k-body').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-revoke]'); if (!b) return;
+    const k = keys.find((x) => x.id === b.dataset.revoke);
+    const mine = data.who?.id === k.id;
+    const ok = await modal(html`<h2>Revoke “${k.name}”?</h2><p class="muted">Anything using it gets 401 from now on.${mine ? ' This is the key you signed in with: you will be signed out.' : ''}</p>`, { submit: 'Revoke', danger: true });
+    if (!ok) return;
+    try { await api(`/ui/api/keys/${encodeURIComponent(k.id)}`, { method: 'DELETE' }); toast(`Revoked ${k.name}`); } catch (e) { fail(e); }
+    load();
+  });
+  const this_ = {
+    update() {
+      if (!keys) return;
+      const body = $('#k-body');
+      if (!keys.length) { body.innerHTML = '<tr><td colspan="6" class="empty">No API keys yet. Only the root token works.</td></tr>'; return; }
+      body.innerHTML = keys.map((k) => String(html`<tr>
+        <td><b>${k.name}</b>${data.who?.id === k.id ? html` <span class="pill">you</span>` : ''}</td>
+        <td class="mono">${k.id}</td><td><span class="pill">${k.scope}</span></td>
+        <td class="faint" title="${new Date(k.created_at).toLocaleString()}">${ago(k.created_at)}</td>
+        <td class="faint">${k.last_used_at ? ago(k.last_used_at) : 'never'}</td>
+        <td class="actions"><button class="small danger" data-revoke="${k.id}">Revoke</button></td></tr>`)).join('');
+    },
+  };
+  load();
   return this_;
 }
 

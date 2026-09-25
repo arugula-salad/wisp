@@ -34,23 +34,30 @@ const (
 	uiHeader = "X-Wisp-UI"
 )
 
-// uiSession is the cookie value: derived from the token, so rotating the token
-// signs every browser out and there is no session state to keep.
-func (s *Server) uiSession() string {
+// uiSession is the cookie value for a session signed in with key id (the root
+// token's is "root"): the id and a MAC over it under the root token. There is
+// no session state to keep: revoking the key ends its sessions, because
+// uiAuthorized looks the key up, and rotating the root token ends them all.
+func (s *Server) uiSession(id string) string {
 	mac := hmac.New(sha256.New, []byte(s.token))
-	mac.Write([]byte("wisp web ui v1"))
-	return hex.EncodeToString(mac.Sum(nil))
+	mac.Write([]byte("wisp web ui v2\x00" + id))
+	return id + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
-func (s *Server) uiAuthorized(r *http.Request) bool {
+// uiAuthorized is who a dashboard request is signed in as, if anyone.
+func (s *Server) uiAuthorized(r *http.Request) (principal, bool) {
 	c, err := r.Cookie(uiCookie)
-	if err != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.uiSession())) != 1 {
-		return false
+	if err != nil {
+		return principal{}, false
 	}
-	if r.Header.Get(uiHeader) == "1" {
-		return true
+	id, _, _ := strings.Cut(c.Value, ".")
+	if subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.uiSession(id))) != 1 {
+		return principal{}, false
 	}
-	return websocket.IsWebSocketUpgrade(r) && sameOrigin(r)
+	if r.Header.Get(uiHeader) != "1" && !(websocket.IsWebSocketUpgrade(r) && sameOrigin(r)) {
+		return principal{}, false
+	}
+	return s.principalByID(id)
 }
 
 func sameOrigin(r *http.Request) bool {
@@ -79,13 +86,17 @@ func (s *Server) uiHandler() http.Handler {
 		var req struct {
 			Token string `json:"token"`
 		}
-		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req) != nil ||
-			subtle.ConstantTimeCompare([]byte(strings.TrimSpace(req.Token)), []byte(s.token)) != 1 {
+		var p principal
+		ok := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req) == nil
+		if ok {
+			p, ok = s.authenticate(strings.TrimSpace(req.Token))
+		}
+		if !ok {
 			time.Sleep(500 * time.Millisecond) // guessing costs something
-			writeErr(w, http.StatusUnauthorized, "unauthorized", "that is not this host's API token")
+			writeErr(w, http.StatusUnauthorized, "unauthorized", "that is not this host's root token or one of its API keys")
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: uiCookie, Value: s.uiSession(), Path: "/", HttpOnly: true,
+		http.SetCookie(w, &http.Cookie{Name: uiCookie, Value: s.uiSession(p.ID), Path: "/", HttpOnly: true,
 			SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 30 * 24 * 3600})
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -95,6 +106,12 @@ func (s *Server) uiHandler() http.Handler {
 	})
 
 	api := http.NewServeMux()
+	api.HandleFunc("GET /ui/api/whoami", func(w http.ResponseWriter, r *http.Request) {
+		p := r.Context().Value(principalKey{}).(principal)
+		writeJSON(w, http.StatusOK, map[string]string{"id": p.ID, "name": p.Name, "scope": p.Scope})
+	})
+	// Key management, for admin sessions (the guard below turns read ones away).
+	s.registerKeyOps(api, "/ui/api")
 	api.HandleFunc("GET /ui/api/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.status(r.Context(), s.started, s.opts.Listen))
 	})
@@ -159,14 +176,22 @@ func (s *Server) uiHandler() http.Handler {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
 	guarded := func(w http.ResponseWriter, r *http.Request) {
-		if !s.uiAuthorized(r) {
+		p, ok := s.uiAuthorized(r)
+		if !ok {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "sign in to the web UI first")
 			return
 		}
-		api.ServeHTTP(w, r)
+		// A read-only session may look, but neither change a sprite's state
+		// nor see the keys.
+		if !p.admin() && (!readOnly(r) || strings.HasPrefix(r.URL.Path, "/ui/api/keys")) {
+			writeErr(w, http.StatusForbidden, "forbidden", "signed in with a read-only API key")
+			return
+		}
+		api.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
 	}
 	// By method, since a bare "/ui/api/" would conflict with "GET /ui/".
 	mux.HandleFunc("GET /ui/api/", guarded)
 	mux.HandleFunc("POST /ui/api/", guarded)
+	mux.HandleFunc("DELETE /ui/api/", guarded)
 	return mux
 }

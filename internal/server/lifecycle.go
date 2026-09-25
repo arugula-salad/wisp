@@ -75,6 +75,11 @@ type Options struct {
 	DiskWarnPercent int
 	// Listen is the API address, reported by the status views.
 	Listen string
+	// APIHosts are names a reverse proxy in front of the API listener serves it
+	// under, for the public. They are the bearer API alone: never a sprite URL,
+	// even under a URL domain (wisp.widgets.wtf with --url-domain widgets.wtf),
+	// and never the dashboard, which stays on the names the proxy does not serve.
+	APIHosts []string
 	// Webhooks receive every event (webhooks.go).
 	Webhooks WebhookOptions
 }

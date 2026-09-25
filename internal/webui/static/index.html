@@ -17,10 +17,12 @@
     <a href="#/traffic" data-nav="traffic">Traffic</a>
     <a href="#/ops" data-nav="ops">Ops</a>
     <a href="#/host" data-nav="host">Host</a>
+    <a href="#/keys" data-nav="keys" hidden>Keys</a>
   </nav>
   <div class="top-right">
     <span id="live" class="live" title="Refreshes every 5 seconds"><i></i><span>live</span></span>
     <button id="theme" class="ghost icon" title="Toggle theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+    <span id="who" class="faint small"></span>
     <button id="logout" class="ghost" hidden>Sign out</button>
   </div>
 </header>
@@ -30,8 +32,8 @@
 <dialog id="login">
   <form method="dialog" id="login-form">
     <h2>Sign in</h2>
-    <p class="muted">Paste this host's API token. It is in <code>&lt;data&gt;/token</code>, e.g.<br><code>cat ~/.local/share/wisp/token</code></p>
-    <input id="login-token" type="password" autocomplete="current-password" placeholder="msprite_…" required>
+    <p class="muted">Paste an API key, or this host's root token from <code>&lt;data&gt;/token</code>, e.g.<br><code>cat ~/.local/share/wisp/token</code></p>
+    <input id="login-token" type="password" autocomplete="current-password" placeholder="wisp_… or msprite_…" required>
     <p id="login-err" class="err" hidden></p>
     <div class="row end"><button class="primary" type="submit">Sign in</button></div>
   </form>

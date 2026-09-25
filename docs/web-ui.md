@@ -12,13 +12,15 @@ step, and nothing loaded from the internet.
 
 ## Signing in
 
-Paste the API token, from `<data>/token` (by default `~/.local/share/wisp/token`).
-The page trades it for an HttpOnly, SameSite=Strict cookie derived from the token, so rotating
-the token signs every browser out. The cookie alone authorizes nothing: every request must also
+Paste an [API key](api-keys.md) or the root token, from `<data>/token` (by default
+`~/.local/share/wisp/token`). The page trades it for an HttpOnly, SameSite=Strict cookie that
+names the key and is signed with the root token: revoking the key signs out its sessions, and
+rotating the root token signs every browser out. A read-scoped key gets a dashboard that can look
+but not act. The **Keys** page (admin sessions only) makes and revokes keys. The cookie alone authorizes nothing: every request must also
 carry an `X-Wisp-UI` header, which a page on another origin (a sprite's own URL
 included) cannot add without a CORS preflight wispd never answers, or be a WebSocket whose
 `Origin` is the dashboard's own host. The public listener (`--public-listen`) serves sprite URLs
-only, never the dashboard.
+only, never the dashboard, and neither does an `--api-host` name ([API keys](api-keys.md#serving-the-api-in-public)).
 
 ## What it shows
 

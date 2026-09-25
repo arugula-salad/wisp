@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -133,5 +134,38 @@ func TestASpriteCanMoveToAnotherURLDomain(t *testing.T) {
 	same := rendered(t, status(t, apiCall(t, h, "PUT", "/v1/sprites/game-1", `{"labels":["x"]}`), http.StatusOK))
 	if same.URLDomain != "arugula.test" {
 		t.Errorf("a labels-only update moved it to %q", same.URLDomain)
+	}
+}
+
+// A reverse proxy may serve the API under a name inside a URL domain
+// (wisp.widgets.test). That name is the bearer API, not sprite "wisp", and
+// not the dashboard either.
+func TestAPIHostsAreNeverSpriteURLs(t *testing.T) {
+	s, h := newOperatorServer(t, Options{APIHosts: []string{"wisp.widgets.test"}})
+	s.urlDomains = []string{"widgets.test"}
+	for host, want := range map[string]bool{
+		"wisp.widgets.test": false, "WISP.widgets.test.": false, "wisp.widgets.test:443": false,
+		"game-1.widgets.test": true,
+	} {
+		if _, ok := s.spriteForHost(host); ok != want {
+			t.Errorf("%s: served as a sprite = %v, want %v", host, ok, want)
+		}
+	}
+	for _, path := range []string{"/", "/ui/", "/ui/api/status"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Host = "wisp.widgets.test"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") == "" {
+			t.Errorf("GET %s on the API host: %d, want a bearer challenge", path, rec.Code)
+		}
+	}
+	req := httptest.NewRequest("GET", "/v1/sprites", nil)
+	req.Host = "wisp.widgets.test"
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /v1/sprites with the token on the API host: %d", rec.Code)
 	}
 }

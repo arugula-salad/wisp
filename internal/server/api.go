@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +53,7 @@ type Server struct {
 	guestEvents *rateLimiter
 	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
 	domains     *domains      // custom domains (domains.go); nil without a public listener
+	keys        *keyring      // API keys beside the root token (apikeys.go)
 	started     time.Time
 }
 
@@ -64,6 +64,10 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
 		urlDomains: urlDomains, urlFmt: urlFmt, started: time.Now()}
 	life.guestAPI = s.guestAPI
+	s.keys = openKeyring(opts.DataDir)
+	if s.keys.broken != nil {
+		log.Error("API keys unreadable: only the root token works until this is fixed", "err", s.keys.broken)
+	}
 	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
 	if s.storage.reflink {
 		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
@@ -158,9 +162,19 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		w.Header().Set("Sprite-Version", apiVersion)
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 && !s.uiAuthorized(r) {
+		p, ok := s.authenticate(bearer(r))
+		// Under an --api-host name the dashboard's cookie counts for nothing:
+		// that name is the bearer API alone.
+		if !ok && !s.isAPIHost(r.Host) {
+			p, ok = s.uiAuthorized(r)
+		}
+		if !ok {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="wisp"`)
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token")
+			return
+		}
+		if !p.admin() && !readOnly(r) {
+			writeErr(w, http.StatusForbidden, "forbidden", "this API key is read-only")
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -169,6 +183,9 @@ func (s *Server) Handler() http.Handler {
 
 // kindOf sorts a request on the API listener for the request metrics.
 func (s *Server) kindOf(r *http.Request) string {
+	if s.isAPIHost(r.Host) {
+		return kindAPI
+	}
 	if _, ok := s.spriteForHost(r.Host); ok {
 		return kindSprite
 	}

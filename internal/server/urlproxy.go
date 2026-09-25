@@ -3,7 +3,6 @@ package server
 import (
 	"bufio"
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
@@ -124,14 +123,27 @@ func dialWhenReady(ctx context.Context, wait time.Duration, dial func(context.Co
 	}
 }
 
+func bareHost(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return strings.TrimSuffix(strings.ToLower(host), ".")
+}
+
+// isAPIHost says a request came in under an --api-host name: the bearer API
+// and nothing else, neither a sprite nor the dashboard.
+func (s *Server) isAPIHost(host string) bool {
+	return len(s.opts.APIHosts) > 0 && slices.Contains(s.opts.APIHosts, bareHost(host))
+}
+
 // spriteForHost maps "<name>.<url-domain>[:port]", or a custom domain attached
 // to a sprite (domains.go), to a sprite name. A sprite answers only under its
 // own URL domain: app-1.example.com is not app-1.widgets.test's URL.
 func (s *Server) spriteForHost(host string) (string, bool) {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
+	host = bareHost(host)
+	if slices.Contains(s.opts.APIHosts, host) {
+		return "", false
 	}
-	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if domain, ok := URLDomainUnder(s.urlDomains, host); ok {
 		name := strings.TrimSuffix(host, "."+domain)
 		if strings.Contains(name, ".") {
@@ -228,11 +240,10 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 	}
 	noteSprite(r.Context(), sp.Name)
 	if sp.URLSettings.Auth != "public" {
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+		if p, ok := s.authenticate(bearer(r)); !ok || !p.admin() {
 			noteErr(r.Context(), "token required")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="sprite"`)
-			http.Error(w, "this sprite's URL requires an API token (url_settings.auth is \"sprite\")", http.StatusUnauthorized)
+			http.Error(w, "this sprite's URL requires an admin API key (url_settings.auth is \"sprite\")", http.StatusUnauthorized)
 			return
 		}
 	}
