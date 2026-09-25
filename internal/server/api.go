@@ -458,6 +458,11 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 		URLSettings *store.URLSettings `json:"url_settings"`
 		Labels      []string           `json:"labels"`
 		ClearLabels bool               `json:"clear_labels"`
+		// URLDomain, ours, moves the sprite's URL to another of the --url-domain
+		// list: same sprite, same name, same disk, a new <name>.<domain>. The old
+		// URL stops answering at once. Only from outside: a spawner's children
+		// keep the domain they were made under.
+		URLDomain string `json:"url_domain"`
 		// The lease, ours (leases.go). It is not written here: it goes through
 		// the one path that is serialized against the reaper.
 		leaseRequest
@@ -468,6 +473,11 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.URLSettings != nil && !validAuth(req.URLSettings.Auth) {
 		writeErr(w, http.StatusBadRequest, "bad_request", `url_settings.auth must be "sprite" or "public"`)
+		return
+	}
+	domain := strings.TrimSuffix(strings.ToLower(req.URLDomain), ".")
+	if domain != "" && !slices.Contains(s.urlDomains, domain) {
+		writeErr(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("url_domain must be one of %s", strings.Join(s.urlDomains, ", ")))
 		return
 	}
 	// The lease first: a sprite the reaper has taken is not one to relabel
@@ -487,11 +497,17 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 		if req.ClearLabels {
 			sp.Labels = nil
 		}
+		if domain != "" {
+			sp.URLDomain = domain
+		}
 		sp.UpdatedAt = time.Now().UTC()
 	})
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return
+	}
+	if domain != "" {
+		s.log.Info("sprite URL moved", "sprite", sp.Name, "url_domain", domain)
 	}
 	writeJSON(w, http.StatusOK, s.render(sp))
 }

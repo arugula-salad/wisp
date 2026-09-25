@@ -112,3 +112,26 @@ func TestNestedURLDomainsGoToTheMostSpecific(t *testing.T) {
 		t.Error("a custom domain under the nested URL domain was accepted")
 	}
 }
+
+// A sprite can be moved to another URL domain from outside: same sprite, a new
+// URL, and the old one stops answering.
+func TestASpriteCanMoveToAnotherURLDomain(t *testing.T) {
+	s, h := twoDomainServer(t)
+	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"game-1","url_domain":"widgets.test"}`), http.StatusCreated)
+	moved := rendered(t, status(t, apiCall(t, h, "PUT", "/v1/sprites/game-1", `{"url_domain":"Arugula.Test."}`), http.StatusOK))
+	if moved.URL != "https://game-1.arugula.test" || moved.URLDomain != "arugula.test" {
+		t.Errorf("moved: url %q, url_domain %q", moved.URL, moved.URLDomain)
+	}
+	if _, ok := s.spriteForHost("game-1.widgets.test"); ok {
+		t.Error("the old URL still answers")
+	}
+	if name, ok := s.spriteForHost("game-1.arugula.test"); !ok || name != "game-1" {
+		t.Errorf("the new URL: %q, %v", name, ok)
+	}
+	status(t, apiCall(t, h, "PUT", "/v1/sprites/game-1", `{"url_domain":"evil.example"}`), http.StatusBadRequest)
+	// Leaving it out changes nothing.
+	same := rendered(t, status(t, apiCall(t, h, "PUT", "/v1/sprites/game-1", `{"labels":["x"]}`), http.StatusOK))
+	if same.URLDomain != "arugula.test" {
+		t.Errorf("a labels-only update moved it to %q", same.URLDomain)
+	}
+}

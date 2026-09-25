@@ -56,6 +56,9 @@ the default. Each sprite is under exactly one of them:
 - `POST /v1/sprites` takes `"url_domain"`, which must be one of the list; without it the
   sprite gets the first. A sprite made from inside (a spawner's child) always gets its
   parent's, whatever it asks for, so a studio on one domain makes its apps on that domain.
+- `PUT /v1/sprites/<name>` with `"url_domain"` moves a sprite to another of the list: same
+  sprite, same name and disk, a new URL; the old one stops answering. Anything inside the
+  guest that knows its own hostname has to be told. Only from outside, like every update.
 - The API reports it as `url_domain`, next to `url`. A sprite answers only under its own
   domain: `app-1.arugula.io` is not `app-1.widgets.wtf`'s URL.
 - Each domain gets its own wildcard certificate (DNS-01 through the same Cloudflare token,
