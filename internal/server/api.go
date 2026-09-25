@@ -61,12 +61,10 @@ type Server struct {
 	mux     *http.ServeMux // routes
 }
 
-// New takes urlFmt, the pattern for the URL a sprite is reported to have: where
-// clients reach it, which only the operator knows once a router is involved.
-// It is given the sprite's name and then its URL domain, one of urlDomains.
-func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token, org string, urlDomains []string, urlFmt string) *Server {
-	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: org,
-		urlDomains: urlDomains, urlFmt: urlFmt, started: time.Now()}
+// New serves the API over st and life. token is the root bearer token.
+func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token string) *Server {
+	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: opts.Org,
+		urlDomains: opts.URLDomains, urlFmt: opts.URLFormat, started: time.Now()}
 	life.guestAPI = s.guestAPI
 	s.keys = openKeyring(opts.DataDir)
 	if s.keys.broken != nil {

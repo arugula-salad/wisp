@@ -79,6 +79,15 @@ type Options struct {
 	DiskWarnPercent int
 	// Listen is the API address, reported by the status views.
 	Listen string
+	// Org is the organization name reported in API responses.
+	Org string
+	// URLDomains are the domains sprite URLs are under, <name>.<domain>; the
+	// first is the default.
+	URLDomains []string
+	// URLFormat is the pattern for the URL a sprite is reported to have: where
+	// clients reach it, which only the operator knows once a router is
+	// involved. It is given the sprite's name and then its URL domain.
+	URLFormat string
 	// APIHosts are names a reverse proxy in front of the API listener serves it
 	// under, for the public. They are the bearer API alone: never a sprite URL,
 	// even under a URL domain (wisp.widgets.wtf with --url-domain widgets.wtf),

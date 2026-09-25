@@ -167,7 +167,8 @@ func main() {
 			urlFmt += fmt.Sprintf(":%d", f.publicPort)
 		}
 	}
-	api := server.New(opts, st, life, log, token, f.org, urlDomains, urlFmt)
+	opts.Org, opts.URLDomains, opts.URLFormat = f.org, urlDomains, urlFmt
+	api := server.New(opts, st, life, log, token)
 	api.StartMetrics()
 	srv := &http.Server{Addr: f.listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
 	srv.RegisterOnShutdown(api.CloseEvents) // event streams never finish on their own
