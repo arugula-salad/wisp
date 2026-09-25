@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,7 +29,7 @@ func TestExecPostChunkFraming(t *testing.T) {
 	}
 	t.Cleanup(func() { c.DeleteSprite(context.Background(), name) })
 
-	base, _ := url.Parse(os.Getenv("SPRITES_E2E_URL"))
+	base, _ := url.Parse(e2eURL())
 	conn, err := net.Dial("tcp", base.Host)
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +43,7 @@ func TestExecPostChunkFraming(t *testing.T) {
 	q := url.Values{"cmd": {"sh", "-c", script}, "stdin": {"true"}}
 	stdin := "from-stdin"
 	fmt.Fprintf(conn, "POST /v1/sprites/%s/exec?%s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Length: %d\r\n\r\n%s",
-		name, q.Encode(), base.Host, os.Getenv("SPRITES_E2E_TOKEN"), len(stdin), stdin)
+		name, q.Encode(), base.Host, e2eToken(), len(stdin), stdin)
 
 	br := bufio.NewReader(conn)
 	status, _ := br.ReadString('\n')

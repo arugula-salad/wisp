@@ -26,8 +26,8 @@ import (
 // api makes a raw API call and returns the status and body.
 func api(t *testing.T, method, path, body string) (int, string) {
 	t.Helper()
-	req, _ := http.NewRequest(method, os.Getenv("SPRITES_E2E_URL")+path, strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("SPRITES_E2E_TOKEN"))
+	req, _ := http.NewRequest(method, e2eURL()+path, strings.NewReader(body))
+	req.Header = e2eAuth()
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -359,8 +359,8 @@ type watchMessage struct {
 
 func dialWatch(t *testing.T, sprite string) *websocket.Conn {
 	t.Helper()
-	u := "ws" + strings.TrimPrefix(os.Getenv("SPRITES_E2E_URL"), "http") + "/v1/sprites/" + sprite + "/fs/watch"
-	conn, resp, err := websocket.DefaultDialer.Dial(u, http.Header{"Authorization": {"Bearer " + os.Getenv("SPRITES_E2E_TOKEN")}})
+	u := e2eWS("/v1/sprites/" + sprite + "/fs/watch")
+	conn, resp, err := websocket.DefaultDialer.Dial(u, e2eAuth())
 	if err != nil {
 		var body bytes.Buffer
 		if resp != nil {

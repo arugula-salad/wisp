@@ -77,13 +77,13 @@ func TestControlIsWithheldOnlyFromTheGoSDK(t *testing.T) {
 	}
 	t.Cleanup(func() { c.DeleteSprite(context.Background(), name) })
 
-	u := "ws" + strings.TrimPrefix(os.Getenv("SPRITES_E2E_URL"), "http") + "/v1/sprites/" + name + "/control"
+	u := e2eWS("/v1/sprites/" + name + "/control")
 	for ua, wantStatus := range map[string]int{
 		"sprites-go-sdk/1.0":          http.StatusNotFound,           // falls back to a socket per operation
 		"":                            http.StatusSwitchingProtocols, // JS (Node sends none) and raw clients
 		"Python/3.14 websockets/15.0": http.StatusSwitchingProtocols,
 	} {
-		h := http.Header{"Authorization": {"Bearer " + os.Getenv("SPRITES_E2E_TOKEN")}}
+		h := e2eAuth()
 		if ua != "" {
 			h.Set("User-Agent", ua)
 		}

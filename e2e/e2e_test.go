@@ -24,8 +24,17 @@ import (
 	sprites "github.com/superfly/sprites-go"
 )
 
+// The daemon under test, from the environment (see the top of this file).
+func e2eURL() string   { return os.Getenv("SPRITES_E2E_URL") }
+func e2eToken() string { return os.Getenv("SPRITES_E2E_TOKEN") }
+
+func e2eAuth() http.Header { return http.Header{"Authorization": {"Bearer " + e2eToken()}} }
+
+// e2eWS is the WebSocket URL of an API path.
+func e2eWS(path string) string { return "ws" + strings.TrimPrefix(e2eURL(), "http") + path }
+
 func client(t *testing.T) *sprites.Client {
-	url, tok := os.Getenv("SPRITES_E2E_URL"), os.Getenv("SPRITES_E2E_TOKEN")
+	url, tok := e2eURL(), e2eToken()
 	if url == "" || tok == "" {
 		t.Skip("SPRITES_E2E_URL / SPRITES_E2E_TOKEN not set")
 	}
@@ -36,10 +45,10 @@ func client(t *testing.T) *sprites.Client {
 // dial the API address and send the sprite's hostname in the Host header.
 func fetchURL(t *testing.T, sprite string) string {
 	t.Helper()
-	base, _ := url.Parse(os.Getenv("SPRITES_E2E_URL"))
+	base, _ := url.Parse(e2eURL())
 	req, _ := http.NewRequest(http.MethodGet, base.String()+"/", nil)
 	req.Host = sprite + ".sprites.localhost:" + base.Port()
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("SPRITES_E2E_TOKEN"))
+	req.Header = e2eAuth()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("fetch sprite URL: %v", err)
