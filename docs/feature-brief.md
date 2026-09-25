@@ -3,6 +3,12 @@
 Date: 2026-09-22  
 Status: Proposed
 
+> Kept as written, from before the project was renamed wisp. Since then items 1, 2, 4 and 6
+> have shipped (see [lifecycle](lifecycle.md) and [operations](operations.md)). Two shipped in
+> part: item 3 as `wispd status` and the [event stream](events.md), without a per-sprite
+> diagnostic endpoint, and item 5 as named keys with admin and read scopes
+> ([API keys](api-keys.md)), without per-sprite scoping or expiry.
+
 ## Objective
 
 Make mini-sprites a practical home for coding agents, experiments, and PR previews: prepare a workspace once, fork it cheaply, delegate access, and clean it up automatically while keeping the host predictable and easy to diagnose.

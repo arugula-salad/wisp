@@ -4,8 +4,9 @@
 // nothing here needs multipart uploads: every object is a 4 MiB chunk or a small
 // JSON blob.
 //
-// Path-style is not a preference. Garage's s3_api.root_domain (.s3.home.local)
-// does not resolve on the tailnet, so virtual-host addressing cannot work.
+// Path-style is not a preference: self-hosted stores (Garage, MinIO) are often
+// reached at a name whose bucket subdomains do not resolve, where virtual-host
+// addressing cannot work.
 package s3
 
 import (

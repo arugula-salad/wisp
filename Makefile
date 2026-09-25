@@ -2,7 +2,7 @@ GO ?= go
 export WISP_DATA ?= $(HOME)/.local/share/wisp
 
 .PHONY: all build netd deps image initrd run install-service test e2e
-all: build initrd
+all: build netd initrd
 
 build:
 	$(GO) build -o bin/wispd ./cmd/wispd
