@@ -80,7 +80,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
 	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
-		go s.autoCheckpoints()
+		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.autoCheckpoints)
 	}
 	if opts.Backup.Bucket != "" {
 		s.backups = newBackupManager(s, backup.Config{Endpoint: opts.Backup.Endpoint,

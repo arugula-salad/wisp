@@ -171,11 +171,17 @@ type Lifecycle struct {
 	events *eventBus
 	// denials rate-limits policy.denied events for the network policy.
 	denials *rateLimiter
+
+	// quit is closed by Shutdown to stop the loops started with every; loops
+	// is how Shutdown waits for the pass in flight before it suspends anything.
+	quit     chan struct{}
+	quitting bool // guarded by mu
+	loops    sync.WaitGroup
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log), events: newEventBus(),
-		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate)}
+		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate), quit: make(chan struct{})}
 	l.disk.events = l.events
 	if opts.NoNetwork {
 		log.Info("guest networking disabled by --net=false")
@@ -203,8 +209,32 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	// sweeping before the reaping above would leave every stale leaf behind.
 	opts.Host.Confine.SweepStale()
 	l.egress = newEgress(opts, st, log, l.gateway, l.networkDenied)
-	go l.janitor()
+	l.every(30*time.Second, l.janitor)
 	return l
+}
+
+// every runs pass each period until Shutdown. A loop started once Shutdown
+// has begun never runs.
+func (l *Lifecycle) every(period time.Duration, pass func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.quitting {
+		return
+	}
+	l.loops.Add(1)
+	go func() {
+		defer l.loops.Done()
+		t := time.NewTicker(period)
+		defer t.Stop()
+		for {
+			select {
+			case <-l.quit:
+				return
+			case <-t.C:
+				pass()
+			}
+		}
+	}()
 }
 
 // bridgeAddr returns the sprite bridge's IPv4 address. setup-host.sh owns the
@@ -677,8 +707,17 @@ func (l *Lifecycle) Forget(id string) {
 	l.mu.Unlock()
 }
 
-// Shutdown suspends every running sprite so they come back warm.
+// Shutdown suspends every running sprite so they come back warm. The
+// background loops stop first, so none is cooling, reaping or checkpointing a
+// sprite while it suspends.
 func (l *Lifecycle) Shutdown() {
+	l.mu.Lock()
+	if !l.quitting {
+		l.quitting = true
+		close(l.quit)
+	}
+	l.mu.Unlock()
+	l.loops.Wait()
 	var wg sync.WaitGroup
 	for _, sp := range l.store.List("") {
 		wg.Add(1)
@@ -696,13 +735,11 @@ func (l *Lifecycle) Shutdown() {
 // janitor turns long-suspended sprites cold by dropping their memory snapshot,
 // and deletes the sprites whose workspace lease has run out.
 func (l *Lifecycle) janitor() {
-	for range time.Tick(30 * time.Second) {
-		l.disk.watch()
-		l.reapLeases() // before cooling: a sprite on its way out needs no snapshot work
-		for _, sp := range l.store.List("") {
-			if l.warmExpired(sp) {
-				l.coolIfExpired(sp)
-			}
+	l.disk.watch()
+	l.reapLeases() // before cooling: a sprite on its way out needs no snapshot work
+	for _, sp := range l.store.List("") {
+		if l.warmExpired(sp) {
+			l.coolIfExpired(sp)
 		}
 	}
 }

@@ -257,33 +257,31 @@ func (s *Server) restoreCheckpointLocked(rt *runtime, name, id string, info prog
 	return nil
 }
 
-// autoCheckpoints is the background loop: a sprite that has run, whose disk was
+// autoCheckpoints is one pass of the background loop: a sprite that has run, whose disk was
 // written since its newest checkpoint of any kind, and whose newest checkpoint
 // is older than the interval, gets an auto. It never wakes a sprite (a
 // suspended disk is cloned as it lies) and never counts as activity.
 func (s *Server) autoCheckpoints() {
 	every := s.opts.AutoCheckpointInterval
-	for range time.Tick(min(max(every/10, time.Second), time.Minute)) {
-		for _, sp := range s.store.List("") {
-			if sp.LastRunningAt == nil {
-				continue
-			}
-			last := sp.CreatedAt
-			if n := len(sp.Checkpoints); n > 0 {
-				last = sp.Checkpoints[n-1].CreateTime
-			}
-			st, err := os.Stat(filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile))
-			if err != nil || time.Since(last) < every || !st.ModTime().After(last) {
-				continue
-			}
-			rt := s.life.rt(sp.ID)
-			rt.mu.Lock()
-			err = s.autoCheckpointLocked(rt, sp.Name, "", "", func(string, ...any) {})
-			rt.mu.Unlock()
-			// A full volume is already in the log (diskguard.go); not once per sprite per tick too.
-			if err != nil && !errors.Is(err, errNoRoom) {
-				s.log.Warn("auto checkpoint failed", "sprite", sp.Name, "err", err)
-			}
+	for _, sp := range s.store.List("") {
+		if sp.LastRunningAt == nil {
+			continue
+		}
+		last := sp.CreatedAt
+		if n := len(sp.Checkpoints); n > 0 {
+			last = sp.Checkpoints[n-1].CreateTime
+		}
+		st, err := os.Stat(filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile))
+		if err != nil || time.Since(last) < every || !st.ModTime().After(last) {
+			continue
+		}
+		rt := s.life.rt(sp.ID)
+		rt.mu.Lock()
+		err = s.autoCheckpointLocked(rt, sp.Name, "", "", func(string, ...any) {})
+		rt.mu.Unlock()
+		// A full volume is already in the log (diskguard.go); not once per sprite per tick too.
+		if err != nil && !errors.Is(err, errNoRoom) {
+			s.log.Warn("auto checkpoint failed", "sprite", sp.Name, "err", err)
 		}
 	}
 }
