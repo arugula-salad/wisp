@@ -4,8 +4,8 @@
 # validate it over TLS-ALPN-01 on the public listener, fetch the sprite through it.
 # Nothing here touches real DNS, Let's Encrypt or another daemon.
 #
-#   ./scripts/dev-data.sh /tmp/ms-dom && WISP_DATA=/tmp/ms-dom ./scripts/build-initrd.sh
-#   ./scripts/verify-custom-domains.sh /tmp/ms-dom
+#   ./scripts/dev-data.sh /tmp/wisp-dom && WISP_DATA=/tmp/wisp-dom ./scripts/build-initrd.sh
+#   ./scripts/verify-custom-domains.sh /tmp/wisp-dom
 #
 # Needs pebble and pebble-challtestsrv on PATH:
 #   go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest

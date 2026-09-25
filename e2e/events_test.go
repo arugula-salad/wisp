@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -35,8 +34,8 @@ func openEvents(t *testing.T, query string, header http.Header) <-chan frame {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, os.Getenv("SPRITES_E2E_URL")+"/wisp/v1/events?"+query, nil)
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("SPRITES_E2E_TOKEN"))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e2eURL()+"/wisp/v1/events?"+query, nil)
+	req.Header = e2eAuth()
 	for k, v := range header {
 		req.Header[k] = v
 	}
@@ -110,8 +109,8 @@ func types(fs []frame) []string {
 // uiAction drives the web UI's operator actions (suspend, cool), which the API has no route for.
 func uiAction(t *testing.T, name, action string) {
 	t.Helper()
-	base := os.Getenv("SPRITES_E2E_URL")
-	resp, err := http.Post(base+"/ui/login", "application/json", strings.NewReader(`{"token":"`+os.Getenv("SPRITES_E2E_TOKEN")+`"}`))
+	base := e2eURL()
+	resp, err := http.Post(base+"/ui/login", "application/json", strings.NewReader(`{"token":"`+e2eToken()+`"}`))
 	if err != nil || resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("ui login: %v %v", err, resp)
 	}

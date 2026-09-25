@@ -3,9 +3,9 @@
 # artifacts (firecracker, kernel, base image) with the main one, so several
 # isolated stacks can run side by side:
 #
-#   ./scripts/dev-data.sh /tmp/ms-a            # keep the path SHORT: it holds unix sockets (108-byte limit)
-#   WISP_DATA=/tmp/ms-a ./scripts/build-initrd.sh
-#   ./bin/wispd --data /tmp/ms-a --listen 127.0.0.1:7801 --net=false
+#   ./scripts/dev-data.sh /tmp/wisp-a            # keep the path SHORT: it holds unix sockets (108-byte limit)
+#   WISP_DATA=/tmp/wisp-a ./scripts/build-initrd.sh
+#   ./bin/wispd --data /tmp/wisp-a --listen 127.0.0.1:7801 --net=false
 set -euo pipefail
 DEST="${1:?usage: dev-data.sh <short-dir>}"
 MAIN="${WISP_MAIN_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}"

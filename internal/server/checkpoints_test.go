@@ -26,7 +26,7 @@ func newCheckpointServer(t *testing.T, keep int) (*Server, *runtime, func() stri
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	opts := Options{NoNetwork: true, AutoCheckpointKeep: keep}
-	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "org", []string{"sprites.localhost"}, "http://%s.%s:0")
+	s := New(testURLs(opts, "org", "http://%s.%s:0"), st, NewLifecycle(opts, st, log), log, "tok")
 	sp := &store.Sprite{ID: store.NewID(), Name: "cp", CreatedAt: time.Now()}
 	if err := st.Create(sp); err != nil {
 		t.Fatal(err)

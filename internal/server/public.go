@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/httpstats"
 	"golang.org/x/crypto/acme"
 )
 
@@ -14,10 +15,10 @@ import (
 // nothing else. The management API is not reachable through it whatever the
 // request says, because its routes are simply not here.
 func (s *Server) PublicHandler() http.Handler {
-	return s.instrument(func(*http.Request) string { return kindSprite }, true, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.httpStats.Instrument(func(*http.Request) string { return httpstats.KindSprite }, true, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name, ok := s.spriteForHost(r.Host)
 		if !ok {
-			noteErr(r.Context(), "unknown host")
+			httpstats.NoteErr(r.Context(), "unknown host")
 			http.NotFound(w, r)
 			return
 		}

@@ -57,7 +57,7 @@ func (l *syncBuf) Write(p []byte) (int, error) { l.mu.Lock(); defer l.mu.Unlock(
 func (l *syncBuf) String() string              { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
 
 func TestNetworkPolicyInNamespaces(t *testing.T) {
-	setup, netdBin := os.Getenv("MS_SETUP"), os.Getenv("MS_NETD")
+	setup, netdBin := os.Getenv("WISP_SETUP"), os.Getenv("WISP_NETD")
 	if setup == "" || netdBin == "" || os.Getuid() != 0 {
 		t.Skip("run via scripts/test-netpolicy-netns.sh")
 	}

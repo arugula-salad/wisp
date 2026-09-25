@@ -10,7 +10,7 @@ make netd     # build the network-policy helper that setup-host.sh installs
 ./scripts/test-netpolicy-netns.sh     # the real nft ruleset + helper, in a rootless podman netns
 ./scripts/verify-network-policy.sh    # network policy on the real host, from inside real guests
 ./scripts/verify-backup.sh            # backs a sprite up, deletes its whole data directory, restores it
-./scripts/verify-custom-domains.sh /tmp/ms-x   # custom domain + TLS-ALPN-01 against a local pebble; E2E_RUN=. for the whole suite
+./scripts/verify-custom-domains.sh /tmp/wisp-x   # custom domain + TLS-ALPN-01 against a local pebble; E2E_RUN=. for the whole suite
 ```
 
 e2e knobs: `SPRITES_E2E_IDLE_TIMEOUT=<the daemon's --idle-timeout>` enables the lifecycle
@@ -27,7 +27,7 @@ The backup suite skips itself unless the daemon under test was started with a re
 Only one wispd per host may own the tap pool. For extra dev/test stacks:
 
 ```sh
-./scripts/dev-data.sh /tmp/ms-x            # keep it short: the dir holds unix sockets (108-byte limit)
-WISP_DATA=/tmp/ms-x ./scripts/build-initrd.sh
-./bin/wispd --data /tmp/ms-x --listen 127.0.0.1:7801 --net=false
+./scripts/dev-data.sh /tmp/wisp-x            # keep it short: the dir holds unix sockets (108-byte limit)
+WISP_DATA=/tmp/wisp-x ./scripts/build-initrd.sh
+./bin/wispd --data /tmp/wisp-x --listen 127.0.0.1:7801 --net=false
 ```

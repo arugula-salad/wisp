@@ -146,6 +146,8 @@ func TestCloningFromACheckpoint(t *testing.T) {
 		t.Fatal("a failed clone left a sprite behind")
 	}
 
+	// No body is fine (above, and below); a body that is not JSON is not.
+	status(t, apiCall(t, h, "POST", "/v1/sprites/template/checkpoint", "{not json"), http.StatusBadRequest)
 	for _, name := range []string{"template", "private"} {
 		setDisk(name, name+" with the game installed")
 		status(t, apiCall(t, h, "POST", "/v1/sprites/"+name+"/checkpoint", ""), http.StatusOK)

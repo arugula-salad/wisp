@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"regexp"
 	"sync"
@@ -143,8 +142,7 @@ func (s *Server) registerGuestEvents(mux *http.ServeMux, sp store.Sprite) {
 			return
 		}
 		var rep serviceReport
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&rep); err != nil {
-			writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		if !readJSON(w, r, 4096, &rep) {
 			return
 		}
 		e, ok := serviceEvent(self, rep)

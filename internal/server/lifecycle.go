@@ -19,12 +19,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 const (
-	agentPort  = 1024
+	agentPort = 1024
+	// The bridge and taps keep the names they had before the project was
+	// renamed wisp: setup-host.sh creates them as root, and the nftables and
+	// ufw rules it installs name them too, so renaming means re-running it.
 	bridgeName = "msbr0"
 	tapPrefix  = "mstap"
 )
@@ -75,6 +79,15 @@ type Options struct {
 	DiskWarnPercent int
 	// Listen is the API address, reported by the status views.
 	Listen string
+	// Org is the organization name reported in API responses.
+	Org string
+	// URLDomains are the domains sprite URLs are under, <name>.<domain>; the
+	// first is the default.
+	URLDomains []string
+	// URLFormat is the pattern for the URL a sprite is reported to have: where
+	// clients reach it, which only the operator knows once a router is
+	// involved. It is given the sprite's name and then its URL domain.
+	URLFormat string
 	// APIHosts are names a reverse proxy in front of the API listener serves it
 	// under, for the public. They are the bearer API alone: never a sprite URL,
 	// even under a URL domain (wisp.widgets.wtf with --url-domain widgets.wtf),
@@ -358,7 +371,7 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 			}
 			return nil, nil, err
 		}
-		noteWake(ctx, time.Since(start), from)
+		httpstats.NoteWake(ctx, time.Since(start), from)
 	}
 	rt.begin()
 	var once sync.Once
@@ -498,6 +511,17 @@ func consoleTail(dir string) string {
 // socket wispd does not pin (a control channel) after the last activity check.
 var errGuestBusy = errors.New("guest became active")
 
+// agentDial reaches m's guest agent over vsock.
+func agentDial(m *vmm.Machine) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }
+}
+
+// agentTransport carries HTTP to m's guest agent, a fresh vsock stream per
+// request: there is nothing to keep alive across a suspend.
+func agentTransport(m *vmm.Machine) *http.Transport {
+	return &http.Transport{DisableKeepAlives: true, DialContext: agentDial(m)}
+}
+
 // agentCall makes one HTTP request to the guest agent over a fresh vsock stream.
 func agentCall(ctx context.Context, m *vmm.Machine, method, path string, body any, out any) error {
 	var rd io.Reader
@@ -509,9 +533,7 @@ func agentCall(ctx context.Context, m *vmm.Machine, method, path string, body an
 	if err != nil {
 		return err
 	}
-	tr := &http.Transport{DisableKeepAlives: true,
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }}
-	resp, err := tr.RoundTrip(req)
+	resp, err := agentTransport(m).RoundTrip(req)
 	if err != nil {
 		return err
 	}

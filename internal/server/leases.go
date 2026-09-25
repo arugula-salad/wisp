@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -284,8 +283,7 @@ func (s *Server) registerLeases(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST "+leasePath, func(w http.ResponseWriter, r *http.Request) {
 		var req leaseRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
-			writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		if !readJSON(w, r, 1<<16, &req) {
 			return
 		}
 		if sp, ok := s.applyLease(w, r, req); ok {

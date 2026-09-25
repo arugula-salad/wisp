@@ -8,7 +8,7 @@
 # check is scripts/verify-network-policy.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-IMG=localhost/ms-netpolicy-test
+IMG=localhost/wisp-netpolicy-test
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
@@ -23,5 +23,5 @@ CGO_ENABLED=0 go test -c -tags netns -o "$OUT/server.test" ./internal/server
 cp scripts/setup-host.sh "$OUT/"
 
 podman run --rm --cap-add NET_ADMIN,SYS_ADMIN,NET_RAW --sysctl net.ipv4.ip_forward=1 \
-  -v "$OUT:/ms:ro" -e MS_SETUP=/ms/setup-host.sh -e MS_NETD=/ms/wisp-netd \
-  "$IMG" /ms/server.test -test.run TestNetworkPolicyInNamespaces -test.v -test.count=1
+  -v "$OUT:/wisp:ro" -e WISP_SETUP=/wisp/setup-host.sh -e WISP_NETD=/wisp/wisp-netd \
+  "$IMG" /wisp/server.test -test.run TestNetworkPolicyInNamespaces -test.v -test.count=1

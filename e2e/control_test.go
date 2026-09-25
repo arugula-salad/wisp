@@ -45,8 +45,8 @@ func needGoSDKControl(t *testing.T) {
 // dialSprite opens one of a sprite's WebSocket endpoints through wispd.
 func dialSprite(t *testing.T, sprite, endpoint string) *websocket.Conn {
 	t.Helper()
-	u := "ws" + strings.TrimPrefix(os.Getenv("SPRITES_E2E_URL"), "http") + "/v1/sprites/" + sprite + endpoint
-	conn, resp, err := websocket.DefaultDialer.Dial(u, http.Header{"Authorization": {"Bearer " + os.Getenv("SPRITES_E2E_TOKEN")}})
+	u := e2eWS("/v1/sprites/" + sprite + endpoint)
+	conn, resp, err := websocket.DefaultDialer.Dial(u, e2eAuth())
 	if err != nil {
 		body := ""
 		if resp != nil {
@@ -105,8 +105,8 @@ func TestControlChannel(t *testing.T) {
 
 	// The SDK cannot set a sprite-level environment, and the control route has to carry it like /exec does.
 	body := fmt.Sprintf(`{"name":%q,"environment":{"FROM_SPRITE":"yes"}}`, name)
-	req, _ := http.NewRequest(http.MethodPost, os.Getenv("SPRITES_E2E_URL")+"/v1/sprites", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("SPRITES_E2E_TOKEN"))
+	req, _ := http.NewRequest(http.MethodPost, e2eURL()+"/v1/sprites", strings.NewReader(body))
+	req.Header = e2eAuth()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create: %v %v", resp, err)
@@ -277,7 +277,7 @@ func TestControlChannel(t *testing.T) {
 		// names. Like the CLI, with the control channel off: over it the SDK's proxy
 		// (v0.2.1) reads the socket from two goroutines at once, and the pool's read
 		// loop swallows the handshake reply, so it hangs against any server.
-		direct := sprites.New(os.Getenv("SPRITES_E2E_TOKEN"), sprites.WithBaseURL(os.Getenv("SPRITES_E2E_URL")), sprites.WithDisableControl())
+		direct := sprites.New(e2eToken(), sprites.WithBaseURL(e2eURL()), sprites.WithDisableControl())
 		ln, _ := net.Listen("tcp", "127.0.0.1:0")
 		local := ln.Addr().(*net.TCPAddr).Port
 		ln.Close()

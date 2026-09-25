@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,10 +18,10 @@ import (
 // unlike fetchURL nothing here treats a non-200 as a fatal error.
 func fetchSpriteURL(t *testing.T, sprite string) (int, http.Header, string) {
 	t.Helper()
-	base, _ := url.Parse(os.Getenv("SPRITES_E2E_URL"))
+	base, _ := url.Parse(e2eURL())
 	req, _ := http.NewRequest(http.MethodGet, base.String()+"/", nil)
 	req.Host = sprite + ".sprites.localhost:" + base.Port()
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("SPRITES_E2E_TOKEN"))
+	req.Header = e2eAuth()
 	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
 	if err != nil {
 		t.Fatalf("fetch sprite URL: %v", err)

@@ -36,8 +36,14 @@ func newOperatorServer(t *testing.T, opts Options) (*Server, http.Handler) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	s := New(opts, st, NewLifecycle(opts, st, log), log, "tok", "acme", []string{"sprites.localhost"}, "0")
+	s := New(testURLs(opts, "acme", "0"), st, NewLifecycle(opts, st, log), log, "tok")
 	return s, s.Handler()
+}
+
+// testURLs gives opts the organization and sprite URLs New reports.
+func testURLs(opts Options, org, urlFmt string) Options {
+	opts.Org, opts.URLDomains, opts.URLFormat = org, []string{"sprites.localhost"}, urlFmt
+	return opts
 }
 
 func apiCall(t *testing.T, h http.Handler, method, path, body string) *http.Response {

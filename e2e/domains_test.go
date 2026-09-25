@@ -104,7 +104,7 @@ func TestCustomDomain(t *testing.T) {
 
 	t.Run("served over the issued certificate, under the sprite's URL auth", func(t *testing.T) {
 		cl := https(false)
-		if code, body := fetch(t, cl, domain, os.Getenv("SPRITES_E2E_TOKEN")); code != http.StatusOK || body != "served at a custom domain\n" {
+		if code, body := fetch(t, cl, domain, e2eToken()); code != http.StatusOK || body != "served at a custom domain\n" {
 			t.Fatalf("with the token: %d %q", code, body)
 		}
 		if code, _ := fetch(t, cl, domain, ""); code != http.StatusUnauthorized {

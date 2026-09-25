@@ -2,10 +2,8 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -61,7 +59,7 @@ func (s *Server) controlRelay(w http.ResponseWriter, r *http.Request) {
 	defer release()
 
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second, ReadBufferSize: 64 * 1024, WriteBufferSize: 64 * 1024,
-		NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }}
+		NetDialContext: agentDial(m)}
 	backend, resp, err := dialer.DialContext(r.Context(), "ws://agent/control?"+withSpriteEnv(r.URL.Query(), sp).Encode(), nil)
 	if err != nil {
 		if resp != nil { // the agent refused the upgrade; its answer is the client's answer

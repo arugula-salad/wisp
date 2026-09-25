@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -216,13 +217,13 @@ func spriteURLProxy(dial func(context.Context) (net.Conn, error), wait time.Dura
 				// Honest and temporary: the sprite is up, its app is not there
 				// yet. A 502 would tell a visitor (or a crawler) the site is
 				// broken; this tells them to come back.
-				noteErr(r.Context(), "app not ready")
+				httpstats.NoteErr(r.Context(), "app not ready")
 				w.Header().Set("Retry-After", strconv.Itoa(urlRetryAfter))
 				http.Error(w, "this sprite is starting up and its app is not listening yet. Try again in a few seconds.",
 					http.StatusServiceUnavailable)
 				return
 			}
-			noteErr(r.Context(), "app unreachable")
+			httpstats.NoteErr(r.Context(), "app unreachable")
 			http.Error(w, "sprite is awake but the request failed: "+err.Error(), http.StatusBadGateway)
 		},
 	}
@@ -234,14 +235,14 @@ func spriteURLProxy(dial func(context.Context) (net.Conn, error), wait time.Dura
 func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name string, public bool) {
 	sp, err := s.store.Get(name)
 	if err != nil {
-		noteErr(r.Context(), "no such sprite")
+		httpstats.NoteErr(r.Context(), "no such sprite")
 		http.Error(w, "no such sprite", http.StatusNotFound)
 		return
 	}
-	noteSprite(r.Context(), sp.Name)
+	httpstats.NoteSprite(r.Context(), sp.Name)
 	if sp.URLSettings.Auth != "public" {
 		if p, ok := s.authenticate(bearer(r)); !ok || !p.admin() {
-			noteErr(r.Context(), "token required")
+			httpstats.NoteErr(r.Context(), "token required")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="sprite"`)
 			http.Error(w, "this sprite's URL requires an admin API key (url_settings.auth is \"sprite\")", http.StatusUnauthorized)
 			return
@@ -250,13 +251,13 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 	m, release, err := s.life.Acquire(r.Context(), sp)
 	var lim *LimitError
 	if errors.As(err, &lim) {
-		noteErr(r.Context(), "at a limit")
+		httpstats.NoteErr(r.Context(), "at a limit")
 		writeLimitErr(w, lim)
 		return
 	}
 	if err != nil {
 		s.log.Error("wake failed", "sprite", sp.Name, "err", err)
-		noteErr(r.Context(), "wake failed")
+		httpstats.NoteErr(r.Context(), "wake failed")
 		msg := "sprite failed to wake"
 		if !public {
 			msg += ": " + err.Error() // host paths and the guest console

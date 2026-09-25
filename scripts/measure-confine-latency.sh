@@ -17,7 +17,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 ITER="${1:-10}"
-DEST="${WISP_LAT_DATA:-/tmp/ms-lat}"
+DEST="${WISP_LAT_DATA:-/tmp/wisp-lat}"
 PORT="${WISP_LAT_PORT:-7801}"
 URL="http://127.0.0.1:$PORT"
 IDLE=2s

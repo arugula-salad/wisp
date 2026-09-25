@@ -173,7 +173,7 @@ func TestLandlockConfinesVMM(t *testing.T) {
 		}
 	}
 	token := filepath.Join(data, "token")
-	if err := os.WriteFile(token, []byte("msprite_secret"), 0o600); err != nil {
+	if err := os.WriteFile(token, []byte("wisproot_secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	kernel := filepath.Join(data, "kernel")

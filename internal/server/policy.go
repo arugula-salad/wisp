@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -28,8 +27,7 @@ func (s *Server) getNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 // setNetworkPolicy replaces the policy. {"rules": []} clears it: upstream has no DELETE for this one.
 func (s *Server) setNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 	var req networkPolicyJSON
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+	if !readJSON(w, r, 1<<20, &req) {
 		return
 	}
 	policy, err := netpolicy.Compile(req.Rules)
