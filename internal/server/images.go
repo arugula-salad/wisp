@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/ociimage"
+	"github.com/arugula-salad/wisp/internal/ociimage"
 )
 
 // A sprite can start from a container image instead of the base image

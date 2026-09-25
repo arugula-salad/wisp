@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/backup"
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/backup"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // The backup tier runs entirely behind the lifecycle. A suspend is the natural

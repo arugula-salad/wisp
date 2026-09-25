@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // Memory autoscale (resources.memory.autoscale). Upstream describes it as a

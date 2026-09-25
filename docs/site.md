@@ -13,7 +13,7 @@ python3 -m http.server 7790 --directory site
 ```
 
 Open <http://localhost:7790>. All asset paths are relative, so the same files work at
-`https://jhgaylor.github.io/wisp/` or under a custom domain.
+`https://arugula-salad.github.io/wisp/` or under a custom domain.
 
 ## Publish
 

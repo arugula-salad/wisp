@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 func publicTestServer(t *testing.T) *Server {

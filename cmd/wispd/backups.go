@@ -12,9 +12,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/backup"
-	"github.com/jhgaylor/wisp/internal/server"
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/backup"
+	"github.com/arugula-salad/wisp/internal/server"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // The backup tier's two offline commands: `wispd restore`, which rebuilds

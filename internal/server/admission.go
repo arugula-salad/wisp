@@ -6,8 +6,8 @@ import (
 	"math"
 	"sync"
 
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // Host admission for the two things a count ceiling cannot express.

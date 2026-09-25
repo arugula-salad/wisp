@@ -1,4 +1,4 @@
-module github.com/jhgaylor/wisp
+module github.com/arugula-salad/wisp
 
 go 1.27.1
 

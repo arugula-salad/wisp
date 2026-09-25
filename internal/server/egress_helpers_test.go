@@ -7,7 +7,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/jhgaylor/wisp/internal/netpolicy"
+	"github.com/arugula-salad/wisp/internal/netpolicy"
 )
 
 type rcodeWriter struct {

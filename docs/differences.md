@@ -4,7 +4,7 @@
   lives and dies with this machine's disk. With one, the recovery point is the last completed
   upload — the sprite's last suspend, or `--backup-interval` for a long-running one. Upstream
   keeps the local disk as a cache and syncs chunks continuously, so it can wake a sprite on a
-  different host without a full download; that tier is [#2](https://github.com/jhgaylor/wisp/issues/2)'s second half and is not built.
+  different host without a full download; that tier is [#2](https://github.com/arugula-salad/wisp/issues/2)'s second half and is not built.
 - Disk is 20 GB sparse by default (`SPRITE_DISK_GB` at image build) rather than 100 GB, and
   Firecracker has no discard, so space freed in a guest is not returned to the host.
 - RAM is set per sprite (`--mem-mib`, `config.ram_mb`, or a resources policy), but a running

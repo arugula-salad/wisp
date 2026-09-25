@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // newCheckpointServer has one never-booted sprite whose "disk" is a text file:

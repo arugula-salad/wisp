@@ -20,7 +20,7 @@ import (
 	"github.com/mdlayher/vsock"
 	"golang.org/x/sys/unix"
 
-	"github.com/jhgaylor/wisp/internal/agent"
+	"github.com/arugula-salad/wisp/internal/agent"
 )
 
 // AgentPort is the vsock port wispd dials.

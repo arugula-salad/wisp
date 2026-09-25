@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 func sh(t *testing.T, script string) string {

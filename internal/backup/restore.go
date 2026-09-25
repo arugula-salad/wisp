@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // Restore rebuilds a machine directory from a manifest. Each file is created,

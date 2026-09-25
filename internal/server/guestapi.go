@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // The guest channel is how a sprite asks the host for things only the host can

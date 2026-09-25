@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/backup"
-	"github.com/jhgaylor/wisp/internal/s3/s3test"
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/backup"
+	"github.com/arugula-salad/wisp/internal/s3/s3test"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // newBackupServer is a server with one never-booted sprite and a stub bucket, so

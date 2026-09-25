@@ -17,7 +17,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/server"
+	"github.com/arugula-salad/wisp/internal/server"
 )
 
 // `wispd status`: what is on this host. It asks the running daemon over the
