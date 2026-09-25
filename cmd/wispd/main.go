@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -289,10 +290,10 @@ func parseURLDomains(flagValue string) ([]string, error) {
 		if d == "" {
 			continue
 		}
-		for _, have := range domains {
-			if d == have || strings.HasSuffix(d, "."+have) || strings.HasSuffix(have, "."+d) {
-				return nil, fmt.Errorf("--url-domain: %s and %s overlap", have, d)
-			}
+		// One may be nested in another (arugula.io, games.arugula.io): a host
+		// belongs to the most specific (server.URLDomainUnder).
+		if slices.Contains(domains, d) {
+			return nil, fmt.Errorf("--url-domain: %s is listed twice", d)
 		}
 		domains = append(domains, d)
 	}
@@ -341,10 +342,13 @@ func publicCerts(data string, domains []string, certFile, keyFile, email, direct
 	}
 	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		name := strings.TrimSuffix(strings.ToLower(hello.ServerName), ".")
-		for i, domain := range domains {
-			if name == domain || strings.HasSuffix(name, "."+domain) {
-				return stores[i].GetCertificate(hello)
-			}
+		// The most specific domain: x.games.arugula.io needs *.games.arugula.io, not *.arugula.io.
+		if domain, ok := server.URLDomainUnder(domains, name); ok {
+			return stores[slices.Index(domains, domain)].GetCertificate(hello)
+		}
+		// A domain's own apex (not nested in another, or it was matched above): its store, as before.
+		if i := slices.Index(domains, name); i >= 0 {
+			return stores[i].GetCertificate(hello)
 		}
 		return stores[0].GetCertificate(hello) // no SNI, or a name we do not serve: as before
 	}, nil
