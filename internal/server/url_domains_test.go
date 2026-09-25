@@ -169,3 +169,40 @@ func TestAPIHostsAreNeverSpriteURLs(t *testing.T) {
 		t.Errorf("GET /v1/sprites with the token on the API host: %d", rec.Code)
 	}
 }
+
+// --api-listen serves the bearer API whatever the Host: a proxy that rewrites
+// it, or a request naming a sprite or the dashboard, still reaches neither,
+// and the dashboard's cookie is no token there.
+func TestBearerHandlerIsTheAPIAlone(t *testing.T) {
+	s, h := newOperatorServer(t, Options{})
+	s.urlDomains = []string{"widgets.test"}
+	bearerOnly := s.BearerHandler()
+	cookie := uiLogin(t, h)
+	for _, host := range []string{"127.0.0.1:7789", "game-1.widgets.test", "anything.example"} {
+		for _, path := range []string{"/", "/ui/", "/ui/api/status", "/v1/sprites"} {
+			resp := uiCall(bearerOnly, "GET", path, "", func(r *http.Request) {
+				r.Host = host
+				r.AddCookie(cookie)
+				r.Header.Set(uiHeader, "1")
+			})
+			if resp.StatusCode != http.StatusUnauthorized || resp.Header.Get("WWW-Authenticate") == "" {
+				t.Errorf("GET %s%s with the dashboard cookie: %s, want a bearer challenge", host, path, resp.Status)
+			}
+		}
+		resp := uiCall(bearerOnly, "GET", "/v1/sprites", "", func(r *http.Request) {
+			r.Host = host
+			r.Header.Set("Authorization", "Bearer tok")
+		})
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("Sprite-Version") == "" {
+			t.Errorf("GET %s/v1/sprites with the token: %s", host, resp.Status)
+		}
+	}
+	// The same cookie still works on the API listener proper.
+	resp := uiCall(h, "GET", "/v1/sprites", "", func(r *http.Request) {
+		r.AddCookie(cookie)
+		r.Header.Set(uiHeader, "1")
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("dashboard cookie on --listen: %s", resp.Status)
+	}
+}

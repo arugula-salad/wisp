@@ -87,6 +87,7 @@ func main() {
 
 	data := flag.String("data", defaultDataDir(), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7788", "API listen address")
+	apiListen := flag.String("api-listen", "", "a second listen address serving the bearer API alone, whatever the Host: no dashboard and no sprite URLs. Point a reverse proxy that publishes the API here rather than at --listen")
 	idle := flag.Duration("idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
 	warmTTL := flag.Duration("warm-ttl", time.Hour, "drop a suspended sprite's memory state (go cold) after this long")
 	vcpus := flag.Int("vcpus", 8, "default vCPUs per sprite")
@@ -236,6 +237,11 @@ func main() {
 	api.StartMetrics()
 	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 10 * time.Second, Handler: api.Handler()}
 	srv.RegisterOnShutdown(api.CloseEvents) // event streams never finish on their own
+	var bearerSrv *http.Server
+	if *apiListen != "" {
+		bearerSrv = &http.Server{Addr: *apiListen, ReadHeaderTimeout: 10 * time.Second, Handler: api.BearerHandler()}
+		bearerSrv.RegisterOnShutdown(api.CloseEvents)
+	}
 
 	var public *http.Server
 	if *publicListen != "" {
@@ -270,6 +276,14 @@ func main() {
 			fatal(log, err)
 		}
 	}()
+	if bearerSrv != nil {
+		go func() {
+			log.Info("serving the bearer API alone", "addr", *apiListen)
+			if err := bearerSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				fatal(log, err)
+			}
+		}()
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -280,8 +294,12 @@ func main() {
 	if public != nil {
 		public.Close()
 	}
-	srv.Shutdown(ctx) // in-flight exec sessions are cut off; their sprites still suspend warm
-	srv.Close()
+	for _, hs := range []*http.Server{srv, bearerSrv} {
+		if hs != nil {
+			hs.Shutdown(ctx) // in-flight exec sessions are cut off; their sprites still suspend warm
+			hs.Close()
+		}
+	}
 	api.SaveHTTPStats()
 	life.Shutdown()
 }
