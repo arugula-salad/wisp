@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // FileRef is one file to back up: the name it takes in the manifest (relative to

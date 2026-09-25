@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/jhgaylor/wisp/internal/netd"
+	"github.com/arugula-salad/wisp/internal/netd"
 )
 
 func main() {

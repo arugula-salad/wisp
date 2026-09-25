@@ -11,8 +11,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // Checkpoints are whole-disk clones under <machine dir>/checkpoints/<id>.ext4.

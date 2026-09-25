@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // Events and the guest channel, both ways:

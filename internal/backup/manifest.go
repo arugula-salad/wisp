@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // A manifest is everything needed to rebuild one sprite's machine directory:

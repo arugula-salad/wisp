@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // Upstream's Tasks API (explicit keep-awake holds) is served inside the sprite,

@@ -23,11 +23,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/certs"
-	"github.com/jhgaylor/wisp/internal/confine"
-	"github.com/jhgaylor/wisp/internal/server"
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/certs"
+	"github.com/arugula-salad/wisp/internal/confine"
+	"github.com/arugula-salad/wisp/internal/server"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 func defaultDataDir() string {

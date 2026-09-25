@@ -18,7 +18,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/server"
+	"github.com/arugula-salad/wisp/internal/server"
 )
 
 // `wispd images`: the cache of sprite disks built from container images.

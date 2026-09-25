@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 func stats(target, actual, availMiB int) vmm.BalloonStats {

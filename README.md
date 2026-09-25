@@ -26,7 +26,7 @@ Needs Linux with read/write access to `/dev/kvm`, Go, and rootless podman. wispd
 you; nothing below needs root until the optional step at the end.
 
 ```sh
-git clone https://github.com/jhgaylor/wisp && cd wisp
+git clone https://github.com/arugula-salad/wisp && cd wisp
 make deps image          # Firecracker + a guest kernel, then the base disk image
 make install-service     # build, install as a systemd user service, start on 127.0.0.1:7788
 ```
@@ -151,7 +151,7 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 
 ## Documentation
 
-[Project website](https://jhgaylor.github.io/wisp/) · [Website preview and publishing](docs/site.md)
+[Project website](https://arugula-salad.github.io/wisp/) · [Website preview and publishing](docs/site.md)
 
 | | |
 |---|---|

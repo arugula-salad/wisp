@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/webui"
 	"github.com/gorilla/websocket"
-	"github.com/jhgaylor/wisp/internal/webui"
 )
 
 // The web UI: a single page served from the API listener at /ui/, talking to

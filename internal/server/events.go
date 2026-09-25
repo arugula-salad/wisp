@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // The event stream is ours, not upstream's: the Sprites API pushes nothing, so

@@ -20,7 +20,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/confine"
+	"github.com/arugula-salad/wisp/internal/confine"
 )
 
 // File names inside a machine directory. Firecracker runs with the directory

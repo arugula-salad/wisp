@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // A lease is an expiry on a whole sprite: when it runs out the sprite is

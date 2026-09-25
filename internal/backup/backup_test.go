@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/s3/s3test"
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/s3/s3test"
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // stubServer is the in-process stand-in for Garage.

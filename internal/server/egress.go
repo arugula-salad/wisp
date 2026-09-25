@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/netd"
-	"github.com/jhgaylor/wisp/internal/netpolicy"
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/netd"
+	"github.com/arugula-salad/wisp/internal/netpolicy"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // Ports the nftables rules from setup-host.sh redirect restricted sprites to.

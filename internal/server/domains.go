@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/certs"
-	"github.com/jhgaylor/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/certs"
+	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/miekg/dns"
 )
 

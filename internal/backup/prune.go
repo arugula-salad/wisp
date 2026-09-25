@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/s3"
+	"github.com/arugula-salad/wisp/internal/s3"
 )
 
 // PruneOptions controls garbage collection.

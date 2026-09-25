@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/backup"
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/backup"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // apiVersion is reported in Sprite-Version; SDKs use it to pick endpoint

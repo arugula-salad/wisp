@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/s3/s3test"
+	"github.com/arugula-salad/wisp/internal/s3/s3test"
 )
 
 func newTestClient(t *testing.T, srv *s3test.Server) *Client {

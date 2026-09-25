@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jhgaylor/wisp/internal/store"
-	"github.com/jhgaylor/wisp/internal/vmm"
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // bufferedConn replays bytes the HTTP response parser read past the 101.
