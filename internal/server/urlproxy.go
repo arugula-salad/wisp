@@ -132,18 +132,32 @@ func (s *Server) spriteForHost(host string) (string, bool) {
 		host = h
 	}
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
-	for _, domain := range s.urlDomains {
-		if name, ok := strings.CutSuffix(host, "."+domain); ok {
-			if name == "" || strings.Contains(name, ".") {
-				return "", false
-			}
-			if sp, err := s.store.Get(name); err == nil && s.urlDomainOf(sp) != domain {
-				return "", false
-			}
-			return name, true
+	if domain, ok := URLDomainUnder(s.urlDomains, host); ok {
+		name := strings.TrimSuffix(host, "."+domain)
+		if strings.Contains(name, ".") {
+			return "", false
 		}
+		if sp, err := s.store.Get(name); err == nil && s.urlDomainOf(sp) != domain {
+			return "", false
+		}
+		return name, true
 	}
 	return s.store.DomainOwner(host)
+}
+
+// URLDomainUnder is the URL domain whose <name>.<domain> host is: the most
+// specific one host is strictly under, since one URL domain may be nested in
+// another (games.arugula.io in arugula.io). x.games.arugula.io is sprite x
+// under games.arugula.io; games.arugula.io itself is still sprite "games"
+// under arugula.io. The listener picks certificates by the same rule.
+func URLDomainUnder(domains []string, host string) (string, bool) {
+	best := ""
+	for _, d := range domains {
+		if strings.HasSuffix(host, "."+d) && len(d) > len(best) {
+			best = d
+		}
+	}
+	return best, best != ""
 }
 
 // urlDomainOf is the domain sp's URL is under. A sprite whose domain is no
@@ -155,14 +169,15 @@ func (s *Server) urlDomainOf(sp store.Sprite) string {
 	return s.urlDomains[0]
 }
 
-// underURLDomain reports the URL domain d is, or is under, if any.
+// underURLDomain reports the URL domain d is, or is under, if any: the most
+// specific, when one is nested in another.
 func (s *Server) underURLDomain(d string) (string, bool) {
 	for _, domain := range s.urlDomains {
-		if d == domain || strings.HasSuffix(d, "."+domain) {
+		if d == domain {
 			return domain, true
 		}
 	}
-	return "", false
+	return URLDomainUnder(s.urlDomains, d)
 }
 
 // spriteURLProxy is the reverse proxy behind a sprite's URL. dial is how the

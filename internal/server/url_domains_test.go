@@ -76,3 +76,39 @@ func TestCustomDomainsCannotBeUnderAnyURLDomain(t *testing.T) {
 		t.Errorf("game.example.com: %v", err)
 	}
 }
+
+// games.arugula.test is nested in arugula.test: a host belongs to the most
+// specific domain it is strictly under, and the nested domain's own name is
+// still the outer domain's sprite of that name.
+func TestNestedURLDomainsGoToTheMostSpecific(t *testing.T) {
+	s, h := newOperatorServer(t, Options{})
+	s.urlDomains = []string{"widgets.test", "arugula.test", "games.arugula.test"}
+	s.urlFmt = "https://%s.%s"
+	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"games","url_domain":"arugula.test"}`), http.StatusCreated)
+	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"studio","url_domain":"arugula.test"}`), http.StatusCreated)
+	g := rendered(t, status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"game-1","url_domain":"games.arugula.test"}`), http.StatusCreated))
+	if g.URL != "https://game-1.games.arugula.test" || g.URLDomain != "games.arugula.test" {
+		t.Errorf("nested: url %q, url_domain %q", g.URL, g.URLDomain)
+	}
+	for host, want := range map[string]string{
+		"game-1.games.arugula.test": "game-1",
+		"games.arugula.test":        "games",
+		"studio.arugula.test":       "studio",
+		"game-1.arugula.test":       "", // not its domain
+		"studio.games.arugula.test": "", // not its domain
+		"a.b.games.arugula.test":    "",
+	} {
+		name, ok := s.spriteForHost(host)
+		if (want != "") != ok || name != want && want != "" {
+			t.Errorf("%s: got %q, %v; want %q", host, name, ok, want)
+		}
+	}
+	for host, want := range map[string]string{"x.games.arugula.test": "games.arugula.test", "games.arugula.test": "arugula.test", "x.arugula.test": "arugula.test", "arugula.test": ""} {
+		if got, _ := URLDomainUnder(s.urlDomains, host); got != want {
+			t.Errorf("URLDomainUnder(%s) = %q, want %q", host, got, want)
+		}
+	}
+	if err := s.validDomain("x.games.arugula.test"); err == nil {
+		t.Error("a custom domain under the nested URL domain was accepted")
+	}
+}

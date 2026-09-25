@@ -62,6 +62,11 @@ the default. Each sprite is under exactly one of them:
   which needs the extra zone). The first stays in `<data>/acme/<ca>/`; the others are in
   `<data>/acme/<ca>/url-domains/<domain>/`, and the listener picks one by SNI.
   `--tls-cert/--tls-key` cover a single domain only.
+- One domain may be nested in another, e.g. `arugula.io,games.arugula.io`. A host belongs to
+  the most specific domain it is strictly under: `x.games.arugula.io` is sprite `x` under
+  `games.arugula.io`, and gets that domain's certificate; `games.arugula.io` itself is still
+  sprite `games` under `arugula.io`. Each needs its own wildcard record, since `*.arugula.io`
+  does not cover `x.games.arugula.io`.
 - Every domain needs its own wildcard DNS record (and passthrough, behind a proxy), exactly
   like the first. Sprites made before there were several have no `url_domain` stored and are
   under the first, so put the domain you already use first.
