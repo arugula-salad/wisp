@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -188,8 +187,7 @@ func (s *Server) registerSpawnPolicy(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/sprites/{name}/policy/spawn", func(w http.ResponseWriter, r *http.Request) {
 		var p store.SpawnPolicy
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&p); err != nil {
-			writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		if !readJSON(w, r, 1<<20, &p) {
 			return
 		}
 		if p.MaxChildren < 0 {

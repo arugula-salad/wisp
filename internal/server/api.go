@@ -236,6 +236,16 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, map[string]string{"error": code, "message": msg})
 }
 
+// readJSON decodes a request body of at most limit bytes into v, and answers
+// 400 when it cannot.
+func readJSON(w http.ResponseWriter, r *http.Request, limit int64, v any) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return false
+	}
+	return true
+}
+
 type spriteJSON struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
@@ -312,8 +322,7 @@ func (s *Server) createSprite(w http.ResponseWriter, r *http.Request) { s.create
 // inside (see spawn.go for what that changes).
 func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sprite) {
 	var req createRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+	if !readJSON(w, r, 1<<20, &req) {
 		return
 	}
 	if !nameRE.MatchString(req.Name) {
@@ -515,8 +524,7 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 		// the one path that is serialized against the reaper.
 		leaseRequest
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+	if !readJSON(w, r, 1<<20, &req) {
 		return
 	}
 	if req.URLSettings != nil && !validAuth(req.URLSettings.Auth) {

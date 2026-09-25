@@ -3,7 +3,6 @@ package server
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -61,8 +60,7 @@ func orZero[T any](p *T) *T {
 
 func (s *Server) setPrivileges(w http.ResponseWriter, r *http.Request) {
 	var p store.PrivilegesPolicy
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&p); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+	if !readJSON(w, r, 1<<20, &p) {
 		return
 	}
 	switch p.Profile {
@@ -83,8 +81,7 @@ func (s *Server) setPrivileges(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setResources(w http.ResponseWriter, r *http.Request) {
 	var p store.ResourcesPolicy
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&p); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+	if !readJSON(w, r, 1<<20, &p) {
 		return
 	}
 	if m := p.Memory; m != nil {

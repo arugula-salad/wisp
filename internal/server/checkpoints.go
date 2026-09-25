@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -297,7 +298,11 @@ func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) // body is optional
+	// The body is optional; one that is there has to be JSON.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
 
 	// Whoever holds the API token may fill this machine's disk; code inside a
 	// sprite may not. Every checkpoint is a full clone, so without a ceiling a
