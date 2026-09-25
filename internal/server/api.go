@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/arugula-salad/wisp/internal/backup"
+	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -43,12 +44,12 @@ type Server struct {
 	// first is the default. A sprite answers only under its own (urlDomainOf).
 	urlDomains []string
 	storage    *storage
-	images     *imageCache    // disks built from container images (images.go)
-	backups    *backupManager // nil when no backup bucket is configured
-	metrics    *metrics       // history for the web UI (ui.go)
-	httpStats  *httpStats     // request counts and latency for the web UI (httpstats.go)
-	webhooks   []*webhook     // webhooks.go
-	leases     *leases        // expiring workspaces (leases.go)
+	images     *imageCache      // disks built from container images (images.go)
+	backups    *backupManager   // nil when no backup bucket is configured
+	metrics    *metrics         // history for the web UI (ui.go)
+	httpStats  *httpstats.Stats // request counts and latency for the web UI
+	webhooks   []*webhook       // webhooks.go
+	leases     *leases          // expiring workspaces (leases.go)
 	// guestEvents limits the events a guest may report about itself (guestevents.go).
 	guestEvents *rateLimiter
 	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
@@ -79,7 +80,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	}
 	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admitHost, log)
 	s.metrics = newMetrics(s)
-	s.httpStats = newHTTPStats()
+	s.httpStats = httpstats.New(func(name string) bool { _, err := st.Get(name); return err == nil })
 	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
 	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
@@ -166,13 +167,13 @@ func (s *Server) buildRoutes() *http.ServeMux {
 // URLs by Host.
 func (s *Server) Handler() http.Handler {
 	ui := s.uiHandler()
-	return s.instrument(s.kindOf, false, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.httpStats.Instrument(s.kindOf, false, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch s.kindOf(r) {
-		case kindSprite:
+		case httpstats.KindSprite:
 			name, _ := s.spriteForHost(r.Host)
 			s.serveSpriteURL(w, r, name, false)
 			return
-		case kindUI:
+		case httpstats.KindUI:
 			ui.ServeHTTP(w, r)
 			return
 		}
@@ -186,8 +187,8 @@ func (s *Server) Handler() http.Handler {
 // the Host. No dashboard, no dashboard cookie, no sprite URLs, so what a
 // reverse proxy publishes does not hang on it passing Host through.
 func (s *Server) BearerHandler() http.Handler {
-	kind := func(*http.Request) string { return kindAPI }
-	return s.instrument(kind, false, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	kind := func(*http.Request) string { return httpstats.KindAPI }
+	return s.httpStats.Instrument(kind, false, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.serveAPI(w, r, false)
 	}))
 }
@@ -215,15 +216,15 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, cookie bool) {
 // kindOf sorts a request on the API listener for the request metrics.
 func (s *Server) kindOf(r *http.Request) string {
 	if s.isAPIHost(r.Host) {
-		return kindAPI
+		return httpstats.KindAPI
 	}
 	if _, ok := s.spriteForHost(r.Host); ok {
-		return kindSprite
+		return httpstats.KindSprite
 	}
 	if r.URL.Path == "/" || r.URL.Path == "/ui" || strings.HasPrefix(r.URL.Path, "/ui/") {
-		return kindUI
+		return httpstats.KindUI
 	}
-	return kindAPI
+	return httpstats.KindAPI
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

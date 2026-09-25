@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/webui"
 	"github.com/gorilla/websocket"
 )
@@ -121,9 +122,9 @@ func (s *Server) uiHandler() http.Handler {
 	})
 	api.HandleFunc("GET /ui/api/http", func(w http.ResponseWriter, r *http.Request) {
 		v := r.URL.Query()
-		q := httpQuery{Range: time.Hour, Sprite: v.Get("sprite"), Public: v.Get("listener"), Minute: v.Get("res") == "minute"}
+		q := httpstats.Query{Range: time.Hour, Sprite: v.Get("sprite"), Public: v.Get("listener"), Minute: v.Get("res") == "minute"}
 		if n, err := strconv.Atoi(v.Get("range")); err == nil {
-			q.Range = min(max(time.Duration(n)*time.Second, 5*time.Minute), httpCoarseKeep)
+			q.Range = min(max(time.Duration(n)*time.Second, 5*time.Minute), httpstats.MaxRange)
 		}
 		if k := v.Get("kinds"); k != "" {
 			q.Kinds = map[string]bool{}
@@ -131,7 +132,7 @@ func (s *Server) uiHandler() http.Handler {
 				q.Kinds[kind] = true
 			}
 		}
-		writeJSON(w, http.StatusOK, s.httpStats.query(q, time.Now()))
+		writeJSON(w, http.StatusOK, s.httpStats.Query(q, time.Now()))
 	})
 	api.HandleFunc("POST /ui/api/sprites/{name}/wake", func(w http.ResponseWriter, r *http.Request) {
 		sp, ok := s.lookup(w, r)

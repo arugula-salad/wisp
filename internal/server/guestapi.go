@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -86,5 +87,5 @@ func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
-	return s.instrument(func(*http.Request) string { return kindGuest }, false, sp.Name, mux)
+	return s.httpStats.Instrument(func(*http.Request) string { return httpstats.KindGuest }, false, sp.Name, mux)
 }

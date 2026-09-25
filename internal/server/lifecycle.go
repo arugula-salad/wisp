@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -361,7 +362,7 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 			}
 			return nil, nil, err
 		}
-		noteWake(ctx, time.Since(start), from)
+		httpstats.NoteWake(ctx, time.Since(start), from)
 	}
 	rt.begin()
 	var once sync.Once
