@@ -2,10 +2,8 @@ package server
 
 import (
 	"bufio"
-	"context"
 	"encoding/binary"
 	"io"
-	"net"
 	"net/http"
 )
 
@@ -34,9 +32,7 @@ func (s *Server) execPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ContentLength = r.ContentLength
-	tr := &http.Transport{DisableKeepAlives: true,
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }}
-	resp, err := tr.RoundTrip(req)
+	resp, err := agentTransport(m).RoundTrip(req)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "agent_unreachable", err.Error())
 		return

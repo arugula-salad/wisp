@@ -498,6 +498,17 @@ func consoleTail(dir string) string {
 // socket wispd does not pin (a control channel) after the last activity check.
 var errGuestBusy = errors.New("guest became active")
 
+// agentDial reaches m's guest agent over vsock.
+func agentDial(m *vmm.Machine) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }
+}
+
+// agentTransport carries HTTP to m's guest agent, a fresh vsock stream per
+// request: there is nothing to keep alive across a suspend.
+func agentTransport(m *vmm.Machine) *http.Transport {
+	return &http.Transport{DisableKeepAlives: true, DialContext: agentDial(m)}
+}
+
 // agentCall makes one HTTP request to the guest agent over a fresh vsock stream.
 func agentCall(ctx context.Context, m *vmm.Machine, method, path string, body any, out any) error {
 	var rd io.Reader
@@ -509,9 +520,7 @@ func agentCall(ctx context.Context, m *vmm.Machine, method, path string, body an
 	if err != nil {
 		return err
 	}
-	tr := &http.Transport{DisableKeepAlives: true,
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }}
-	resp, err := tr.RoundTrip(req)
+	resp, err := agentTransport(m).RoundTrip(req)
 	if err != nil {
 		return err
 	}

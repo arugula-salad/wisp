@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -640,8 +639,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 				pr.Out.URL.RawQuery = withSpriteEnv(pr.Out.URL.Query(), sp).Encode()
 			}
 		},
-		Transport: &http.Transport{DisableKeepAlives: true,
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return m.Dial(ctx) }},
+		Transport:     agentTransport(m),
 		FlushInterval: -1,
 		ModifyResponse: func(resp *http.Response) error {
 			if !pin && resp.StatusCode == http.StatusSwitchingProtocols {
