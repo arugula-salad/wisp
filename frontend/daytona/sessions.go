@@ -37,6 +37,9 @@ var (
 	stderrPrefix = []byte{2, 2, 2}
 )
 
+// endWait is how long ending a session waits for its commands to die.
+var endWait = 3 * time.Second
+
 // maxCommandLog is how much output a command keeps; past it the oldest goes.
 const maxCommandLog = 8 << 20
 
@@ -198,17 +201,22 @@ func (s *session) end() {
 			conn.kill()
 		}
 	}
-	deadline := time.After(3 * time.Second)
+	// One deadline for them all, and a timer of its own for each wait: a
+	// command that will not die must not hold up the rest, or the stop or
+	// delete waiting here (under the sandbox's lock) for good.
+	deadline := time.Now().Add(endWait)
 	for _, c := range cmds {
 		for {
 			_, _, exited, changed := c.since(1 << 62) // no frames, only the state
 			if exited {
 				break
 			}
+			timer := time.NewTimer(time.Until(deadline))
 			select {
 			case <-changed:
+				timer.Stop()
 				continue
-			case <-deadline:
+			case <-timer.C:
 			}
 			break
 		}

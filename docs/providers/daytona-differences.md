@@ -53,9 +53,12 @@ against a trace of hosted Daytona.
   `GET /sandbox/{id}` for state changes, as they do when the stream is unavailable on hosted.
 - Preview URLs are `http://<port>-<id>.<--daytona-domain>:<port>` on the same listener, not
   `https://` on a proxy domain. The token is per sandbox, the same for every port, and does not
-  expire. `x-daytona-preview-token` is stripped before the request reaches the app. The port
+  expire. What the front end consumed to let a request in never reaches the app: the
+  `x-daytona-preview-token` header, the `DAYTONA_SANDBOX_AUTH_KEY` query parameter, and an
+  `Authorization` that carried a daemon key (one that is not a daemon key is the app's, and
+  goes through). The port
   in the Host must be a number from 1 to 65535 (leading zeros are dropped; anything else is
-  400), and the path is cleaned before it is proxied.
+  400), and the path is cleaned before it is proxied, keeping a trailing slash.
 
 ## Auth
 
@@ -63,8 +66,10 @@ against a trace of hosted Daytona.
   keys`), the same keys as the Sprites and E2B APIs. JWT and organizations are not supported:
   `X-Daytona-Organization-ID` is ignored, and every sandbox reports organization `wisp`.
 - A read-scoped key may only `GET`, and may not open a log-follow WebSocket.
-- The toolbox also takes the sandbox's preview token as `?DAYTONA_SANDBOX_AUTH_KEY=`, for the
-  SDK's browser and serverless runtimes, which cannot send headers.
+- The sandbox's preview token, as `?DAYTONA_SANDBOX_AUTH_KEY=`, opens a session command's log
+  follow WebSocket and nothing else in the toolbox. The SDK's browser and serverless runtimes,
+  which cannot send headers, use it there. A read key can get the token (`preview-url` is a GET),
+  so it is worth no more than a read key: never exec, files or input.
 
 ## Sandboxes
 
@@ -85,6 +90,7 @@ against a trace of hosted Daytona.
   network policy can do this; it is not wired up yet).
 - `--max-sprites` bounds how many sandboxes, of every API, exist on the host; a create past it
   is `429` (`DaytonaRateLimitError`). Hosted's limits are per organization quotas.
+- A stop the engine fails answers 500 and leaves the sandbox not marked stopped.
 - Stop is a cold stop: the guest syncs its disk and the VM is killed; `force` makes no
   difference. Processes and sessions end; files stay. Start boots it afresh.
 - When `sandboxd` stops, running VMs are suspended; Daytona sandboxes read as `stopped` until a

@@ -65,13 +65,25 @@ func (f *Frontend) previewAllowed(r *http.Request, m meta) bool {
 	return ok
 }
 
+// cleanPath is p cleaned (no //, /./ or /../), rooted, with a trailing
+// slash kept.
+func cleanPath(p string) string {
+	clean := path.Clean("/" + p)
+	if strings.HasSuffix(p, "/") && clean != "/" {
+		clean += "/"
+	}
+	return clean
+}
+
 func (f *Frontend) servePreview(w http.ResponseWriter, r *http.Request, t previewTo) {
 	if t.badPort {
 		writeErr(w, r, http.StatusBadRequest, "BAD_REQUEST", "Invalid preview port: want a number from 1 to 65535")
 		return
 	}
-	// The app sees the path cleaned, as anything checking it here would.
-	if clean := path.Clean("/" + r.URL.Path); clean != r.URL.Path {
+	// The app sees the path cleaned, as anything checking it here would, with
+	// its trailing slash kept: /docs/ and /docs are different pages to many
+	// servers, and redirect to each other.
+	if clean := cleanPath(r.URL.Path); clean != r.URL.Path {
 		r.URL.Path, r.URL.RawPath = clean, ""
 	}
 	rec, err := f.store.GetRecord(t.id)
@@ -90,11 +102,23 @@ func (f *Frontend) servePreview(w http.ResponseWriter, r *http.Request, t previe
 	}
 	defer release()
 	mach := b.mach
+	// The credentials this front end consumed are its own, not the app's: the
+	// app in the guest is untrusted, and must never see a daemon API key or the
+	// preview token. An Authorization that is not a daemon key is the app's,
+	// and goes through.
+	_, daemonKey := f.checkKey(r)
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host = "http", "sandbox"
 			pr.Out.Host = pr.In.Host
 			pr.Out.Header.Del("X-Daytona-Preview-Token")
+			if daemonKey {
+				pr.Out.Header.Del("Authorization")
+			}
+			if q := pr.Out.URL.Query(); q.Has("DAYTONA_SANDBOX_AUTH_KEY") {
+				q.Del("DAYTONA_SANDBOX_AUTH_KEY")
+				pr.Out.URL.RawQuery = q.Encode()
+			}
 			pr.SetXForwarded()
 		},
 		Transport: &http.Transport{DisableKeepAlives: true, DisableCompression: true,

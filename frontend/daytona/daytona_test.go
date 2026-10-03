@@ -496,11 +496,100 @@ func TestExecuteAndCodeRun(t *testing.T) {
 	if r := fx.do("GET", tb+"/work-dir", "", nil); r.code != 401 || !strings.Contains(string(r.body), `"source":"DAYTONA_DAEMON"`) {
 		t.Errorf("toolbox without a key: %d %s", r.code, r.body)
 	}
-	// Clients that cannot send headers use the preview token.
+}
+
+// The preview token, which a read key can get (preview-url is a GET), opens
+// a command's log follow WebSocket, as the SDK's header-less runtimes use it,
+// and nothing else in the toolbox: a read key must not reach exec through it.
+func TestPreviewTokenOnlyFollowsLogs(t *testing.T) {
+	fx := newFixture(t)
+	sb := fx.create(map[string]any{})
+	tb := "/toolbox/" + sb.ID
 	var link map[string]string
 	fx.do("GET", "/api/sandbox/"+sb.ID+"/ports/1/preview-url", readKey, nil).json(t, &link)
-	if r := fx.do("GET", tb+"/work-dir?DAYTONA_SANDBOX_AUTH_KEY="+link["token"], "", nil); r.code != 200 {
-		t.Errorf("toolbox with the preview token: %d %s", r.code, r.body)
+	tok := "DAYTONA_SANDBOX_AUTH_KEY=" + link["token"]
+	for _, c := range []struct{ method, path string }{
+		{"POST", tb + "/process/execute?" + tok},
+		{"POST", tb + "/process/code-run?" + tok},
+		{"GET", tb + "/work-dir?" + tok},
+		{"GET", tb + "/files?path=/&" + tok},
+		{"POST", tb + "/process/session?" + tok},
+	} {
+		if r := fx.do(c.method, c.path, "", map[string]any{"command": "id", "code": "print(1)", "sessionId": "x"}); r.code != http.StatusUnauthorized {
+			t.Errorf("%s %s with the preview token: %d %s, want 401", c.method, c.path, r.code, r.body)
+		}
+	}
+	// With a read key's bearer as well, the token adds nothing either.
+	if r := fx.do("POST", tb+"/process/execute?"+tok, readKey, map[string]any{"command": "id"}); r.code != http.StatusForbidden {
+		t.Errorf("execute with a read key and the token: %d, want 403", r.code)
+	}
+
+	fx.do("POST", tb+"/process/session", adminKey, map[string]any{"sessionId": "s"})
+	var e struct {
+		CmdID string `json:"cmdId"`
+	}
+	fx.do("POST", tb+"/process/session/s/exec", adminKey, map[string]any{"command": "echo followed", "runAsync": true}).json(t, &e)
+	logs := tb + "/process/session/s/command/" + e.CmdID + "/logs"
+	// As plain GETs, logs want a key: the token is for the WebSocket only.
+	if r := fx.do("GET", logs+"?"+tok, "", nil); r.code != http.StatusUnauthorized {
+		t.Errorf("logs as a GET with the token: %d, want 401", r.code)
+	}
+	u := "ws" + strings.TrimPrefix(fx.srv.URL, "http") + logs + "?follow=true&" + tok
+	ws, resp, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("log follow with the token: %v %v", err, resp)
+	}
+	defer ws.Close()
+	var got strings.Builder
+	for {
+		_, data, err := ws.ReadMessage()
+		if err != nil {
+			break
+		}
+		got.Write(data[3:])
+	}
+	if got.String() != "followed\n" {
+		t.Errorf("followed with the token: %q", got.String())
+	}
+	u = "ws" + strings.TrimPrefix(fx.srv.URL, "http") + logs + "?follow=true&DAYTONA_SANDBOX_AUTH_KEY=wrong"
+	if _, resp, err := websocket.DefaultDialer.Dial(u, nil); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("log follow with a wrong token: %v", err)
+	}
+}
+
+// Ending a session waits for its commands for at most one deadline in all,
+// whatever they do: before, the deadline fired for the first command that
+// would not die, and the wait for the next one never ended (a stop or delete
+// holding the sandbox's lock, for good).
+func TestSessionEndBoundedWithStuckCommands(t *testing.T) {
+	old := endWait
+	endWait = 200 * time.Millisecond
+	defer func() { endWait = old }()
+	s := &session{id: "s", cmds: []*command{newCommand("a", "x"), newCommand("b", "y"), newCommand("c", "z")}}
+	done := make(chan struct{})
+	go func() { s.end(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ending a session with commands that never exit did not return")
+	}
+}
+
+// A stop the engine fails leaves the sandbox as it was: not marked stopped,
+// so its traffic is not refused for a stop that did not happen.
+func TestFailedStopIsUndone(t *testing.T) {
+	fx := newFixture(t)
+	sb := fx.create(map[string]any{})
+	fx.f.stop = func(store.Record) error { return io.ErrUnexpectedEOF }
+	if r := fx.do("POST", "/api/sandbox/"+sb.ID+"/stop", adminKey, nil); r.code != http.StatusInternalServerError {
+		t.Fatalf("failed stop: %d %s", r.code, r.body)
+	}
+	rec, _ := fx.st.GetRecord(sb.ID)
+	if m, _ := metaOf(rec); m.Stopped {
+		t.Fatal("a failed stop left the sandbox marked stopped")
+	}
+	if r := fx.do("GET", "/toolbox/"+sb.ID+"/work-dir", adminKey, nil); r.code != 200 {
+		t.Errorf("toolbox after a failed stop: %d %s", r.code, r.body)
 	}
 }
 
@@ -772,6 +861,49 @@ func TestFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fx.home, "d")); !os.IsNotExist(err) {
 		t.Fatalf("deleted: %v", err)
+	}
+}
+
+// What the front end consumed to let a preview request in (a daemon key, the
+// preview token as a header or a query parameter) does not reach the app in
+// the guest, which is untrusted; the app's own Authorization does.
+func TestPreviewStripsCredentials(t *testing.T) {
+	fx := newFixture(t)
+	type seen struct{ auth, token, query string }
+	var got seen
+	fx.port = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = seen{r.Header.Get("Authorization"), r.Header.Get("X-Daytona-Preview-Token"), r.URL.RawQuery}
+	})
+	sb := fx.create(map[string]any{})
+	var link map[string]string
+	fx.do("GET", "/api/sandbox/"+sb.ID+"/ports/8080/preview-url", readKey, nil).json(t, &link)
+	host := "8080-" + sb.ID + ".daytona.test"
+
+	fx.do("GET", "/x?a=1", adminKey, nil, "Host", host)
+	if got.auth != "" {
+		t.Errorf("a daemon key reached the app: %+v", got)
+	}
+	fx.do("GET", "/x?a=1&DAYTONA_SANDBOX_AUTH_KEY="+link["token"]+"&b=2", "", nil, "Host", host)
+	if strings.Contains(got.query, "DAYTONA_SANDBOX_AUTH_KEY") || !strings.Contains(got.query, "a=1") || !strings.Contains(got.query, "b=2") {
+		t.Errorf("query as the app saw it: %q", got.query)
+	}
+	fx.do("GET", "/x", "", nil, "Host", host, "X-Daytona-Preview-Token", link["token"], "Authorization", "Bearer the-apps-own")
+	if got.token != "" || got.auth != "Bearer the-apps-own" {
+		t.Errorf("token header stripped, the app's own Authorization kept: %+v", got)
+	}
+}
+
+// Cleaning a preview path keeps its trailing slash: /docs/ and /docs are
+// different to many apps, which redirect one to the other.
+func TestPreviewKeepsTrailingSlash(t *testing.T) {
+	fx := newFixture(t)
+	fx.port = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, r.URL.Path) })
+	sb := fx.create(map[string]any{"public": true})
+	host := "3000-" + sb.ID + ".daytona.test"
+	for in, want := range map[string]string{"/docs/": "/docs/", "/docs": "/docs", "/a/../b/./c/": "/b/c/", "/": "/", "//x//": "/x/"} {
+		if r := fx.do("GET", in, "", nil, "Host", host); r.code != 200 || string(r.body) != want {
+			t.Errorf("%s: %d %q, want %q", in, r.code, r.body, want)
+		}
 	}
 }
 

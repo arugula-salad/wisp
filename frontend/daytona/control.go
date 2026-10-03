@@ -445,8 +445,11 @@ func (f *Frontend) stopSandbox(w http.ResponseWriter, r *http.Request, rec store
 		notFound(w, r, rec.ID)
 		return
 	}
+	// A stop that fails leaves the sandbox as it was: not marked stopped.
+	undo := func() { f.updateMeta(rec.ID, func(m *meta) { m.Stopped = false }) }
 	if m.AutoDelete == 0 {
 		if err := f.life.Delete(cur); err != nil && !errors.Is(err, store.ErrNotFound) {
+			undo()
 			writeErr(w, r, http.StatusInternalServerError, "", "Failed to delete ephemeral sandbox: "+err.Error())
 			return
 		}
@@ -457,6 +460,7 @@ func (f *Frontend) stopSandbox(w http.ResponseWriter, r *http.Request, rec store
 	}
 	f.sessions.dropSandbox(rec.ID)
 	if err := f.stop(cur); err != nil {
+		undo()
 		f.log.Error("stop failed", "id", rec.ID, "err", err)
 		writeErr(w, r, http.StatusInternalServerError, "", "Failed to stop sandbox: "+err.Error())
 		return

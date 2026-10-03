@@ -36,7 +36,7 @@ func (f *Frontend) toolbox() http.Handler {
 	p := "/toolbox/{id}"
 	handle := func(pattern string, write bool, h toolboxHandler) {
 		method, rest, _ := strings.Cut(pattern, " ")
-		mux.HandleFunc(method+" "+p+rest, f.tb(write, h))
+		mux.HandleFunc(method+" "+p+rest, f.tb(write, false, h))
 	}
 	handle("GET /user-home-dir", false, func(w http.ResponseWriter, r *http.Request, b *box) {
 		writeJSON(w, http.StatusOK, map[string]string{"dir": f.home()})
@@ -56,8 +56,11 @@ func (f *Frontend) toolbox() http.Handler {
 	handle("DELETE /process/session/{sid}", true, f.deleteSession)
 	handle("POST /process/session/{sid}/exec", true, f.sessionExec)
 	handle("GET /process/session/{sid}/command/{cid}", false, f.getCommand)
-	// A log follow is a WebSocket, which a read key may not open (as on the Sprites API).
-	handle("GET /process/session/{sid}/command/{cid}/logs", false, f.commandLogs)
+	// A log follow is a WebSocket, which a read key may not open (as on the
+	// Sprites API). It is also the one toolbox route the preview token opens:
+	// the SDK's browser and serverless runtimes, which cannot send headers,
+	// follow logs with it.
+	mux.HandleFunc("GET "+p+"/process/session/{sid}/command/{cid}/logs", f.tb(false, true, f.commandLogs))
 	handle("POST /process/session/{sid}/command/{cid}/input", true, f.commandInput)
 
 	handle("GET /files", false, f.listFiles)
@@ -83,26 +86,30 @@ func (f *Frontend) home() string {
 	return defaultHome
 }
 
-// tb authenticates a toolbox request (the bearer API key, or the sandbox's
-// preview token as DAYTONA_SANDBOX_AUTH_KEY from clients that cannot send
-// headers), finds the sandbox, refuses one that is not started, and holds
-// its VM up while h runs.
-func (f *Frontend) tb(write bool, h toolboxHandler) http.HandlerFunc {
+// tb authenticates a toolbox request, finds the sandbox, refuses one that is
+// not started, and holds its VM up while h runs. The credential is the bearer
+// API key. On a route marked tokenOK (the log follow) the sandbox's preview
+// token, as DAYTONA_SANDBOX_AUTH_KEY, also opens the WebSocket, as the SDK's
+// browser and serverless runtimes send it; it is worth no more than that. A
+// read key can get the token (preview-url is a GET), and what it opens is
+// what a read key reads anyway (GET .../logs): never exec, files or input.
+func (f *Frontend) tb(write, tokenOK bool, h toolboxHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		rec, err := f.store.GetRecord(id)
 		m, isOurs := metaOf(rec)
 		admin, ok := f.checkKey(r)
-		if !ok && isOurs && err == nil {
+		byToken := false
+		if !ok && tokenOK && !write && r.Method == http.MethodGet && isWebSocket(r) && isOurs && err == nil {
 			if t := r.URL.Query().Get("DAYTONA_SANDBOX_AUTH_KEY"); t != "" && subtle.ConstantTimeCompare([]byte(t), []byte(m.PreviewToken)) == 1 {
-				admin, ok = true, true
+				ok, byToken = true, true
 			}
 		}
 		if !ok {
 			writeErr(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid API key: use this daemon's root token or one of its API keys (wispd keys)")
 			return
 		}
-		if write && !admin || !admin && isWebSocket(r) {
+		if write && !admin || !admin && !byToken && isWebSocket(r) {
 			writeErr(w, r, http.StatusForbidden, "FORBIDDEN", "This API key is read-only")
 			return
 		}
