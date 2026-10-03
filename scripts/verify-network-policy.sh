@@ -6,6 +6,9 @@
 #   ./scripts/verify-network-policy.sh
 #   SPRITES_API_URL=http://127.0.0.1:7788 SPRITE_TOKEN=... ./scripts/verify-network-policy.sh
 #
+# Against a wispd on another network pool (--net-pool N) set WISP_POOL=N, so the
+# kernel-set check looks at that pool's table.
+#
 # Creates two sprites (vnp-shut-*, vnp-open-*), deletes them on exit, and prints a
 # PASS/FAIL list; exit status is the number of FAILs. Every "must fail" check is
 # paired with the same command succeeding from the unrestricted sprite, so a guest
@@ -14,6 +17,9 @@
 set -uo pipefail
 
 API="${SPRITES_API_URL:-http://127.0.0.1:7788}"
+POOL="${WISP_POOL:-0}"
+SET="inet wisp$([ "$POOL" = 0 ] || echo "$POOL") restricted4"   # netd.Pool.Set
+NETD_UNIT="wisp-netd$([ "$POOL" = 0 ] || echo "$POOL")"
 TOKEN="${SPRITE_TOKEN:-$(cat "${WISP_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}/token" 2>/dev/null)}"
 [ -n "$TOKEN" ] || { echo "no token: set SPRITE_TOKEN" >&2; exit 2; }
 for tool in curl jq; do command -v "$tool" >/dev/null || { echo "need $tool" >&2; exit 2; }; done
@@ -78,13 +84,13 @@ echo "      restricted sprite is $SHUT_IP; $DENIED is at ${DENIED_IP:-?}"
 echo "-- setting a restrictive policy on $SHUT: allow $ALLOWED and *.nip.io"
 code=$(set_policy "$SHUT" "{\"rules\":[{\"domain\":\"$ALLOWED\",\"action\":\"allow\"},{\"domain\":\"*.nip.io\",\"action\":\"allow\"}]}")
 if [ "$code" = 204 ]; then pass "restrictive policy accepted (204)"; else
-  fail "restrictive policy accepted (204)" "HTTP $code $(cat /tmp/vnp-body.$$) -- is wisp-netd running? systemctl status wisp-netd"
+  fail "restrictive policy accepted (204)" "HTTP $code $(cat /tmp/vnp-body.$$) -- is wisp-netd running? systemctl status $NETD_UNIT"
   echo "cannot continue without an enforced policy"; exit 1
 fi
-if command -v nft >/dev/null && nft list set inet wisp restricted4 >/dev/null 2>&1; then
-  if nft list set inet wisp restricted4 | grep -qw "$SHUT_IP"; then pass "kernel set restricted4 contains $SHUT_IP"; else fail "kernel set restricted4 contains $SHUT_IP" "$(nft list set inet wisp restricted4 | tr -d '\n')"; fi
+if command -v nft >/dev/null && nft list set $SET >/dev/null 2>&1; then
+  if nft list set $SET | grep -qw "$SHUT_IP"; then pass "kernel set restricted4 contains $SHUT_IP"; else fail "kernel set restricted4 contains $SHUT_IP" "$(nft list set $SET | tr -d '\n')"; fi
 else
-  skip "kernel set restricted4 contains $SHUT_IP" "nft list needs root; check with: sudo nft list set inet wisp restricted4"
+  skip "kernel set restricted4 contains $SHUT_IP" "nft list needs root; check with: sudo nft list set $SET"
 fi
 
 echo "-- allowed"

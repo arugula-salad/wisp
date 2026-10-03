@@ -24,10 +24,27 @@ daemon's user needs working rootless podman and e2fsprogs >= 1.47.1).
 The backup suite skips itself unless the daemon under test was started with a reachable
 `--backup-bucket`.
 
-Only one wispd per host may own the tap pool. For extra dev/test stacks:
+Only one wispd per host may own a tap pool. For extra dev/test stacks:
 
 ```sh
 ./scripts/dev-data.sh /tmp/wisp-x            # keep it short: the dir holds unix sockets (108-byte limit)
 WISP_DATA=/tmp/wisp-x ./scripts/build-initrd.sh
 ./bin/wispd --data /tmp/wisp-x --listen 127.0.0.1:7801 --net=false
 ```
+
+A stack with `--net=false` has sprites without a NIC, so the network policy tests and
+anything that fetches from inside a guest skip or fail. For a networked test stack beside
+another wispd, create a second network pool once ([host setup](host-setup.md#a-second-network-pool))
+and point the stack at it:
+
+```sh
+make netd && sudo WISP_POOL=1 ./scripts/setup-host.sh   # msbr1, 10.210.0.0/16, wisp-netd1
+./scripts/dev-data.sh ~/ws/1
+WISP_DATA=~/ws/1 ./scripts/build-initrd.sh
+./bin/wispd --net-pool 1 --data ~/ws/1 --listen 127.0.0.1:7802
+WISP_POOL=1 SPRITES_API_URL=http://127.0.0.1:7802 SPRITE_TOKEN=$(cat ~/ws/1/token) \
+  ./scripts/verify-network-policy.sh
+```
+
+`./bin/wispd status --data ~/ws/1 --net-pool 1` finds that pool's helper when the daemon is
+down.

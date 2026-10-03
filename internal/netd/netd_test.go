@@ -18,7 +18,7 @@ import (
 var spriteNet = netip.MustParsePrefix("10.209.0.0/16")
 
 func TestScript(t *testing.T) {
-	got, err := Script(spriteNet, []string{"10.209.0.3", "10.209.1.7", "10.209.0.3"})
+	got, err := Script(0, spriteNet, []string{"10.209.0.3", "10.209.1.7", "10.209.0.3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,8 +28,13 @@ func TestScript(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 	// Emptying the set is a flush alone: "add element { }" is a syntax error in nft.
-	if got, err := Script(spriteNet, nil); err != nil || got != "flush set inet wisp restricted4\n" {
+	if got, err := Script(0, spriteNet, nil); err != nil || got != "flush set inet wisp restricted4\n" {
 		t.Errorf("empty: %q, %v", got, err)
+	}
+	// Another pool's helper edits its own set and no other.
+	got, err = Script(1, netip.MustParsePrefix("10.210.0.0/16"), []string{"10.210.0.2"})
+	if want := "flush set inet wisp1 restricted4\nadd element inet wisp1 restricted4 { 10.210.0.2 }\n"; err != nil || got != want {
+		t.Errorf("pool 1: %q, %v; want %q", got, err, want)
 	}
 }
 
@@ -53,7 +58,7 @@ func TestScriptRejects(t *testing.T) {
 		"too many":              make([]string, maxAddrs+1),
 		"leading zeros (octal)": {"010.209.0.2"},
 	} {
-		if script, err := Script(spriteNet, members); err == nil {
+		if script, err := Script(0, spriteNet, members); err == nil {
 			t.Errorf("%s: accepted, producing %q", name, script)
 		}
 	}

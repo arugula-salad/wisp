@@ -20,18 +20,12 @@ import (
 	"time"
 
 	"github.com/arugula-salad/wisp/internal/httpstats"
+	"github.com/arugula-salad/wisp/internal/netd"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
-const (
-	agentPort = 1024
-	// The bridge and taps keep the names they had before the project was
-	// renamed wisp: setup-host.sh creates them as root, and the nftables and
-	// ufw rules it installs name them too, so renaming means re-running it.
-	bridgeName = "msbr0"
-	tapPrefix  = "mstap"
-)
+const agentPort = 1024
 
 type Options struct {
 	DataDir      string
@@ -54,6 +48,9 @@ type Options struct {
 	// NoNetwork boots every sprite without a NIC and leaves the shared tap pool
 	// alone, so several wispd instances (dev, tests) can coexist on one host.
 	NoNetwork bool
+	// NetPool is the host network pool (bridge, taps, nft table, wisp-netd) this
+	// daemon owns; see netd.Pool. 0 is the one setup-host.sh makes by default.
+	NetPool int
 	// Automatic checkpoints (checkpoints.go): the background interval (0 = only
 	// before restores) and how many to keep per sprite (0 = none at all).
 	AutoCheckpointInterval time.Duration
@@ -61,7 +58,7 @@ type Options struct {
 	// GuestCheckpointLimit caps the manual checkpoints a sprite can hold when the
 	// request to create one comes from inside it (0 = no limit).
 	GuestCheckpointLimit int
-	// NetdSocket is where wisp-netd listens; empty means its default.
+	// NetdSocket is where wisp-netd listens; empty means NetPool's default.
 	NetdSocket string
 	// Backup is the object-storage backup tier (internal/backup). An empty Bucket
 	// disables it entirely and nothing in the lifecycle changes.
@@ -196,24 +193,25 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log), events: newEventBus(),
 		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate), quit: make(chan struct{})}
 	l.disk.events = l.events
+	pool := netd.Pool(opts.NetPool)
 	if opts.NoNetwork {
 		log.Info("guest networking disabled by --net=false")
-	} else if gw, err := bridgeAddr(); err != nil {
+	} else if gw, err := bridgeAddr(pool); err != nil {
 		log.Warn("guest networking disabled", "reason", err)
 	} else {
 		l.gateway = gw
 		entries, _ := os.ReadDir("/sys/class/net")
 		for _, e := range entries {
-			if strings.HasPrefix(e.Name(), tapPrefix) {
+			if strings.HasPrefix(e.Name(), pool.TapPrefix()) {
 				l.freeTaps = append(l.freeTaps, e.Name())
 			}
 		}
 	}
 	l.taps = len(l.freeTaps)
 	if len(l.freeTaps) == 0 && !opts.NoNetwork {
-		log.Warn("no tap devices found: sprites will boot without networking (run scripts/setup-host.sh once)")
+		log.Warn("no tap devices found: sprites will boot without networking (run " + setupCommand(pool) + " once)")
 	} else if !opts.NoNetwork {
-		log.Info("guest networking enabled", "taps", len(l.freeTaps), "bridge", bridgeName, "gateway", l.gateway)
+		log.Info("guest networking enabled", "taps", len(l.freeTaps), "bridge", pool.Bridge(), "gateway", l.gateway)
 	}
 	for _, sp := range st.List("") {
 		vmm.ReapOrphan(st.Dir(sp.ID))
@@ -252,10 +250,11 @@ func (l *Lifecycle) every(period time.Duration, pass func()) {
 
 // bridgeAddr returns the sprite bridge's IPv4 address. setup-host.sh owns the
 // choice of network; reading it back keeps the two from drifting apart.
-func bridgeAddr() (net.IP, error) {
+func bridgeAddr(pool netd.Pool) (net.IP, error) {
+	bridgeName := pool.Bridge()
 	ifc, err := net.InterfaceByName(bridgeName)
 	if err != nil {
-		return nil, fmt.Errorf("no %s bridge (run scripts/setup-host.sh once)", bridgeName)
+		return nil, fmt.Errorf("no %s bridge (run %s once)", bridgeName, setupCommand(pool))
 	}
 	addrs, _ := ifc.Addrs()
 	for _, a := range addrs {
@@ -267,6 +266,14 @@ func bridgeAddr() (net.IP, error) {
 		}
 	}
 	return nil, fmt.Errorf("%s has no IPv4 address", bridgeName)
+}
+
+// setupCommand is how to create pool's bridge and taps.
+func setupCommand(pool netd.Pool) string {
+	if pool == 0 {
+		return "scripts/setup-host.sh"
+	}
+	return fmt.Sprintf("WISP_POOL=%d scripts/setup-host.sh", pool)
 }
 
 // spriteIP is the sprite's address within the bridge's /16.

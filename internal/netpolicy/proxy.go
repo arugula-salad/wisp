@@ -23,7 +23,7 @@ type Proxy struct {
 	// kernel redirected it here.
 	OrigDst func(*net.TCPConn) (netip.AddrPort, error)
 	// Blocked is checked for every destination regardless of policy. Our onward
-	// connection leaves from the host, so the msbr0 forward-chain rules that keep
+	// connection leaves from the host, so the sprite bridge's forward-chain rules that keep
 	// sprites out of private ranges never see it: this check is all there is.
 	Blocked func(netip.Addr) bool
 	Dial    func(network, addr string, timeout time.Duration) (net.Conn, error)

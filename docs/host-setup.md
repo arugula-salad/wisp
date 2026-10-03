@@ -22,6 +22,24 @@ What the script knows about because it bit us:
   policy ports: ufw's policies are DROP, and a drop in any netfilter table is final.
 - `--print-rules` shows the nftables ruleset without root; `--remove` undoes everything.
 
+### A second network pool
+
+One wispd owns a pool of taps at a time. To run a second networked wispd on the same
+host (a test stack beside production), give it a pool of its own:
+
+```sh
+make netd
+sudo WISP_POOL=1 ./scripts/setup-host.sh
+```
+
+Pool N is a full copy of the above under other names: bridge `msbrN` on 10.(209+N).0.0/16
+(`WISP_NET_PREFIX` still overrides), taps `msNtap*`, table `inet wispN`, boot units
+`wisp-netN` and `wisp-netdN`, the helper's socket at `/run/wispN/netd.sock`. Pool 0, the
+default, keeps the names above, so nothing about an existing install changes and the two
+never touch each other's devices, rules or helper. The policy listeners use the same ports
+on each pool's own bridge address. Start the second daemon with `--net-pool 1`;
+`WISP_POOL=1 ./scripts/setup-host.sh --remove` takes the pool away again.
+
 ## Instant clones
 
 ```sh

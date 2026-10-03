@@ -2,6 +2,7 @@
 // wisp-netd (root). The helper exists because editing an nftables set
 // needs CAP_NET_ADMIN, and it is deliberately incapable of anything else: one
 // request type, which replaces the members of one set with addresses from one network.
+// A host may have several sprite networks (Pool), each with its own helper.
 package netd
 
 import (
@@ -21,9 +22,6 @@ import (
 )
 
 const (
-	DefaultSocket = "/run/wisp/netd.sock"
-	// The set setup-host.sh declares; its rules divert members to wispd.
-	nftSet = "inet wisp restricted4"
 	// A /16 cannot hold more sprites than this, so neither can a valid request.
 	maxAddrs   = 1 << 16
 	maxRequest = 2 << 20
@@ -71,6 +69,8 @@ func Push(ctx context.Context, socket string, addrs []netip.Addr) error {
 
 // Server is the helper's side.
 type Server struct {
+	// Pool picks the set (Pool.Set) the helper edits: one, whatever is asked.
+	Pool Pool
 	// Net is the sprite network. Nothing outside it can be put in the set, so
 	// the worst a compromised wispd can do is restrict its own sprites.
 	Net netip.Prefix
@@ -125,7 +125,7 @@ func (s *Server) serve(c *net.UnixConn) (int, error) {
 	if decodeErr != nil {
 		return 0, fmt.Errorf("bad request: %w", decodeErr)
 	}
-	script, err := Script(s.Net, req.Restricted4)
+	script, err := Script(s.Pool, s.Net, req.Restricted4)
 	if err != nil {
 		return 0, err
 	}
@@ -135,10 +135,11 @@ func (s *Server) serve(c *net.UnixConn) (int, error) {
 	return len(req.Restricted4), nil
 }
 
-// Script validates the requested membership and renders the nft commands for it.
+// Script validates the requested membership and renders the nft commands that
+// make it the membership of pool's set.
 // nft applies one -f input as a single transaction, so flush + add swaps the
 // membership atomically: there is no instant at which a restricted sprite is absent.
-func Script(network netip.Prefix, members []string) (string, error) {
+func Script(pool Pool, network netip.Prefix, members []string) (string, error) {
 	if len(members) > maxAddrs {
 		return "", fmt.Errorf("too many addresses (%d)", len(members))
 	}
@@ -162,9 +163,10 @@ func Script(network netip.Prefix, members []string) (string, error) {
 			elems = append(elems, a.String())
 		}
 	}
-	script := "flush set " + nftSet + "\n"
+	set := pool.Set()
+	script := "flush set " + set + "\n"
 	if len(elems) > 0 {
-		script += "add element " + nftSet + " { " + strings.Join(elems, ", ") + " }\n"
+		script += "add element " + set + " { " + strings.Join(elems, ", ") + " }\n"
 	}
 	return script, nil
 }

@@ -4,6 +4,7 @@
 # the exact nftables ruleset setup-host.sh installs, runs the real wisp-netd
 # against the real nft, starts wispd's policy DNS + transparent proxy, and drives
 # two fake "sprites" (network namespaces on an msbr0 bridge) through the policy.
+# WISP_POOL=N runs it as network pool N instead (msbrN, inet wispN, --pool N).
 # See internal/server/netns_test.go for what is and is not covered; the real-host
 # check is scripts/verify-network-policy.sh.
 set -euo pipefail
@@ -23,5 +24,5 @@ CGO_ENABLED=0 go test -c -tags netns -o "$OUT/server.test" ./internal/server
 cp scripts/setup-host.sh "$OUT/"
 
 podman run --rm --cap-add NET_ADMIN,SYS_ADMIN,NET_RAW --sysctl net.ipv4.ip_forward=1 \
-  -v "$OUT:/wisp:ro" -e WISP_SETUP=/wisp/setup-host.sh -e WISP_NETD=/wisp/wisp-netd \
+  -v "$OUT:/wisp:ro" -e WISP_SETUP=/wisp/setup-host.sh -e WISP_NETD=/wisp/wisp-netd -e WISP_POOL="${WISP_POOL:-0}" \
   "$IMG" /wisp/server.test -test.run TestNetworkPolicyInNamespaces -test.v -test.count=1
