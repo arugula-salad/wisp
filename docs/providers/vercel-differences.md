@@ -70,6 +70,10 @@ except for IDs, timestamps, hosts and what is listed here.
   validated and reported but nothing expires snapshots yet.
 - Create from a snapshot copies the disk (instant on a reflink volume, a full sparse copy
   otherwise).
+  The new sandbox reports the source as its `currentSnapshotId`, as hosted does, but the
+  snapshot stays the source sandbox's: a non-persistent sandbox made from it that is then
+  stopped cannot resume from it (`400 snapshot_not_found`) until it takes a snapshot of its own.
+  A persistent one resumes from its own disk as usual.
 - Sandboxes are not removed after 14 days idle.
 
 **Commands.**
