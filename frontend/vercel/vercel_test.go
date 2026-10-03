@@ -7,8 +7,10 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -808,4 +810,154 @@ func mustRecord(t *testing.T, fx *fixture, id string) store.Record {
 		t.Fatal(err)
 	}
 	return rec
+}
+
+// Review 1: a snapshot whose checkpoint fails still ends its session stopped
+// (its VM is), with no snapshot and the failure answered; a later stop answers
+// at once rather than finding a session stuck stopping.
+func TestFailedSnapshotEndsStopped(t *testing.T) {
+	fx := newFixture(t)
+	_, sid := fx.create(map[string]any{"name": "snapfail", "persistent": false})
+	fx.f.checkpoint = func(store.Record, string) (store.Checkpoint, error) {
+		return store.Checkpoint{}, errors.New("disk full")
+	}
+	w := fx.do("POST", "/v2/sandboxes/sessions/"+sid+"/snapshot", adminKey, nil)
+	wantErr(t, w, 500, "internal_server_error", "")
+	if !strings.Contains(w.Body.String(), "disk full") {
+		t.Fatalf("the failure is not surfaced: %s", w.Body.String())
+	}
+	sp, _ := fx.st.GetByName(API, "snapfail")
+	m, _ := metaOf(sp.Record)
+	if c := m.current(); c.Status != "stopped" || c.StoppedAt == 0 || len(m.Snapshots) != 0 || m.CurrentSnapshotID != "" {
+		t.Fatalf("after a failed snapshot: %+v snapshots %v", *c, m.Snapshots)
+	}
+	st := decode(t, fx.do("POST", "/v2/sandboxes/sessions/"+sid+"/stop", adminKey, nil))
+	if st["session"].(map[string]any)["status"] != "stopped" {
+		t.Fatalf("stop after a failed snapshot: %v", st)
+	}
+	// The same for a persistent sandbox's stop: stopped, without a snapshot.
+	_, sid2 := fx.create(map[string]any{"name": "stopfail"})
+	st = decode(t, fx.do("POST", "/v2/sandboxes/sessions/"+sid2+"/stop", adminKey, nil))
+	if st["session"].(map[string]any)["status"] != "stopped" || st["snapshot"] != nil {
+		t.Fatalf("persistent stop with a failing checkpoint: %v", st)
+	}
+}
+
+// Review 2: a stop or snapshot that waited for the sandbox's lock while a stop
+// and a resume replaced its session acts on nothing: the new session runs on.
+func TestQueuedStopDoesNotStopTheNextSession(t *testing.T) {
+	fx := newFixture(t)
+	_, sid1 := fx.create(map[string]any{"name": "q", "persistent": true})
+	sp, _ := fx.st.GetByName(API, "q")
+	for _, op := range []string{"stop", "snapshot"} {
+		cur, _ := metaOf(mustRecord(t, fx, sp.ID))
+		old := cur.current().ID
+		unlock := fx.f.lock(sp.ID)
+		done := make(chan *httptest.ResponseRecorder)
+		go func() { done <- fx.do("POST", "/v2/sandboxes/sessions/"+old+"/"+op, adminKey, nil) }()
+		time.Sleep(50 * time.Millisecond)
+		// Meanwhile, under the lock, the session was stopped and a resume started another.
+		next := session{ID: newSessionID(), RequestedAt: fx.f.ms(), StartedAt: fx.f.ms(), Timeout: 60000, Status: "running"}
+		fx.f.updateMeta(sp.ID, func(m *meta) {
+			c := m.current()
+			c.Status, c.StoppedAt = "stopped", fx.f.ms()
+			m.addSession(next)
+		})
+		fx.f.sessions.Store(next.ID, sp.ID)
+		unlock()
+		w := <-done
+		m, _ := metaOf(mustRecord(t, fx, sp.ID))
+		if m.current().ID != next.ID || m.current().Status != "running" {
+			t.Fatalf("a queued %s of %s acted on %s: %+v", op, old, next.ID, *m.current())
+		}
+		switch op {
+		case "stop":
+			if w.Code != 200 || decode(t, w)["session"].(map[string]any)["id"] != old {
+				t.Fatalf("queued stop: %d %s", w.Code, w.Body.String())
+			}
+		case "snapshot":
+			wantErr(t, w, 410, "sandbox_stopped", "")
+		}
+	}
+	_ = sid1
+}
+
+// Review 3: timeouts are compared in ms, so a huge one cannot overflow past
+// the limit.
+func TestHugeTimeoutsAreRefused(t *testing.T) {
+	fx := newFixture(t)
+	wantErr(t, fx.do("POST", "/v3/sandboxes", adminKey, map[string]any{"name": "h", "timeout": int64(9300000000000)}), 400, "bad_request", "")
+	wantErr(t, fx.do("POST", "/v3/sandboxes", adminKey, map[string]any{"name": "h", "timeout": int64(math.MaxInt64)}), 400, "bad_request", "")
+	_, sid := fx.create(map[string]any{"name": "h", "timeout": 60000})
+	for _, d := range []int64{9300000000000, math.MaxInt64, int64(24*time.Hour/time.Millisecond) - 59999} {
+		wantErr(t, fx.do("POST", "/v2/sandboxes/sessions/"+sid+"/extend-timeout", adminKey, map[string]any{"duration": d}), 400, "bad_request", "")
+	}
+	ext := decode(t, fx.do("POST", "/v2/sandboxes/sessions/"+sid+"/extend-timeout", adminKey,
+		map[string]any{"duration": int64(24*time.Hour/time.Millisecond) - 60000}))
+	if ext["session"].(map[string]any)["timeout"] != float64(24*time.Hour/time.Millisecond) {
+		t.Fatalf("extend to exactly the maximum: %v", ext)
+	}
+}
+
+// Review 4: listings with equal sort keys page through every item once.
+func TestPagingWithTies(t *testing.T) {
+	fx := newFixture(t)
+	_, sid := fx.create(map[string]any{"name": "ties"})
+	sp, _ := fx.st.GetByName(API, "ties")
+	fx.f.updateMeta(sp.ID, func(m *meta) {
+		at := m.current().RequestedAt
+		for i := 0; i < 5; i++ {
+			m.addSession(session{ID: newSessionID(), RequestedAt: at, StartedAt: at, Status: "stopped"})
+			m.Snapshots = append(m.Snapshots, snapshot{ID: newSnapshotID(), CreatedAt: at, Method: "manual"})
+		}
+	})
+	_ = sid
+	for _, c := range []struct{ path, field string }{
+		{"/v2/sandboxes/sessions?name=ties", "sessions"},
+		{"/v2/sandboxes/snapshots?name=ties", "snapshots"},
+	} {
+		for _, order := range []string{"asc", "desc"} {
+			seen := map[string]bool{}
+			cursor := ""
+			for pages := 0; ; pages++ {
+				out := decode(t, fx.do("GET", c.path+"&limit=2&sortOrder="+order+cursor, adminKey, nil))
+				for _, it := range out[c.field].([]any) {
+					id := it.(map[string]any)["id"].(string)
+					if seen[id] {
+						t.Fatalf("%s %s: %s twice", c.field, order, id)
+					}
+					seen[id] = true
+				}
+				next := out["pagination"].(map[string]any)["next"]
+				if next == nil || pages > 10 {
+					break
+				}
+				cursor = "&cursor=" + next.(string)
+			}
+			want := 6
+			if c.field == "snapshots" {
+				want = 5
+			}
+			if len(seen) != want {
+				t.Fatalf("%s %s: %d items, want %d", c.field, order, len(seen), want)
+			}
+		}
+	}
+}
+
+// ordered is a strict weak order in both directions: irreflexive, and never
+// true both ways, ties included (the old (a < b) == asc was true both ways for
+// equal keys when descending).
+func TestOrderedIsStrict(t *testing.T) {
+	for _, asc := range []bool{true, false} {
+		if ordered(5, 5, "a", "a", asc) {
+			t.Errorf("asc=%v: an item comes before itself", asc)
+		}
+		if ordered(5, 5, "a", "b", asc) == ordered(5, 5, "b", "a", asc) {
+			t.Errorf("asc=%v: a tie is not broken by ID one way", asc)
+		}
+		if ordered(4, 5, "z", "a", asc) != asc || ordered(5, 4, "a", "z", asc) == asc {
+			t.Errorf("asc=%v: keys do not decide first", asc)
+		}
+	}
 }

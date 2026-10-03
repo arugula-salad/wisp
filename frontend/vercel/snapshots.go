@@ -95,7 +95,9 @@ func (f *Frontend) listSnapshots(w http.ResponseWriter, r *http.Request) {
 		items = append(items, m.Snapshots...)
 	}
 	asc := q.Get("sortOrder") == "asc"
-	sort.Slice(items, func(i, j int) bool { return (items[i].CreatedAt < items[j].CreatedAt) == asc })
+	sort.Slice(items, func(i, j int) bool {
+		return ordered(items[i].CreatedAt, items[j].CreatedAt, items[i].ID, items[j].ID, asc)
+	})
 	page, next := paginate(len(items), offset, limit)
 	out := []snapshotJSON{}
 	for _, s := range items[page[0]:page[1]] {

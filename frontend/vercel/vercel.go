@@ -121,6 +121,9 @@ type Frontend struct {
 	dialAgent func(*vmm.Machine) func(ctx context.Context, network, addr string) (net.Conn, error)
 	dialPort  func(ctx context.Context, m *vmm.Machine, port string) (net.Conn, error)
 	now       func() time.Time
+	// checkpoint checkpoints a stopped sandbox's disk (the engine's
+	// CreateCheckpoint): a field so that tests can make it fail.
+	checkpoint func(rec store.Record, comment string) (store.Checkpoint, error)
 }
 
 // New attaches the Vercel front end to life.
@@ -147,7 +150,10 @@ func New(opts Options, st *store.Store, life *engine.Engine, log *slog.Logger) *
 		opts.RouteURL = func(sub string) string { return "http://" + sub + ".vercel.localhost" }
 	}
 	f := &Frontend{opts: opts, store: st, life: life, log: log.With("api", API),
-		acquire: life.Acquire, dialAgent: engine.AgentDial, dialPort: engine.DialPort, now: time.Now}
+		acquire: life.Acquire, dialAgent: engine.AgentDial, dialPort: engine.DialPort, now: time.Now,
+		checkpoint: func(rec store.Record, comment string) (store.Checkpoint, error) {
+			return life.CreateCheckpoint(rec, nil, comment, func(string, ...any) {})
+		}}
 	f.cmds.init()
 	// A deleted sandbox's commands go with it, whoever deleted it.
 	life.OnDelete(func(sp store.Sprite) {

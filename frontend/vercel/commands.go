@@ -324,7 +324,12 @@ func (f *Frontend) startCommand(w http.ResponseWriter, ctx context.Context, rec 
 	f.cmds.add(c)
 	var timer *time.Timer
 	if req.Timeout != nil && *req.Timeout > 0 {
-		timer = time.AfterFunc(time.Duration(*req.Timeout)*time.Millisecond, func() {
+		// No command outlives its session: a longer (or overflowing) timeout is the longest session.
+		d := f.opts.MaxTimeout
+		if *req.Timeout < d.Milliseconds() {
+			d = time.Duration(*req.Timeout) * time.Millisecond
+		}
+		timer = time.AfterFunc(d, func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			f.signal(ctx, mach, c.agentID, 9)

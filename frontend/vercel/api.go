@@ -1,6 +1,7 @@
 package vercel
 
 import (
+	"cmp"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
@@ -289,7 +289,8 @@ func (f *Frontend) timeoutOf(w http.ResponseWriter, ms *int64) (int64, bool) {
 		writeErr(w, http.StatusBadRequest, "bad_request", "Invalid request: `timeout` must be a positive number of milliseconds.")
 		return 0, false
 	}
-	if time.Duration(*ms)*time.Millisecond > f.opts.MaxTimeout {
+	// Compared in ms: a huge value would overflow a time.Duration.
+	if *ms > f.opts.MaxTimeout.Milliseconds() {
 		writeErr(w, http.StatusBadRequest, "bad_request",
 			fmt.Sprintf("Invalid request: `timeout` must be at most %d ms.", f.opts.MaxTimeout.Milliseconds()))
 		return 0, false
@@ -586,13 +587,27 @@ func (f *Frontend) list(w http.ResponseWriter, r *http.Request) {
 		}
 		return fmt.Sprintf("%020d %s", m.CreatedAt, m.Name)
 	}
-	sort.Slice(items, func(i, j int) bool { return (key(items[i]) < key(items[j])) == asc })
+	// Keys end with the name, which is unique: a strict order, stable across pages.
+	sort.Slice(items, func(i, j int) bool { return ordered(key(items[i]), key(items[j]), "", "", asc) })
 	out := []sandboxJSON{}
 	page, next := paginate(len(items), offset, limit)
 	for _, m := range items[page[0]:page[1]] {
 		out = append(out, f.sandboxOf(m, true))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sandboxes": out, "pagination": paginationJSON{Count: len(out), Next: next}})
+}
+
+// ordered is a strict "a before b" for a listing sorted by key (ascending
+// or not), ties broken by a unique ID in the same direction, so that offset
+// pages neither repeat nor skip items with equal keys.
+func ordered[K cmp.Ordered](ka, kb K, ida, idb string, asc bool) bool {
+	if !asc { // descending is ascending with the operands swapped, never a negation
+		ka, kb, ida, idb = kb, ka, idb, ida
+	}
+	if ka != kb {
+		return ka < kb
+	}
+	return ida < idb
 }
 
 func limitOf(w http.ResponseWriter, s string, def int) (int, bool) {
