@@ -1,0 +1,76 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "161"
+    },
+    "body": {
+      "size": 161,
+      "sha256": "d249a10219ecef12c4da871d9bdf01d3559b817dcbc00b0b09450ff8d69c164f",
+      "json": {
+        "command": "sh",
+        "args": [
+          "-c",
+          "/vercel/probe/run.sh; stat -c '%a %U' /vercel/probe/hello.txt /vercel/probe/run.sh"
+        ],
+        "env": {},
+        "sudo": false,
+        "wait": true,
+        "logs": true
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-type": "application/x-ndjson",
+      "date": "Sat, 03 Oct 2026 00:31:43 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "994",
+      "x-ratelimit-reset": "1790987564",
+      "x-vercel-id": "iad1:iad1::84ckl-1790987503724-110b041a127a",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 611,
+      "sha256": "c74059e233c79f96a7a80f459e47f654ccc92924e9626b5bcdc0f7b8b7e48f6a",
+      "text": "{\"command\":{\"id\":\"cmd_03892af026714f2a85ced53d34d3\",\"name\":\"sh\",\"args\":[\"-c\",\"/vercel/probe/run.sh; stat -c '%a %U' /vercel/probe/hello.txt /vercel/probe/run.sh\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987503790,\"exitCode\":null}}\n{\"data\":\"ran\\n644 ubuntu\\n755 ubuntu\\n\",\"stream\":\"stdout\"}\n{\"command\":{\"id\":\"cmd_03892af026714f2a85ced53d34d3\",\"name\":\"sh\",\"args\":[\"-c\",\"/vercel/probe/run.sh; stat -c '%a %U' /vercel/probe/hello.txt /vercel/probe/run.sh\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987503790,\"exitCode\":0,\"durationMs\":3}}\n"
+    },
+    "elapsedMs": 125,
+    "chunks": [
+      {
+        "atMs": 119,
+        "data": "{\"command\":{\"id\":\"cmd_03892af026714f2a85ced53d34d3\",\"name\":\"sh\",\"args\":[\"-c\",\"/vercel/probe/run.sh; stat -c '%a %U' /vercel/probe/hello.txt /vercel/probe/run.sh\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987503790,\"exitCode\":null}}\n"
+      },
+      {
+        "atMs": 120,
+        "data": "{\"data\":\"ran\\n644 ubuntu\\n755 ubuntu\\n\",\"stream\":\"stdout\"}\n"
+      },
+      {
+        "atMs": 125,
+        "data": "{\"command\":{\"id\":\"cmd_03892af026714f2a85ced53d34d3\",\"name\":\"sh\",\"args\":[\"-c\",\"/vercel/probe/run.sh; stat -c '%a %U' /vercel/probe/hello.txt /vercel/probe/run.sh\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987503790,\"exitCode\":0,\"durationMs\":3}}\n"
+      }
+    ]
+  }
+}

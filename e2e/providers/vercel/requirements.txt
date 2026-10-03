@@ -1,0 +1,17 @@
+# The official Python Sandbox SDK (what `from vercel import sandbox` resolves to;
+# the `vercel` package delivers it through this dependency), pinned with its deps.
+annotated-types==0.8.0
+anyio==4.15.1
+h11==0.16.0
+httpcore2==2.13.1
+httpx2==2.13.1
+idna==3.20
+pydantic==2.13.5
+pydantic-core==2.46.5
+truststore==0.10.4
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+vercel-headers==0.7.2
+vercel-internal-core==0.2.0
+vercel-oidc==0.9.0
+vercel-sandbox==0.7.0

@@ -1,0 +1,70 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "connection": "keep-alive",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "content-type": "application/json",
+      "authorization": "<redacted>",
+      "content-length": "107"
+    },
+    "body": {
+      "size": 107,
+      "sha256": "b09a28741e04874540e91ddce8506b7260a646e531eac42c47db40e9f32878b8",
+      "json": {
+        "command": "sh",
+        "args": [
+          "-c",
+          "i=0; while true; do i=$((i+1)); echo tick $i; sleep 0.5; done"
+        ],
+        "sudo": false
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "248",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:32:59 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987640",
+      "x-vercel-id": "iad1:iad1::cgvtf-1790987579309-e35fe77ba1d4"
+    },
+    "body": {
+      "size": 248,
+      "sha256": "3f67c083d91d18f372f0156e31c89cbe76c15a81ba02462e258999ecae114255",
+      "json": {
+        "command": {
+          "id": "cmd_c1f12b37dc664048a60c3316dd60",
+          "name": "sh",
+          "args": [
+            "-c",
+            "i=0; while true; do i=$((i+1)); echo tick $i; sleep 0.5; done"
+          ],
+          "cwd": "/vercel",
+          "sessionId": "sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA",
+          "startedAt": 1790987579376,
+          "exitCode": null
+        }
+      }
+    },
+    "elapsedMs": 118
+  }
+}

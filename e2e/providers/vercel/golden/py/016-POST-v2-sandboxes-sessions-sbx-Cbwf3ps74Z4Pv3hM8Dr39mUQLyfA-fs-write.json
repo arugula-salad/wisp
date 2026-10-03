@@ -1,0 +1,51 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/fs/write",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "connection": "keep-alive",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "x-cwd": "/",
+      "content-type": "application/gzip",
+      "authorization": "<redacted>",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 117,
+      "sha256": "6f08122a6442d9bd4b9986cb95d62c685fc87074ca2c52708b730e9b813b6955",
+      "base64": "H4sIAAAAAAAAAytLLUpOzdEvLy/Xz8xLSa3QyyjJzWGgLjAAAjMTEzANBOi0gYGREYINEjc0MjAxYFAwoLI7sILS4pLEIqD19LBrEILi1KKy1BTdpErd4sS8lKT8Cq6BdtEoGAWjYBSMAnoAAFzyvc4ACAAA"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "2",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:33:01 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "993",
+      "x-ratelimit-reset": "1790987642",
+      "x-vercel-id": "iad1:iad1::thk62-1790987581861-4529c1d1e2e8"
+    },
+    "body": {
+      "size": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "json": {}
+    },
+    "elapsedMs": 134
+  }
+}

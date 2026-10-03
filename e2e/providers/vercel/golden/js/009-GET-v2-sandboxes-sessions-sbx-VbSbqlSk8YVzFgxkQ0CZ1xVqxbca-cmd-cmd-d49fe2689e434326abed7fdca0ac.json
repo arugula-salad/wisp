@@ -1,0 +1,60 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd/cmd_d49fe2689e434326abed7fdca0ac",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "286",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:42 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987563",
+      "x-vercel-id": "iad1:iad1::wc48b-1790987502182-329353988ce0"
+    },
+    "body": {
+      "size": 286,
+      "sha256": "0fb37d6865a5bd5f7920d63e02a59bedc7a8446ea1cb280582df7be20648c063",
+      "json": {
+        "command": {
+          "id": "cmd_d49fe2689e434326abed7fdca0ac",
+          "name": "sh",
+          "args": [
+            "-c",
+            "trap \"echo got-term; exit 42\" TERM; i=0; while true; do i=$((i+1)); echo tick $i; sleep 0.5; done"
+          ],
+          "cwd": "/vercel",
+          "sessionId": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "startedAt": 1790987501632,
+          "exitCode": null
+        }
+      }
+    },
+    "elapsedMs": 125
+  }
+}

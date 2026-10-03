@@ -1,0 +1,73 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/extend-timeout",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "18"
+    },
+    "body": {
+      "size": 18,
+      "sha256": "da2662fbf39fc73131313e6fa52e2c085895bc439f6641560d899a20976ccc5d",
+      "json": {
+        "duration": 60000
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "411",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:46 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987567",
+      "x-vercel-id": "iad1:iad1::cr8dv-1790987505947-678b4d07f571"
+    },
+    "body": {
+      "size": 411,
+      "sha256": "aee1fc472aed8afd7ea3740e1ce99c1a86f82d33bb4fd5d36c923de2f2d3942b",
+      "json": {
+        "session": {
+          "id": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "runtime": "node22",
+          "architecture": "amd64",
+          "requestedAt": 1790987499206,
+          "startedAt": 1790987499236,
+          "status": "running",
+          "vcpus": 1,
+          "memory": 2048,
+          "timeout": 300000,
+          "region": "iad1",
+          "cwd": "/vercel",
+          "createdAt": 1790987499206,
+          "updatedAt": 1790987499255,
+          "interactivePort": 26661,
+          "sourceSandboxName": "wisp-probe-js-murnpqnu-a",
+          "projectId": "<redacted>"
+        }
+      }
+    },
+    "elapsedMs": 231
+  }
+}

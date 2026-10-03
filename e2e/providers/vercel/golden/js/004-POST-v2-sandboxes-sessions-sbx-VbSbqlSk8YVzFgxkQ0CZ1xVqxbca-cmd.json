@@ -1,0 +1,71 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "128"
+    },
+    "body": {
+      "size": 128,
+      "sha256": "5df37c4bfa46a69292b3e561830e7b080bb13d4e2f86121969379f0f70ad487f",
+      "json": {
+        "command": "sh",
+        "args": [
+          "-c",
+          "echo \"$FOO\"; pwd; id -u"
+        ],
+        "cwd": "/tmp",
+        "env": {
+          "FOO": "bar"
+        },
+        "sudo": false,
+        "wait": true,
+        "logs": true
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-type": "application/x-ndjson",
+      "date": "Sat, 03 Oct 2026 00:31:41 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987562",
+      "x-vercel-id": "iad1:iad1::pq4hx-1790987500681-78275400669d",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 479,
+      "sha256": "7522604d6b155d71ac265e8d312862ec9b55a675bebc3e6a576b3f8acf3a72aa",
+      "text": "{\"command\":{\"id\":\"cmd_efa3ca728d384607976fd3a9dd91\",\"name\":\"sh\",\"args\":[\"-c\",\"echo \\\"$FOO\\\"; pwd; id -u\"],\"cwd\":\"/tmp\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987501071,\"exitCode\":null}}\n{\"data\":\"bar\\n/tmp\\n1000\\n\",\"stream\":\"stdout\"}\n{\"command\":{\"id\":\"cmd_efa3ca728d384607976fd3a9dd91\",\"name\":\"sh\",\"args\":[\"-c\",\"echo \\\"$FOO\\\"; pwd; id -u\"],\"cwd\":\"/tmp\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987501071,\"exitCode\":0,\"durationMs\":1}}\n"
+    },
+    "elapsedMs": 492,
+    "chunks": [
+      {
+        "atMs": 491,
+        "data": "{\"command\":{\"id\":\"cmd_efa3ca728d384607976fd3a9dd91\",\"name\":\"sh\",\"args\":[\"-c\",\"echo \\\"$FOO\\\"; pwd; id -u\"],\"cwd\":\"/tmp\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987501071,\"exitCode\":null}}\n{\"data\":\"bar\\n/tmp\\n1000\\n\",\"stream\":\"stdout\"}\n{\"command\":{\"id\":\"cmd_efa3ca728d384607976fd3a9dd91\",\"name\":\"sh\",\"args\":[\"-c\",\"echo \\\"$FOO\\\"; pwd; id -u\"],\"cwd\":\"/tmp\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987501071,\"exitCode\":0,\"durationMs\":1}}\n"
+      }
+    ]
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "184"
+    },
+    "body": {
+      "size": 184,
+      "sha256": "e9166b2151992cb0e8192619a7e812029e138ec677c2306fa66fe0739892e021",
+      "json": {
+        "command": "sh",
+        "args": [
+          "-c",
+          ". /etc/os-release; echo \"$PRETTY_NAME\"; id; echo \"HOME=$HOME\"; pwd; command -v node python3; uname -r"
+        ],
+        "env": {},
+        "sudo": false,
+        "wait": true,
+        "logs": true
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-type": "application/x-ndjson",
+      "date": "Sat, 03 Oct 2026 00:31:39 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987560",
+      "x-vercel-id": "iad1:iad1::zvqs8-1790987499379-3c3c327533cc",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 846,
+      "sha256": "f74b94e35b84c384fe82557dcb0d1577c46ca840d2235b5d15743690fbd6fec6",
+      "text": "{\"command\":{\"id\":\"cmd_e3b19c16f13241b0866f030cb203\",\"name\":\"sh\",\"args\":[\"-c\",\". /etc/os-release; echo \\\"$PRETTY_NAME\\\"; id; echo \\\"HOME=$HOME\\\"; pwd; command -v node python3; uname -r\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987499452,\"exitCode\":null}}\n{\"data\":\"Ubuntu 26.04.1 LTS\\nuid=1000(ubuntu) gid=1000(ubuntu) groups=1000(ubuntu),4(adm),20(dialout),24(cdrom),25(floppy),27(sudo),29(audio),30(dip),44(video),46(plugdev)\\nHOME=/vercel\\n/vercel\\n/usr/local/bin/node\\n6.18.49\\n\",\"stream\":\"stdout\"}\n{\"command\":{\"id\":\"cmd_e3b19c16f13241b0866f030cb203\",\"name\":\"sh\",\"args\":[\"-c\",\". /etc/os-release; echo \\\"$PRETTY_NAME\\\"; id; echo \\\"HOME=$HOME\\\"; pwd; command -v node python3; uname -r\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987499452,\"exitCode\":0,\"durationMs\":12}}\n"
+    },
+    "elapsedMs": 136,
+    "chunks": [
+      {
+        "atMs": 127,
+        "data": "{\"command\":{\"id\":\"cmd_e3b19c16f13241b0866f030cb203\",\"name\":\"sh\",\"args\":[\"-c\",\". /etc/os-release; echo \\\"$PRETTY_NAME\\\"; id; echo \\\"HOME=$HOME\\\"; pwd; command -v node python3; uname -r\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987499452,\"exitCode\":null}}\n"
+      },
+      {
+        "atMs": 132,
+        "data": "{\"data\":\"Ubuntu 26.04.1 LTS\\nuid=1000(ubuntu) gid=1000(ubuntu) groups=1000(ubuntu),4(adm),20(dialout),24(cdrom),25(floppy),27(sudo),29(audio),30(dip),44(video),46(plugdev)\\nHOME=/vercel\\n/vercel\\n/usr/local/bin/node\\n6.18.49\\n\",\"stream\":\"stdout\"}\n"
+      },
+      {
+        "atMs": 136,
+        "data": "{\"command\":{\"id\":\"cmd_e3b19c16f13241b0866f030cb203\",\"name\":\"sh\",\"args\":[\"-c\",\". /etc/os-release; echo \\\"$PRETTY_NAME\\\"; id; echo \\\"HOME=$HOME\\\"; pwd; command -v node python3; uname -r\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca\",\"startedAt\":1790987499452,\"exitCode\":0,\"durationMs\":12}}\n"
+      }
+    ]
+  }
+}

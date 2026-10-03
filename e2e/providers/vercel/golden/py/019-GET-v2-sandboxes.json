@@ -1,0 +1,87 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "project": [
+        "<redacted>"
+      ],
+      "sortBy": [
+        "name"
+      ],
+      "sortOrder": [
+        "desc"
+      ],
+      "namePrefix": [
+        "wisp-probe-py-6ac04d39"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "connection": "keep-alive",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "content-type": "application/json",
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "625",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:33:03 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "998",
+      "x-ratelimit-reset": "1790987644",
+      "x-vercel-id": "iad1:iad1::lvs8t-1790987583371-d3dfd15e4f36"
+    },
+    "body": {
+      "size": 625,
+      "sha256": "e38eebbece06e2609b42ed06a11f3475b658c565174ab2142fd458823f4cc626",
+      "json": {
+        "sandboxes": [
+          {
+            "name": "wisp-probe-py-6ac04d39-a",
+            "currentSessionId": "sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA",
+            "status": "running",
+            "statusUpdatedAt": 1790987578098,
+            "persistent": false,
+            "region": "iad1",
+            "failoverRegions": [],
+            "vcpus": 1,
+            "memory": 2048,
+            "runtime": "node22",
+            "architecture": "amd64",
+            "image": "vercel/sandbox/universal@sha256:c77f7436b9bc0a8b01ef7b09dbcea2de6a18a9fe2aafa89996d2da193da72cf0",
+            "timeout": 240000,
+            "totalEgressBytes": 0,
+            "totalIngressBytes": 0,
+            "totalActiveCpuDurationMs": 0,
+            "totalDurationMs": 0,
+            "cwd": "/vercel",
+            "createdAt": 1790987578098,
+            "updatedAt": 1790987578098,
+            "expiresAt": 1790987878014
+          }
+        ],
+        "pagination": {
+          "count": 1,
+          "next": null
+        }
+      }
+    },
+    "elapsedMs": 123
+  }
+}
