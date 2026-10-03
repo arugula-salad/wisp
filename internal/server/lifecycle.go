@@ -25,6 +25,28 @@ import (
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
+// Locking. The Lifecycle is the only code that touches a sprite's runtime:
+// its lock (rt.mu), its VM (rt.m) and the guest agent behind it (agentCall).
+// Everything else, the HTTP handlers above all, goes through *Lifecycle
+// methods that take the lock themselves. The order is:
+//
+//  1. rt.mu, one sprite's transition lock, is outermost. It is held across
+//     slow work: a boot, a suspend, a disk clone, a guest round trip, and the
+//     progress callbacks those report through, which may write to a client.
+//  2. At most one rt.mu is waited for at a time. Code holding one sprite's
+//     lock may look at another's only with TryLock (makeRoom), and code that
+//     must wait for a second lock lets go of its own first (leases.reap
+//     before the delete).
+//  3. Everything else is a leaf, taken under rt.mu or alone and held only
+//     for bookkeeping: l.mu (the runtime table, the tap pool, the loops),
+//     rt.useMu, the store's own lock, and the mutexes of the disk guard,
+//     admission, egress, backups and leases. None of them is ever held while
+//     waiting for rt.mu, so l.rt(id) may be called with or without a sprite
+//     locked, and the store may be read and written under rt.mu.
+//
+// Background passes that must never wait behind a transition (Status, peek,
+// autoscale, makeRoom) use TryLock and treat a held lock as "busy".
+
 const agentPort = 1024
 
 type Options struct {
