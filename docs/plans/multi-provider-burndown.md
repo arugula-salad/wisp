@@ -46,9 +46,12 @@ belong to its socket forwarders. No phase of this plan restarts or redeploys it 
   - Each implementer gets one for quick e2e loops.
   - They live on the root filesystem: `/tmp` is tmpfs with about 19 GB free, too little for sprite disks.
   - The netpolicy subtests skip here.
-- **Network gate:** how the network-dependent suites run is an open decision (see "What I need
-  from you"). The tap pool's bridge name and the egress listener ports are fixed today, so a
-  second networked wispd cannot run beside production.
+- **Gate stack (pool 1):** `wispd --net-pool 1 --data ~/ws/1 --listen 127.0.0.1:7802`, on bridge
+  `msbr1` (10.210.0.0/16), which `sudo WISP_POOL=1 scripts/setup-host.sh` created on 2026-10-02. A
+  gate run is the full `go test -tags e2e ./e2e/` with `SPRITES_E2E_URL`/`TOKEN`/`IDLE_TIMEOUT`
+  set, plus `scripts/probe-sdks.sh` with `SPRITES_API_URL`/`SPRITE_TOKEN`, both against :7802.
+  Rebuild the stack's initrd with `WISP_DATA=~/ws/1 ./scripts/build-initrd.sh`; plain
+  `make initrd` writes to production's data dir.
 - **Real-data test for slice 1.4:** reflink-copy production's sprite data on its XFS volume, copy
   the store JSON, and boot a `--net=false` stack on the copy. Production's own files are never
   opened for writing.
@@ -86,7 +89,7 @@ at the handler / `*Locked` boundary. The hard parts are the store, the locks and
 | 0 | Configurable network pool (`--net-pool N`, `WISP_POOL=N`) so a networked test wispd runs beside production. You run one sudo command afterwards. | Low |
 | 1.1 | Encapsulate locks, still inside `package server`: replace the ~10 sites that take `rt.mu` and call `rt.m.*` or `agentCall` directly (checkpoints, checkpoint mounts, spawn, leases, policy limits, backup, diskguard) with `Lifecycle` methods that take the lock themselves. | **High.** This is where the races live. |
 | 1.2 | Break the back-references: `backupManager` and `leases` stop holding `*Server`, and the lifecycle owns backups and the expiry sweep. | Medium |
-| 1.3 | Neutral events and typed errors: the lifecycle emits typed events keyed by ID, and handlers map them to the `sprite.*` strings and upstream's `LimitError`. The public webhook contract stays unchanged. | Low |
+| 1.3 | Events keyed by ID: the lifecycle publishes by sandbox ID, and a hook installed by the front-end fills in name and parent. The event stream and `sprite.*` types are wisp's own contract (docs/events.md), so they stay. `LimitError` is already provider-neutral; only its HTTP rendering moves to handlers. | Low |
 | 1.4 | Split `store.Sprite` into an ID-keyed engine record (disk, network, checkpoints, mounts, image, lineage, policy) and Sprites front-end metadata (name, URL settings, domains, labels, spawn, parent, expiry). Existing JSON must read back with no migration step. | **High:** it touches real on-disk data |
 | 1.5 | Move to `engine/`: `Lifecycle` and the files the seam map marks ENGINE move out. `Server` holds `*engine.Engine`. By now it is mechanical, with a small export surface. | Low |
 | 1.6 | Per-sandbox lifecycle policy (idle suspend, timeout, stop), replacing the single global idle rule. Sprites keeps today's behaviour as its default. | Medium |
@@ -122,13 +125,11 @@ That decision shapes any neutral exec API, so designing one now would be a guess
 
 ## What I need from you
 
-- [ ] Confirm or change the decisions assumed above (same repo, `engine/` as a public package).
+- [x] Confirm the decisions assumed above (same repo, `engine/` as a public package).
 - [x] Vercel credentials (`VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`) in providers.env.
 - [x] `E2B_API_KEY` in providers.env.
 - [x] Permission to push branches and open PRs on `arugula-salad/wisp`.
-- [ ] Network gate: (a) slice 0 makes the bridge, tap prefix and egress ports configurable and
-      sets up a second tap pool with sudo, so a networked test wispd runs beside production; or
-      (b) a short production maintenance window at each phase gate.
+- [x] Network gate: option (a), a second tap pool. Pool 1 was created 2026-10-02.
 
 ## Status
 
@@ -136,8 +137,10 @@ That decision shapes any neutral exec API, so designing one now would be a guess
 | --- | --- |
 | Plan doc | Done |
 | Seam map of `internal/server` | Done (summarised in phase 1) |
-| Phase 0: E2B survey + probes | Running (subagent, branch `providers/e2b`) |
-| Phase 0: Vercel survey + probes | Running (subagent, branch `providers/vercel`) |
-| Phase 0: Daytona + Modal surveys | Running (subagent, branch `providers/daytona-modal`) |
-| Slice 0: network pool | Running (illogical pane 91, worktree `wisp-wt/net-pool`) |
-| Slices 1.1–1.6 | Not started |
+| Phase 0: E2B survey + probes | Done: PR #37 merged. Decision: run E2B's own envd in the guest. 26/26 SDK steps pass against hosted E2B |
+| Phase 0: Vercel survey + probes | Done: PR #35 merged. JS 16/16, Python 11/11 against hosted Vercel. The JS SDK needs a fetch-rewriting preload to retarget |
+| Phase 0: Daytona + Modal surveys | Done: PR #32 merged. Daytona is about 1.5x E2B; Modal is a go for a time-boxed spike |
+| Slice 0: network pool | Done: PR #34 merged. Gate on pool 1: e2e 21 pass / 0 fail, SDK probes 0 failures |
+| Slice 1.1: lock encapsulation | Done: PR #36 merged. Gate on pool 1: 21 pass / 0 fail, probes 0 failures. Also fixed `make e2e`, which had hardcoded production's URL |
+| Slice 1.2: back-references, Lifecycle owns create/delete | Running (illogical pane 96, worktree `wisp-wt/engine-backrefs`) |
+| Slices 1.3–1.6 | Not started |
