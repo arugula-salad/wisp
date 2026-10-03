@@ -79,7 +79,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
 	}
 	s.backups = life.backups
-	s.leases = newLeases(s)
+	s.leases = newLeases(st, log, life, opts.LeaseWarning, s.destroy)
 	life.setLeases(s.leases)
 	// Once here, before anything is served: a lease that ran out while the
 	// daemon was down has still run out, and the sprite should not come back.

@@ -835,7 +835,7 @@ func (l *Lifecycle) Cool(sp store.Sprite) bool {
 // that has to be decided atomically with respect to those transitions, and
 // fn must not call a Lifecycle method that takes the same lock. Prefer a
 // specific method; every use is listed here:
-//   - leases.reap and Server.applyLease (leases.go) decide a sprite's lease
+//   - leases.reap and leases.set (leases.go) decide a sprite's lease
 //     against each other under it, so that a renewal and a reap in flight
 //     cannot both win.
 func (l *Lifecycle) WithLocked(id string, fn func() error) error {
