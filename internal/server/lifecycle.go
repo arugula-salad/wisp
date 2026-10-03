@@ -201,7 +201,8 @@ type Lifecycle struct {
 	// methods are no-ops, so the lifecycle needs no conditionals.
 	backups *backupManager
 	// leases reaps sprites whose workspace lease ran out (leases.go). nil only
-	// in a Lifecycle built by hand in tests; its methods are no-ops then.
+	// in a Lifecycle built by hand in tests: its methods are then no-ops, except
+	// set, which has no store to write to and refuses.
 	leases *leases
 	// reapStarted is set by StartReaping: until then the janitor reaps nothing.
 	// Guarded by mu.

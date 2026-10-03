@@ -119,6 +119,9 @@ func (ls *leases) sweep() {
 // warn publishes sprite.expiring once per deadline. A renewal or a protection
 // clears the mark, so the next deadline is warned about in its own right.
 func (ls *leases) warn(sp store.Sprite, now time.Time) {
+	if ls == nil {
+		return
+	}
 	if sp.ExpiresAt == nil || sp.Protected || now.Add(ls.warning()).Before(*sp.ExpiresAt) {
 		ls.forget(sp.ID)
 		return
@@ -209,6 +212,9 @@ func (ls *leases) forget(id string) {
 // reap in flight; see reap for the two orders and their outcomes. A sprite a
 // reap has committed to is errLeaseReaping, one that is gone store.ErrNotFound.
 func (ls *leases) set(sp store.Sprite, update func(*store.Sprite)) (store.Sprite, error) {
+	if ls == nil {
+		return store.Sprite{}, errors.New("no lease reaper")
+	}
 	var cur store.Sprite
 	err := ls.life.WithLocked(sp.ID, func() error {
 		if ls.claimed(sp.ID) {
