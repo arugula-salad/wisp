@@ -66,6 +66,10 @@ type Options struct {
 	// even under a URL domain (wisp.widgets.wtf with --url-domain widgets.wtf),
 	// and never the dashboard, which stays on the names the proxy does not serve.
 	APIHosts []string
+	// URLsProxied says sprite URLs reach the API listener from the public,
+	// through a reverse proxy (sandboxd's --sprites-public-url), so they are
+	// told no more than the internet-facing listener tells.
+	URLsProxied bool
 	// Webhooks receive every event (webhooks.go).
 	Webhooks WebhookOptions
 }
@@ -198,7 +202,7 @@ func (s *Server) Handler() http.Handler {
 		switch s.kindOf(r) {
 		case httpstats.KindSprite:
 			name, _ := s.spriteForHost(r.Host)
-			s.serveSpriteURL(w, r, name, false)
+			s.serveSpriteURL(w, r, name, s.opts.URLsProxied)
 			return
 		case httpstats.KindUI:
 			ui.ServeHTTP(w, r)

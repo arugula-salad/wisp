@@ -48,6 +48,23 @@ the same listener as the API. To put the URLs on the internet without putting th
 - Not handled: updating the A record when a dynamic IP changes, and a port-80 redirect (a
   reverse proxy in front can do the redirect).
 
+## Behind a TLS-terminating proxy (sandboxd)
+
+sandboxd puts its other APIs behind a reverse proxy with `--e2b-public-url` and the like, and
+the Sprites API on `--listen` the same way with `--sprites-public-url`:
+
+```sh
+sandboxd --listen 127.0.0.1:7790 --sprites-public-url https://sprites.example.com ...
+```
+
+The proxy terminates TLS for `sprites.example.com` and `*.sprites.example.com` and forwards
+both to `--listen` with the `Host` intact. `sprites.example.com` is then the bearer API alone,
+as an `--api-host` name is (no dashboard, [API keys](api-keys.md#serving-the-api-in-public)),
+and it is the one URL domain: sprite URLs are reported as `https://<name>.sprites.example.com`
+and served by `Host` on `--listen`, telling a failed wake no more than `--public-listen` would.
+It replaces `--url-domain` and `--public-listen`, so custom domains are off; the dashboard stays
+on every other name `--listen` answers to.
+
 ## Several URL domains
 
 `--url-domain` takes a comma-separated list, such as `widgets.wtf,arugula.io`. The first is

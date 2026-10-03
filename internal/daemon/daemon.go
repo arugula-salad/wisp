@@ -173,7 +173,13 @@ func Run(name string, opts server.Options, f *Flags, extra ...Frontend) {
 	}
 	_, port, _ := net.SplitHostPort(f.listen)
 	urlFmt := "http://%s.%s:" + port
-	if f.publicListen != "" {
+	switch {
+	case f.proxied != nil:
+		urlFmt = f.proxied.Scheme + "://%s.%s"
+		if p := f.proxied.Port(); p != "" {
+			urlFmt += ":" + p
+		}
+	case f.publicListen != "":
 		urlFmt = "https://%s.%s"
 		if f.publicPort != 443 {
 			urlFmt += fmt.Sprintf(":%d", f.publicPort)

@@ -69,6 +69,9 @@ The installer refuses, before writing anything:
 | a name other than `wisp` on the main data directory, or `wisp` on another one | usually a typo; `--force-pair` if you mean it |
 | a name whose unit already exists with another binary or data directory | it never repoints a service; `--uninstall` it first |
 
+Its Sprites API is on `--listen` like wispd's; to publish it behind a reverse proxy beside the
+other APIs, see [`--sprites-public-url`](public-urls.md#behind-a-tls-terminating-proxy-sandboxd).
+
 `make install-service` is only ever the main install and refuses `NAME`/`DATA`/`BIN`;
 `make install-sandboxd` refuses to run without both `NAME` and `DATA`. `make initrd` and
 `make image` say which data directory they write (the main one unless `WISP_DATA` is set).

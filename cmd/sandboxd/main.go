@@ -18,6 +18,9 @@
 // With --modal-listen it also serves the Modal API (frontend/modal, a spike):
 // the modal client reaches it with MODAL_SERVER_URL=http://127.0.0.1:<port>,
 // MODAL_TOKEN_SECRET set to the root token or an API key, and any MODAL_TOKEN_ID.
+// With --sprites-public-url, the Sprites API on --listen sits behind a
+// reverse proxy, as the other APIs' --*-public-url flags put them: the API at
+// that host, sprite URLs at <name>.<that host>.
 // wispd's subcommands (status, keys, images, ...) work against a sandboxd's
 // data directory as they do against wispd's: they talk to the operator socket.
 package main
@@ -30,6 +33,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -73,6 +77,7 @@ func main() {
 	daytonaURL := flag.String("daytona-url", "", "how Daytona clients reach --daytona-listen (e.g. https://daytona.example.com), for the toolbox URL sandboxes report; default: --daytona-public-url, else the Host each request came to")
 	e2bPublic := flag.String("e2b-public-url", "", "the public URL of --e2b-listen behind a proxy (e.g. https://e2b.example.com): sandboxes report its host as their domain, port and all, instead of --e2b-domain with the listen port")
 	vercelPublic := flag.String("vercel-public-url", "", "the public URL of --vercel-listen behind a proxy (e.g. https://vercel.example.com): routes are <scheme>://<subdomain>.<its host>, instead of http:// under --vercel-domain with the listen port")
+	spritesPublic := flag.String("sprites-public-url", "", "the public URL of --listen behind a proxy that forwards that host and every name under it (e.g. https://sprites.example.com): the Sprites API is served there as with --api-host, and sprite URLs are <scheme>://<name>.<its host>. Replaces --url-domain and --public-listen")
 	daytonaPublic := flag.String("daytona-public-url", "", "the public URL of --daytona-listen behind a proxy (e.g. https://daytona.example.com): previews are <scheme>://<port>-<id>.<its host> and the toolbox is under it, instead of --daytona-domain with the listen port")
 	flag.Parse()
 	opts, f := finish()
@@ -84,6 +89,16 @@ func main() {
 			os.Exit(2)
 		}
 		pub[i] = u
+	}
+	if u, err := publicURL(*spritesPublic); err != nil {
+		fmt.Fprintf(os.Stderr, "--sprites-public-url: %v\n", err)
+		os.Exit(2)
+	} else if u != nil {
+		if bad := setFlags("url-domain", "public-listen"); bad != "" {
+			fmt.Fprintf(os.Stderr, "--sprites-public-url replaces --%s; drop one\n", bad)
+			os.Exit(2)
+		}
+		f.BehindProxy(&opts, u)
 	}
 	*e2bDomain = reportedDomain(*e2bDomain, *e2bListen, pub[0])
 	*vercelDomain = reportedDomain(*vercelDomain, *vercelListen, pub[1])
@@ -115,6 +130,17 @@ func main() {
 				return fe.Handler(), nil
 			},
 		})
+}
+
+// setFlags is the first of names given on the command line, or "".
+func setFlags(names ...string) string {
+	var set string
+	flag.Visit(func(fl *flag.Flag) {
+		if set == "" && slices.Contains(names, fl.Name) {
+			set = fl.Name
+		}
+	})
+	return set
 }
 
 // publicURL parses a --*-public-url: http or https, a host, and nothing
