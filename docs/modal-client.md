@@ -6,7 +6,8 @@ then creates sandboxes on your machine and runs commands in them. This came from
 spike, so it is off by default. It covers sandboxes and exec only: no Functions, no image
 builds, no files API. What works and what does not is in
 [providers/modal-differences.md](providers/modal-differences.md). The protocol notes are in
-[providers/modal.md](providers/modal.md).
+[providers/modal.md](providers/modal.md). The plan to take it to the other providers' level is
+[plans/modal-parity.md](plans/modal-parity.md).
 
 ## Run it
 

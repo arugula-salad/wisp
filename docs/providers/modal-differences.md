@@ -10,6 +10,20 @@ the spike's target script (V2 and V1 sandboxes) and 14 further checks against `s
 traces of hosted Modal were recorded (no Modal account was used), so unlike E2B this list is
 from the client's source and the protocol, not a trace comparison.
 
+Getting to the other providers' quality bar (all of the API that sandboxes use, the Go and JS
+SDKs, golden traces of hosted Modal) is planned in
+[plans/modal-parity.md](../plans/modal-parity.md).
+
+**Known issues**, found by that plan's spike and fixed in its Phase 0:
+
+- `Sandbox.create` ignores fields it cannot honour instead of refusing them. Notably
+  `block_network=True` and the outbound allowlists are accepted and the sandbox gets open
+  egress; also `idle_timeout`, `readiness_probe`, `custom_domain` and cpu/memory limits.
+- Exec runs with stdin on `/dev/null`, so a command that reads stdin (`sb.exec("cat")`) ends at
+  once instead of waiting, as it would on hosted Modal.
+- Exec output past 64 MiB per stream is dropped without an error.
+- On V1 (`MODAL_SANDBOX_V2=0`), `Sandbox.create(env=...)` goes through `SecretGetOrCreate`, which is not served (read from the client's code; the V1 run does not pass `env=`).
+
 ## What exists
 
 Only what a sandbox with exec needs: 19 RPCs of the client's 277. Everything else answers

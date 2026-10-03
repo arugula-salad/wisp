@@ -22,7 +22,7 @@ as the phase 5 probe harness takes about an hour.
 | Server URL | `server_url` setting, overridden by env `MODAL_SERVER_URL`. Default `https://api.modal.com,https://api.modal2.com`. A comma-separated list means staggered failover | `config.py:116,355`, `_utils/grpc_utils.py:409` |
 | Config file | `~/.modal.toml`, or the path in `MODAL_CONFIG_PATH`. Each profile is a section, selected with `MODAL_PROFILE`. Any setting can also come from `MODAL_<SETTING>` | `config.py:1-30,93-96,121` |
 | Environment | `MODAL_ENVIRONMENT`, sent as `environment_name` in `AppGetOrCreate`/`EnvironmentGetOrCreate`. If unset it is `""` | `config.py:370`, `_environments.py:418` |
-| Sandbox backend | **`sandbox_v2` defaults to True** (`MODAL_SANDBOX_V2=0` gives V1). V2 is used unless gpu, NFS or pty is requested | `config.py:366`, `sandbox.py:853` |
+| Sandbox backend | **`sandbox_v2` defaults to True** (`MODAL_SANDBOX_V2=0` gives V1). V2 is used unless gpu, NFS or the deprecated `pty_info=` is requested; `pty=True` stays on V2 (corrected by the [parity spike](../plans/modal-spike/exec-fs.md)) | `config.py:366`, `sandbox.py:853` |
 | Retries | `UNAVAILABLE/INTERNAL/UNKNOWN/CANCELLED/DEADLINE_EXCEEDED` are retried. gRPC status maps to a Python exception (e.g. `NOT_FOUND`->`NotFoundError`, `UNAUTHENTICATED`->`AuthError`) | `_utils/grpc_utils.py:197-203`, `_grpc_client.py:27-43` |
 | Server warnings | Sent as trailing metadata `x-modal-warning` (percent-encoded) and printed by the client | `_utils/grpc_utils.py:338-355` |
 
@@ -160,7 +160,7 @@ That is about 10-15 RPCs for a credible "sandbox + exec" MVP, roughly 1-2 kLOC o
 - Functions/Cls (container entrypoint, function inputs/outputs, `AppHeartbeat`, mount and blob upload via presigned URLs).
 - Volumes, NFS, Secrets (beyond ignoring `secret_ids`), Dict/Queue.
 - Snapshots and `_experimental_*`.
-- GPU (forces V1), PTY (forces V1), `modal deploy`/`modal run`, OAuth/token-flow CLI, and the dashboard.
+- GPU (forces V1), PTY (at the time read as forcing V1; only the deprecated `pty_info=` does), `modal deploy`/`modal run`, OAuth/token-flow CLI, and the dashboard.
 
 ## Spike result
 

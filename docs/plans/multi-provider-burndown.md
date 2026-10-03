@@ -141,6 +141,7 @@ follow-on work, not part of this brief:
 - `engine` exposes `internal/` types, which a separate module would need moved first.
 - The E2B and Vercel port URLs are plain HTTP on `*.localhost`.
 - Unverified Daytona and Modal behaviours are listed in their differences docs.
+- Modal beyond the spike: [modal-parity.md](modal-parity.md).
 
 
 | Item | State |
