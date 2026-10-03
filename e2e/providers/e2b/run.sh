@@ -8,6 +8,10 @@
 #   E2B_DOMAIN=e2b.localhost E2B_API_URL=http://127.0.0.1:7820 \
 #     E2B_SANDBOX_URL=http://127.0.0.1:7820 E2B_PROBE_PORT_SCHEME=http ./run.sh
 #                            a local E2B-compatible server (any key it accepts)
+#   E2B_RECORD_UPSTREAM=http://127.0.0.1:7823 E2B_RECORD_OUT=/some/dir E2B_PROBE_PORT_SCHEME=http \
+#     E2B_API_KEY=... ./run.sh --record
+#                            record against that local server instead; traces go to
+#                            $E2B_RECORD_OUT (default golden/, which holds hosted E2B's)
 #
 # Other knobs: ONLY=py|js, E2B_PROBE_PAUSE=0 (skip pause/resume).
 # Needs python3 and node. The venv lives in ${XDG_CACHE_HOME:-~/.cache}/wisp/e2b-probe,
@@ -17,6 +21,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/wisp/e2b-probe"
 RECORD=0
 [ "${1:-}" = "--record" ] && RECORD=1
+OUTDIR="${E2B_RECORD_OUT:-$HERE/golden}"
 
 if [ -z "${E2B_API_KEY:-}" ] && [ -r "$HOME/.config/arugula/providers.env" ]; then
   set -a; . "$HOME/.config/arugula/providers.env"; set +a
@@ -37,9 +42,10 @@ run_one() { # lang port
   local lang="$1" port="$2" cmd
   [ "$lang" = py ] && cmd=("$PY" "$HERE/probe.py") || cmd=(node "$HERE/probe.mjs")
   if [ "$RECORD" = 1 ]; then
-    rm -f "$HERE/golden/$lang.jsonl"
+    mkdir -p "$OUTDIR"
+    rm -f "$OUTDIR/$lang.jsonl"
     # Not on our stdout: a background child holding the tee pipe open would hang the run.
-    "$PY" "$HERE/recorder.py" --listen "127.0.0.1:$port" --out "$HERE/golden/$lang.jsonl" >/dev/null 2>&1 &
+    "$PY" "$HERE/recorder.py" --listen "127.0.0.1:$port" --out "$OUTDIR/$lang.jsonl" >/dev/null 2>&1 &
     local rpid=$!
     pids+=("$rpid")
     sleep 0.5
@@ -47,8 +53,8 @@ run_one() { # lang port
       E2B_PROBE_PORT_VIA="http://127.0.0.1:$port" E2B_PROBE_RUN="$lang-$$" timeout 600 "${cmd[@]}" || true
     sleep 1
     kill "$rpid" 2>/dev/null || true
-    "$PY" "$HERE/recorder.py" --pretty "$HERE/golden/$lang.jsonl" > "$HERE/golden/$lang.json"
-    rm -f "$HERE/golden/$lang.jsonl"
+    "$PY" "$HERE/recorder.py" --pretty "$OUTDIR/$lang.jsonl" > "$OUTDIR/$lang.json"
+    rm -f "$OUTDIR/$lang.jsonl"
   else
     E2B_PROBE_RUN="$lang-$$" timeout 600 "${cmd[@]}" || true
   fi
