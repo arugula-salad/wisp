@@ -6,6 +6,7 @@ all: build netd initrd
 
 build:
 	$(GO) build -o bin/wispd ./cmd/wispd
+	$(GO) build -o bin/sandboxd ./cmd/sandboxd
 
 netd:            ## root helper behind restrictive network policies; scripts/setup-host.sh installs it
 	CGO_ENABLED=0 $(GO) build -o bin/wisp-netd ./cmd/wisp-netd
