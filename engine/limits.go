@@ -17,4 +17,5 @@ type LimitError struct {
 	RetryAfter int // seconds; 0 when waiting will not help
 }
 
+// Error is the message, for the log.
 func (e *LimitError) Error() string { return e.Message }

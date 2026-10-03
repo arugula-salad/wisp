@@ -13,7 +13,9 @@ import (
 
 // The engine half of checkpoint mounts (internal/server/checkpoint_mounts.go has the routes).
 
+// Mount errors.
 var (
+	// ErrMountsFull is a mount with every checkpoint slot taken.
 	ErrMountsFull = errors.New("all checkpoint mount slots are in use; unmount one first")
 	// ErrNoSlots is a VM resumed from a snapshot taken before slots existed.
 	ErrNoSlots = errors.New("this sprite was booted without checkpoint slots; they appear after its next cold boot")
