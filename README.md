@@ -133,6 +133,20 @@ sprite create dev
 sprite exec -s dev -- uname -a
 ```
 
+### With the E2B SDKs
+
+`sandboxd` is `wispd` plus the [E2B](https://e2b.dev) API on a second listener, over the same
+engine and keys, so the official E2B SDKs work unmodified:
+
+```sh
+./scripts/build-image.sh e2b && ./bin/sandboxd --e2b-listen 127.0.0.1:7820
+export E2B_API_URL=http://127.0.0.1:7820 E2B_SANDBOX_URL=http://127.0.0.1:7820
+export E2B_API_KEY=$(cat ~/.local/share/wisp/token)
+python3 -c 'from e2b import Sandbox; print(Sandbox.create().commands.run("uname -a").stdout)'
+```
+
+More in [Using the E2B SDKs](docs/e2b-sdk.md).
+
 ### Sprite URLs
 
 Every sprite has a URL that wakes it and proxies to port 8080 inside it (or to the service you
@@ -167,4 +181,5 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 | [Backups](docs/backups.md) | Incremental, deduplicated backups to any S3-compatible bucket, and restoring onto a new host |
 | [Security](docs/security.md) | How network policy is enforced, how each Firecracker is confined, and what neither covers |
 | [Differences from the hosted product](docs/differences.md) | Deliberate ones, and the official Go SDK issues this server works around |
+| [Using the E2B SDKs](docs/e2b-sdk.md) | `sandboxd`: the E2B API beside the Sprites API, for the official E2B SDKs, and [how it differs from hosted E2B](docs/providers/e2b-differences.md) |
 | [Development](docs/development.md) | Tests, the e2e suite against the official SDKs, extra dev stacks |
