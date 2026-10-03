@@ -60,13 +60,19 @@ if [ "$ACTION" = dropin ] || [ "$ACTION" = rmdropin ]; then
     exit 0
   fi
   mkdir -p "$DIR"
+  # Every network pool's boot units, since this manager may run a wispd on any of
+  # them (--net-pool); pool 0's are named even before setup-host.sh has made them.
+  AFTER="wisp-net.service wisp-netd.service"
+  for u in /etc/systemd/system/wisp-net[0-9]*.service /etc/systemd/system/wisp-netd[0-9]*.service; do
+    [ -e "$u" ] && AFTER+=" $(basename "$u")"
+  done
   cat > "$DIR/wisp.conf" <<EOF
 # Installed by wisp scripts/install-service.sh --system-dropin.
 # $OWNER's user manager runs wispd. Start it after the sprite network and
 # volume exist; stop it before they go; and let it finish suspending sprites
 # (the distribution default gives user services 5 seconds at shutdown).
 [Unit]
-After=wisp-net.service wisp-netd.service wisp-storage.service
+After=$AFTER wisp-storage.service
 
 [Service]
 TimeoutStopSec=$((STOP_TIMEOUT + 30))
@@ -127,7 +133,8 @@ if grep -qs -- " $DATA/vm\$" /etc/systemd/system/wisp-storage.service; then
 fi
 # The network pool (wispd --net-pool) names the bridge and its boot unit: pool 0 is
 # msbr0 and wisp-net, pool N msbrN and wisp-netN.
-POOL=$(grep -oE -- '--net-pool[= ]+[0-9]+' <<<"$CUR_FLAGS" | grep -oE '[0-9]+$' || true)
+# Go's flag package takes -net-pool as well as --net-pool, and the last one wins.
+POOL=$(grep -oE -- '(^|[[:space:]])--?net-pool[= ]+[0-9]+' <<<"$CUR_FLAGS" | tail -n1 | grep -oE '[0-9]+$' || true)
 POOL=${POOL:-0}
 if [ -e "/etc/systemd/system/wisp-net$([ "$POOL" = 0 ] || echo "$POOL").service" ] && ! grep -q -- '--net=false' <<<"$CUR_FLAGS"; then
   WAIT+="[ -e /sys/class/net/msbr$POOL ] && "
