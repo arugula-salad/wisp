@@ -56,10 +56,6 @@ func (n *ndjson) info(f string, a ...any)     { n.emit("info", "data", fmt.Sprin
 func (n *ndjson) fail(f string, a ...any)     { n.emit("error", "error", fmt.Sprintf(f, a...)) }
 func (n *ndjson) complete(f string, a ...any) { n.emit("complete", "data", fmt.Sprintf(f, a...)) }
 
-func (s *Server) checkpointPath(id, checkpoint string) string {
-	return filepath.Join(s.store.Dir(id), "checkpoints", checkpoint+".ext4")
-}
-
 func findCheckpoint(sp store.Sprite, id string) *store.Checkpoint {
 	for i := range sp.Checkpoints {
 		if sp.Checkpoints[i].ID == id {
@@ -101,7 +97,7 @@ func (s *Server) createCheckpointLocked(rt *runtime, name, comment string, auto 
 		return cp, err
 	}
 	info("Creating checkpoint %s...", cp.ID)
-	dst := s.checkpointPath(sp.ID, cp.ID)
+	dst := s.life.checkpointPath(sp.ID, cp.ID)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return cp, err
 	}
@@ -157,7 +153,7 @@ func (s *Server) deleteCheckpointLocked(name, id string, pruned bool) error {
 	if !found {
 		return errNoCheckpoint
 	}
-	if err := os.Remove(s.checkpointPath(sp.ID, id)); err != nil {
+	if err := os.Remove(s.life.checkpointPath(sp.ID, id)); err != nil {
 		return err
 	}
 	s.life.emit(sp, "checkpoint.deleted", map[string]any{"checkpoint": id, "pruned": pruned})
@@ -174,7 +170,7 @@ func (s *Server) pruneAutosLocked(name, spare string) {
 	var autos []string
 	for _, cp := range sp.Checkpoints {
 		// One that is mounted inside the sprite is in use: it neither goes nor counts.
-		if cp.IsAuto && cp.ID != spare && !s.checkpointMounted(sp, s.life.rt(sp.ID), cp.ID) {
+		if cp.IsAuto && cp.ID != spare && !s.life.checkpointMounted(sp, s.life.rt(sp.ID), cp.ID) {
 			autos = append(autos, cp.ID)
 		}
 	}
@@ -214,7 +210,7 @@ func (s *Server) restoreCheckpointLocked(rt *runtime, name, id string, info prog
 	// Upstream warns that a restore discards the current state for good. A full
 	// clone is cheap enough here to make every restore undoable instead.
 	// Checked before anything is stopped: the copy lands beside the disk it replaces.
-	if err := s.life.disk.admit(sp, "a restore", s.cloneCost(s.checkpointPath(sp.ID, id))); err != nil {
+	if err := s.life.disk.admit(sp, "a restore", s.cloneCost(s.life.checkpointPath(sp.ID, id))); err != nil {
 		return err
 	}
 	if err := s.autoCheckpointLocked(rt, name, "before restore to "+id, id, info); err != nil {
@@ -234,7 +230,7 @@ func (s *Server) restoreCheckpointLocked(rt *runtime, name, id string, info prog
 	dir := s.store.Dir(sp.ID)
 	vmm.DiscardSnapshot(dir) // memory state belongs to the filesystem being replaced
 	info("Restoring filesystem...")
-	if err := cloneFile(ctx, s.checkpointPath(sp.ID, id), filepath.Join(dir, vmm.DiskFile)); err != nil {
+	if err := cloneFile(ctx, s.life.checkpointPath(sp.ID, id), filepath.Join(dir, vmm.DiskFile)); err != nil {
 		return fmt.Errorf("restore disk: %w", err)
 	}
 	lineage := append([]string{id}, target.History...)
@@ -350,7 +346,7 @@ func (s *Server) deleteCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	rt := s.life.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if s.checkpointMounted(sp, rt, r.PathValue("id")) {
+	if s.life.checkpointMounted(sp, rt, r.PathValue("id")) {
 		writeErr(w, http.StatusConflict, "checkpoint_mounted", errCheckpointMounted.Error())
 		return
 	}

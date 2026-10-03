@@ -413,7 +413,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
-		image = s.checkpointPath(src.ID, cp)
+		image = s.life.checkpointPath(src.ID, cp)
 		detail = map[string]any{"from": map[string]string{"sprite": src.Name, "checkpoint": cp}}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources

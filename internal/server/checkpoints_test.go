@@ -75,7 +75,7 @@ func TestAutoCheckpointsAreSeparateHiddenAndPruned(t *testing.T) {
 		t.Errorf("listing with autos = %v, want %v (oldest autos pruned)", got, want)
 	}
 	for id, want := range map[string]bool{"auto-1": false, "auto-2": false, "auto-3": true, "v1": true} {
-		if _, err := os.Stat(s.checkpointPath(sp.ID, id)); (err == nil) != want {
+		if _, err := os.Stat(s.life.checkpointPath(sp.ID, id)); (err == nil) != want {
 			t.Errorf("clone of %s exists = %v, want %v", id, err == nil, want)
 		}
 	}
