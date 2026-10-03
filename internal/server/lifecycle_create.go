@@ -74,7 +74,7 @@ func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, 
 	}
 	disk := filepath.Join(l.store.Dir(sp.ID), vmm.DiskFile)
 	if err := cloneFile(ctx, image, disk); err != nil {
-		l.store.Delete(sp.Name)
+		l.store.Delete(sp.ID)
 		return sp, fmt.Errorf("%w: %v", errProvision, err)
 	}
 	l.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", spec.Checkpoint != nil, "image", sp.Image)
@@ -112,7 +112,7 @@ func cloneFile(ctx context.Context, src, dst string) error {
 // hold it.
 func (l *Lifecycle) Delete(sp store.Sprite) error {
 	l.Stop(sp, false)
-	if err := l.store.Delete(sp.Name); err != nil {
+	if err := l.store.Delete(sp.ID); err != nil {
 		return err
 	}
 	l.Forget(sp.ID)

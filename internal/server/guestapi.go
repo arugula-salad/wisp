@@ -59,9 +59,10 @@ type guestHandler func(http.ResponseWriter, *http.Request, store.Sprite, *guestC
 func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
 	bind := func(h guestHandler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			// Names are reusable after a delete; the ID pins this channel to the sprite it was opened for.
-			cur, err := s.store.Get(sp.Name)
-			if err != nil || cur.ID != sp.ID {
+			// By ID: names are reusable after a delete, IDs are not, so this is
+			// the sprite the channel was opened for or nothing.
+			cur, err := s.store.Get(sp.ID)
+			if err != nil {
 				writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 				return
 			}

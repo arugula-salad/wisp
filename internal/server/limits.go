@@ -6,6 +6,8 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // Operator ceilings (Options.MaxSprites, Options.MaxRunning) and the org block
@@ -92,7 +94,7 @@ type orgJSON struct {
 // orgInfo counts every sprite, not just the page being listed.
 func (s *Server) orgInfo() orgJSON {
 	org := orgJSON{Name: s.org, RunningLimit: s.opts.MaxRunning}
-	for _, sp := range s.store.List("") {
+	for _, sp := range s.store.List(store.Sprites, "") {
 		switch s.life.Status(sp) {
 		case "running":
 			org.Running++

@@ -122,7 +122,7 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 		return nil, err
 	}
 
-	for _, sp := range m.store.List("") {
+	for _, sp := range m.store.All() {
 		latest, err := repo.Latest(ctx, sp.ID)
 		if err != nil {
 			continue // never backed up, or unreadable: either way, no recovery point
@@ -223,7 +223,7 @@ func (m *backupManager) run() {
 // one backs up a single sprite and records the outcome.
 func (m *backupManager) one(id, reason string) {
 	log := m.log
-	sp, err := m.findByID(id)
+	sp, err := m.store.Get(id)
 	if err != nil {
 		return // deleted while it waited
 	}
@@ -263,15 +263,6 @@ func (m *backupManager) one(id, reason string) {
 		st.LastBytes, st.LastSize = stats.Uploaded, manifest.Bytes()
 		log.Info("backup complete", "sprite", sp.Name, "reason", reason, "stats", stats.String())
 	}
-}
-
-func (m *backupManager) findByID(id string) (store.Sprite, error) {
-	for _, sp := range m.store.List("") {
-		if sp.ID == id {
-			return sp, nil
-		}
-	}
-	return store.Sprite{}, store.ErrNotFound
 }
 
 // errBackupDeferred means there was no consistent way to read the disk that does
@@ -392,7 +383,7 @@ func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture,
 	// The record and the checkpoint list are read under the same lock a checkpoint
 	// is taken under, so the manifest's two halves agree.
 	var err error
-	if c.sprite, err = l.store.Get(sp.Name); err != nil {
+	if c.sprite, err = l.store.Get(sp.ID); err != nil {
 		c.cleanup()
 		return nil, err
 	}
@@ -411,7 +402,7 @@ func (m *backupManager) periodic() {
 	if _, err := m.repository(context.Background()); err != nil {
 		return // State reports it; there is nothing to upload to
 	}
-	for _, sp := range m.store.List("") {
+	for _, sp := range m.store.All() {
 		if slices.Contains(sp.Labels, NoBackupLabel) {
 			continue
 		}

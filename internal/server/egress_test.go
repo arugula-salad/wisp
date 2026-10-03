@@ -81,6 +81,16 @@ func addSprite(t *testing.T, st *store.Store, name string) store.Sprite {
 	return *sp
 }
 
+// spriteID is the ID of the sprite called name.
+func spriteID(t *testing.T, st *store.Store, name string) string {
+	t.Helper()
+	sp, err := st.GetByName(store.Sprites, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sp.ID
+}
+
 func call(s *Server, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer t")
@@ -116,7 +126,7 @@ func TestPolicyRoundTripAndRestrictedSet(t *testing.T) {
 	}
 	// It is in the record, so it survives a restart.
 	reopened, _ := store.Open(filepath.Dir(filepath.Dir(st.Dir(a.ID))))
-	if sp, _ := reopened.Get("a"); len(sp.NetworkRules) != 2 {
+	if sp, _ := reopened.Get(a.ID); len(sp.NetworkRules) != 2 {
 		t.Errorf("persisted rules = %v", sp.NetworkRules)
 	}
 
@@ -165,7 +175,7 @@ func TestRestrictivePolicyFailsClosedWithoutHelper(t *testing.T) {
 	if w := call(s, "GET", "/v1/sprites/a/policy/network", ""); strings.TrimSpace(w.Body.String()) != noRules {
 		t.Errorf("a rejected policy is being reported: %s", w.Body)
 	}
-	if sp, _ := st.Get("a"); len(sp.NetworkRules) != 0 {
+	if sp, _ := st.GetByName(store.Sprites, "a"); len(sp.NetworkRules) != 0 {
 		t.Errorf("a rejected policy was stored: %v", sp.NetworkRules)
 	}
 	if err := s.life.egress.admit(a); err != nil {
@@ -189,7 +199,7 @@ func TestTighteningFailureKeepsThePreviousPolicy(t *testing.T) {
 	if w := call(s, "POST", "/v1/sprites/a/policy/network", `{"rules":[{"domain":"only-this.example","action":"allow"}]}`); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("got %d", w.Code)
 	}
-	sp, _ := st.Get("a")
+	sp, _ := st.GetByName(store.Sprites, "a")
 	if len(sp.NetworkRules) != 2 || sp.NetworkRules[0].Domain != "github.com" {
 		t.Errorf("rules = %v, want the previous policy intact", sp.NetworkRules)
 	}

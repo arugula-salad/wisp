@@ -94,7 +94,7 @@ func (s *Server) setResources(w http.ResponseWriter, r *http.Request) {
 // storePolicy persists a policy change and, if the sprite is running, hands it
 // to the guest now. A sleeping sprite is not woken: it gets the policy on wake.
 func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, policy string, change func(*store.Sprite)) {
-	sp, err := s.store.Update(r.PathValue("name"), func(sp *store.Sprite) {
+	sp, err := s.store.UpdateByName(store.Sprites, r.PathValue("name"), func(sp *store.Sprite) {
 		change(sp)
 		sp.UpdatedAt = time.Now().UTC()
 	})

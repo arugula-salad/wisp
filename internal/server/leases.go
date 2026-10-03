@@ -107,7 +107,7 @@ func (ls *leases) sweep() {
 		return
 	}
 	now := time.Now()
-	for _, sp := range ls.store.List("") {
+	for _, sp := range ls.store.All() {
 		if leaseExpired(sp, now) {
 			ls.reap(sp)
 			continue
@@ -153,8 +153,8 @@ func (ls *leases) reap(sp store.Sprite) {
 	commit := false
 	ls.life.WithLocked(sp.ID, func() error {
 		var err error
-		cur, err = ls.store.Get(sp.Name)
-		commit = err == nil && cur.ID == sp.ID && leaseExpired(cur, time.Now())
+		cur, err = ls.store.Get(sp.ID)
+		commit = err == nil && leaseExpired(cur, time.Now())
 		if commit {
 			ls.claim(cur.ID)
 		}
@@ -221,7 +221,7 @@ func (ls *leases) set(sp store.Sprite, update func(*store.Sprite)) (store.Sprite
 			return errLeaseReaping
 		}
 		var err error
-		if cur, err = ls.store.Update(sp.Name, update); err != nil {
+		if cur, err = ls.store.Update(sp.ID, update); err != nil {
 			return err
 		}
 		ls.forget(cur.ID)

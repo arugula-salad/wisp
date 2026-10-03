@@ -16,6 +16,8 @@ import (
 
 	"github.com/arugula-salad/wisp/internal/ociimage"
 	"github.com/arugula-salad/wisp/internal/vmm"
+
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // fakePodman is a script standing in for podman: it serves one image, whose
@@ -121,7 +123,7 @@ func TestCreateFromImage(t *testing.T) {
 	if !strings.Contains(string(body), "manifest unknown") {
 		t.Errorf("failed pull: %s", body)
 	}
-	if _, err := s.store.Get("bad"); err == nil {
+	if _, err := s.store.GetByName(store.Sprites, "bad"); err == nil {
 		t.Error("a failed create left a sprite behind")
 	}
 
@@ -141,7 +143,7 @@ func TestCreateFromImage(t *testing.T) {
 	if r := calls(t, state, "rmi"); len(r) != 1 {
 		t.Errorf("rmi calls = %q", r)
 	}
-	a1, _ := s.store.Get("a1")
+	a1, _ := s.store.GetByName(store.Sprites, "a1")
 	disk := filepath.Join(s.store.Dir(a1.ID), vmm.DiskFile)
 	if fi, err := os.Stat(disk); err != nil || fi.Size() != 32<<20 {
 		t.Fatalf("disk: %v %v", fi, err)

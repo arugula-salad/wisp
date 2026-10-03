@@ -68,7 +68,7 @@ func TestJanitorDoesNotCoolASpriteThatSuspendedWhileItWaited(t *testing.T) {
 	}
 	// What suspendLocked does before letting go: a fresh snapshot, a new LastWarmingAt.
 	now := time.Now()
-	s.store.Update(stale.Name, func(sp *store.Sprite) { sp.LastWarmingAt = &now })
+	s.store.UpdateByName(store.Sprites, stale.Name, func(sp *store.Sprite) { sp.LastWarmingAt = &now })
 	rt.mu.Unlock()
 	<-done
 
@@ -81,7 +81,7 @@ func TestJanitorLeavesADeletedSpriteAlone(t *testing.T) {
 	s, _ := newOperatorServer(t, Options{WarmTTL: time.Hour})
 	sp := warmSprite(t, s, "gone", time.Now().Add(-2*time.Hour))
 	// Deleted and recreated under the same name while the janitor held the old record.
-	if err := s.store.Delete(sp.Name); err != nil {
+	if err := s.store.Delete(sp.ID); err != nil {
 		t.Fatal(err)
 	}
 	again := warmSprite(t, s, "gone", time.Now().Add(-2*time.Hour))

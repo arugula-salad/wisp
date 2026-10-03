@@ -252,7 +252,7 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	} else if !opts.NoNetwork {
 		log.Info("guest networking enabled", "taps", len(l.freeTaps), "bridge", pool.Bridge(), "gateway", l.gateway)
 	}
-	for _, sp := range st.List("") {
+	for _, sp := range st.All() {
 		vmm.ReapOrphan(st.Dir(sp.ID))
 	}
 	// Only now: a cgroup that still holds a live orphan cannot be removed, so
@@ -581,14 +581,14 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 	}
 	l.setBalloon(ctx, sp, rt, m, mode == "warm")
 	rt.m, rt.tap, rt.guest = m, tap, guest
-	if cur, err := l.store.Get(sp.Name); err == nil {
+	if cur, err := l.store.Get(sp.ID); err == nil {
 		l.publishNetworkPolicy(ctx, m, cur) // it may have changed while the sprite slept
 	}
 	rt.useMu.Lock()
 	rt.lastUse = time.Now()
 	rt.useMu.Unlock()
 	now := time.Now()
-	l.store.Update(sp.Name, func(s *store.Sprite) {
+	l.store.Update(sp.ID, func(s *store.Sprite) {
 		s.LastRunningAt = &now
 		if mode == "cold" {
 			s.BootIP = cfg.IPCIDR
@@ -783,7 +783,7 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	}
 	l.cleanupLocked(rt)
 	now := time.Now()
-	l.store.Update(sp.Name, func(s *store.Sprite) { s.LastWarmingAt = &now })
+	l.store.Update(sp.ID, func(s *store.Sprite) { s.LastWarmingAt = &now })
 	took := time.Since(start)
 	snap := vmm.SnapshotBytes(l.store.Dir(sp.ID))
 	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond), "snapshot", mib(snap))
@@ -872,7 +872,7 @@ func (l *Lifecycle) Shutdown() {
 	l.mu.Unlock()
 	l.loops.Wait()
 	var wg sync.WaitGroup
-	for _, sp := range l.store.List("") {
+	for _, sp := range l.store.All() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -890,7 +890,7 @@ func (l *Lifecycle) Shutdown() {
 func (l *Lifecycle) janitor() {
 	l.disk.watch()
 	l.reapLeases() // before cooling: a sprite on its way out needs no snapshot work
-	for _, sp := range l.store.List("") {
+	for _, sp := range l.store.All() {
 		if l.warmExpired(sp) {
 			l.coolIfExpired(sp)
 		}
@@ -910,8 +910,8 @@ func (l *Lifecycle) coolIfExpired(sp store.Sprite) {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	cur, err := l.store.Get(sp.Name)
-	if err != nil || cur.ID != sp.ID || !l.warmExpired(cur) {
+	cur, err := l.store.Get(sp.ID)
+	if err != nil || !l.warmExpired(cur) {
 		return
 	}
 	if rt.m == nil && vmm.HasSnapshot(l.store.Dir(sp.ID)) {

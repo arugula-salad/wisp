@@ -17,7 +17,7 @@ import (
 // fromInside sends a request down the named sprite's guest channel.
 func fromInside(t *testing.T, s *Server, sprite, method, path, body string) *http.Response {
 	t.Helper()
-	sp, err := s.store.Get(sprite)
+	sp, err := s.store.GetByName(store.Sprites, sprite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +68,8 @@ func TestASpriteManagesOnlyTheSpritesItCreated(t *testing.T) {
 
 	status(t, fromInside(t, s, "lobby", "POST", "/v1/sprites", `{"name":"game-1","url_settings":{"auth":"public"}}`), http.StatusCreated)
 	status(t, fromInside(t, s, "other-lobby", "POST", "/v1/sprites", `{"name":"theirs"}`), http.StatusCreated)
-	lobby, _ := s.store.Get("lobby")
-	game, _ := s.store.Get("game-1")
+	lobby, _ := s.store.GetByName(store.Sprites, "lobby")
+	game, _ := s.store.GetByName(store.Sprites, "game-1")
 	if game.ParentID != lobby.ID || game.URLSettings.Auth != "public" || game.Spawn != nil {
 		t.Fatalf("child = %+v", game)
 	}
@@ -83,7 +83,7 @@ func TestASpriteManagesOnlyTheSpritesItCreated(t *testing.T) {
 	for _, name := range []string{"bystander", "theirs", "lobby", "missing"} {
 		status(t, fromInside(t, s, "lobby", "GET", "/v1/sprites/"+name, ""), http.StatusNotFound)
 		status(t, fromInside(t, s, "lobby", "DELETE", "/v1/sprites/"+name, ""), http.StatusNotFound)
-		if _, err := s.store.Get(name); name != "missing" && err != nil {
+		if _, err := s.store.GetByName(store.Sprites, name); name != "missing" && err != nil {
 			t.Fatalf("%s was deleted by a sprite that did not create it", name)
 		}
 	}
@@ -105,13 +105,13 @@ func TestAChildCannotEscapeItsParentsPolicies(t *testing.T) {
 	s, h := newOperatorServer(t, Options{})
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"lobby","config":{"ram_mb":512}}`), http.StatusCreated)
 	rules := []store.NetworkRule{{Domain: "github.com", Action: "allow"}}
-	s.store.Update("lobby", func(sp *store.Sprite) {
+	s.store.UpdateByName(store.Sprites, "lobby", func(sp *store.Sprite) {
 		sp.NetworkRules = rules
 		sp.Spawn = &store.SpawnPolicy{Enabled: true}
 		sp.Privileges = &store.PrivilegesPolicy{Profile: "minimal"}
 	})
 	status(t, fromInside(t, s, "lobby", "POST", "/v1/sprites", `{"name":"game","config":{"ram_mb":65536}}`), http.StatusCreated)
-	game, _ := s.store.Get("game")
+	game, _ := s.store.GetByName(store.Sprites, "game")
 	if len(game.NetworkRules) != 1 || game.NetworkRules[0] != rules[0] {
 		t.Errorf("network rules = %v, want the parent's", game.NetworkRules)
 	}
@@ -125,15 +125,15 @@ func TestCloningFromACheckpoint(t *testing.T) {
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"template","config":{"ram_mb":768}}`), http.StatusCreated)
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"lobby"}`), http.StatusCreated)
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"private"}`), http.StatusCreated)
-	tmpl, _ := s.store.Get("template")
+	tmpl, _ := s.store.GetByName(store.Sprites, "template")
 	setDisk := func(name, v string) {
-		sp, _ := s.store.Get(name)
+		sp, _ := s.store.GetByName(store.Sprites, name)
 		if err := os.WriteFile(filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile), []byte(v), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	disk := func(name string) string {
-		sp, _ := s.store.Get(name)
+		sp, _ := s.store.GetByName(store.Sprites, name)
 		b, _ := os.ReadFile(filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile))
 		return string(b)
 	}
@@ -142,7 +142,7 @@ func TestCloningFromACheckpoint(t *testing.T) {
 	if e.StatusCode != http.StatusNotFound || e.ErrorCode != "checkpoint_not_found" {
 		t.Fatalf("no checkpoint yet: %+v", e)
 	}
-	if _, err := s.store.Get("early"); err == nil {
+	if _, err := s.store.GetByName(store.Sprites, "early"); err == nil {
 		t.Fatal("a failed clone left a sprite behind")
 	}
 
@@ -158,7 +158,7 @@ func TestCloningFromACheckpoint(t *testing.T) {
 	if got := disk("copy"); got != "template with the game installed" {
 		t.Errorf("clone disk = %q, want the checkpoint's", got)
 	}
-	if copy, _ := s.store.Get("copy"); copy.Config.RamMB != 768 || copy.ID == tmpl.ID || len(copy.Checkpoints) != 0 {
+	if copy, _ := s.store.GetByName(store.Sprites, "copy"); copy.Config.RamMB != 768 || copy.ID == tmpl.ID || len(copy.Checkpoints) != 0 {
 		t.Errorf("clone = %+v", copy)
 	}
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"nope","from":{"sprite":"template","checkpoint":"v9"}}`), http.StatusNotFound)
@@ -169,7 +169,7 @@ func TestCloningFromACheckpoint(t *testing.T) {
 	if got := disk("game"); got != "template with the game installed" {
 		t.Errorf("game disk = %q", got)
 	}
-	if game, _ := s.store.Get("game"); game.Config.RamMB != 768 {
+	if game, _ := s.store.GetByName(store.Sprites, "game"); game.Config.RamMB != 768 {
 		t.Errorf("a clone keeps its source's machine shape, got %+v", game.Config)
 	}
 	e = apiError(t, fromInside(t, s, "lobby", "POST", "/v1/sprites", `{"name":"stolen","from":{"sprite":"private"}}`))

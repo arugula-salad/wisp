@@ -23,7 +23,7 @@ func (l *Lifecycle) ApplyPolicy(ctx context.Context, sp store.Sprite) error {
 	if rt.m == nil {
 		return nil
 	}
-	return l.pushPolicy(ctx, rt.m, sp.Name)
+	return l.pushPolicy(ctx, rt.m, sp.ID)
 }
 
 // guestPolicy is agent.Policy: the part of the policies the guest enforces.
@@ -46,8 +46,8 @@ func guestPolicyFor(sp store.Sprite) guestPolicy {
 
 // pushPolicy sends the stored policy to a running guest. It reads the store
 // rather than take a Sprite, because callers' copies can predate a policy change.
-func (l *Lifecycle) pushPolicy(ctx context.Context, m *vmm.Machine, name string) error {
-	sp, err := l.store.Get(name)
+func (l *Lifecycle) pushPolicy(ctx context.Context, m *vmm.Machine, id string) error {
+	sp, err := l.store.Get(id)
 	if err != nil {
 		return err
 	}
@@ -63,11 +63,11 @@ func (l *Lifecycle) pushPolicy(ctx context.Context, m *vmm.Machine, name string)
 // that fails to take an empty policy is let through: that is a snapshot from
 // before agents knew about policies, and it has nothing to enforce.
 func (l *Lifecycle) policyResumed(ctx context.Context, m *vmm.Machine, sp store.Sprite) bool {
-	err := l.pushPolicy(ctx, m, sp.Name)
+	err := l.pushPolicy(ctx, m, sp.ID)
 	if err == nil {
 		return true
 	}
-	if cur, gerr := l.store.Get(sp.Name); gerr == nil && guestPolicyFor(cur) == (guestPolicy{}) {
+	if cur, gerr := l.store.Get(sp.ID); gerr == nil && guestPolicyFor(cur) == (guestPolicy{}) {
 		l.log.Warn("guest did not accept the (empty) policy", "sprite", sp.Name, "err", err)
 		return true
 	}
@@ -109,8 +109,8 @@ func (l *Lifecycle) publishNetworkPolicy(ctx context.Context, m *vmm.Machine, sp
 }
 
 // RepublishNetworkPolicy is for a policy change on a sprite that may be running.
-func (l *Lifecycle) RepublishNetworkPolicy(name string) {
-	sp, err := l.store.Get(name)
+func (l *Lifecycle) RepublishNetworkPolicy(id string) {
+	sp, err := l.store.Get(id)
 	if err != nil {
 		return
 	}

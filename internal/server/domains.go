@@ -129,7 +129,7 @@ func (s *Server) attachDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	already := slices.Contains(sp.Domains, d)
-	_, err := s.store.AttachDomain(sp.Name, d, s.domains.cfg.PerSprite, s.domains.cfg.Total)
+	_, err := s.store.AttachDomain(sp.ID, d, s.domains.cfg.PerSprite, s.domains.cfg.Total)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
@@ -164,7 +164,7 @@ func (s *Server) detachDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := normalizeDomain(r.PathValue("domain"))
-	if _, err := s.store.DetachDomain(sp.Name, d); err != nil {
+	if _, err := s.store.DetachDomain(sp.ID, d); err != nil {
 		if errors.Is(err, store.ErrDomainMissing) || errors.Is(err, store.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "not_found", "domain not attached to this sprite")
 			return
@@ -220,15 +220,15 @@ func (s *Server) validDomain(d string) error {
 // else, including a domain that resolves partly elsewhere, is not ours to ask
 // a certificate for.
 func (s *Server) checkDomainDNS(ctx context.Context, domain string) error {
-	name, ok := s.store.DomainOwner(domain)
+	id, ok := s.store.DomainOwner(domain)
 	if !ok {
 		return errors.New("not attached to any sprite")
 	}
-	sp, err := s.store.Get(name)
+	sp, err := s.store.Get(id)
 	if err != nil {
 		return errors.New("not attached to any sprite")
 	}
-	target := name + "." + s.urlDomainOf(sp)
+	target := sp.Name + "." + s.urlDomainOf(sp)
 	got, err := resolveAddrs(ctx, s.domains.cfg.Resolver, domain)
 	if err != nil {
 		return err

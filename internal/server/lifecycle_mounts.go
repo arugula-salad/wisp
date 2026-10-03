@@ -51,7 +51,7 @@ func (l *Lifecycle) MountCheckpoint(ctx context.Context, sp store.Sprite, from *
 	if rt.m == nil || rt.guest != from {
 		return -1, errStaleGuest
 	}
-	sp, err := l.store.Get(sp.Name) // re-read under the lock
+	sp, err := l.store.Get(sp.ID) // re-read under the lock
 	if err != nil || findCheckpoint(sp, id) == nil {
 		return -1, errNoCheckpoint
 	}
@@ -74,7 +74,7 @@ func (l *Lifecycle) MountCheckpoint(ctx context.Context, sp store.Sprite, from *
 	if err := rt.m.SwapDrive(ctx, vmm.SlotDrive(slot), rel); err != nil {
 		return -1, fmt.Errorf("%w (%v)", errNoSlots, err)
 	}
-	l.store.Update(sp.Name, func(sp *store.Sprite) {
+	l.store.Update(sp.ID, func(sp *store.Sprite) {
 		next := map[int]string{slot: id}
 		for k, v := range mounts {
 			next[k] = v
@@ -94,7 +94,7 @@ func (l *Lifecycle) UnmountCheckpoint(ctx context.Context, sp store.Sprite, from
 	if rt.m == nil || rt.guest != from {
 		return errStaleGuest
 	}
-	sp, err := l.store.Get(sp.Name)
+	sp, err := l.store.Get(sp.ID)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (l *Lifecycle) UnmountCheckpoint(ctx context.Context, sp store.Sprite, from
 		if err := rt.m.SwapDrive(ctx, vmm.SlotDrive(slot), ""); err != nil {
 			return err
 		}
-		l.store.Update(sp.Name, func(sp *store.Sprite) {
+		l.store.Update(sp.ID, func(sp *store.Sprite) {
 			next := map[int]string{}
 			for k, v := range mounts {
 				if k != slot {

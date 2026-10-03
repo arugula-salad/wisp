@@ -229,7 +229,7 @@ func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) (release func(), fits 
 	}
 	go g.watch()
 	warm := []store.Sprite{}
-	for _, o := range l.store.List("") {
+	for _, o := range l.store.All() {
 		if o.ID != sp.ID && o.LastWarmingAt != nil {
 			warm = append(warm, o)
 		}

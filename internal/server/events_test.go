@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 func TestEventBusIDsRingAndResume(t *testing.T) {
@@ -275,7 +277,7 @@ func TestGuestSeesOnlyItsChildrensEvents(t *testing.T) {
 	for _, name := range []string{"lobby", "other-lobby", "bystander"} {
 		status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"`+name+`"}`), http.StatusCreated)
 	}
-	lobby, _ := s.store.Get("lobby")
+	lobby, _ := s.store.GetByName(store.Sprites, "lobby")
 	guest := httptest.NewServer(s.guestAPI(lobby, &guestChan{}))
 	defer guest.Close()
 

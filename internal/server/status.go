@@ -329,7 +329,7 @@ func OfflineStatus(dataDir, netdSocket string) (Status, error) {
 	} else {
 		out.Host.PolicyHelper.Detail = "no socket at " + netdSocket
 	}
-	for _, sp := range st.List("") {
+	for _, sp := range st.List(store.Sprites, "") {
 		s := spriteBase(sp)
 		s.State = "cold"
 		if vmm.HasSnapshot(st.Dir(sp.ID)) {
@@ -374,7 +374,7 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	out.Host.TapsTotal, out.Host.TapsUsed = l.tapUsage()
 
 	var wg sync.WaitGroup
-	sprites := s.store.List("")
+	sprites := s.store.List(store.Sprites, "")
 	out.Sprites = make([]SpriteStatus, len(sprites))
 	for i, sp := range sprites {
 		st := spriteBase(sp)

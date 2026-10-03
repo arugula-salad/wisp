@@ -4,13 +4,15 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // A policy change on a sprite that is not running is stored and nothing more:
 // ApplyPolicy does not wake it, and waits out a transition in flight first.
 func TestApplyPolicyLeavesAStoppedSpriteAlone(t *testing.T) {
 	s, rt, _, _ := newCheckpointServer(t, 0)
-	sp, _ := s.store.Get("cp")
+	sp, _ := s.store.GetByName(store.Sprites, "cp")
 	rt.mu.Lock()
 	done := make(chan error, 1)
 	go func() { done <- s.life.ApplyPolicy(context.Background(), sp) }()

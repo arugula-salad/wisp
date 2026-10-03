@@ -120,7 +120,7 @@ func (e *egress) syncLocked() error {
 		return nil
 	}
 	var want []netip.Addr
-	for _, sp := range e.store.List("") {
+	for _, sp := range e.store.All() {
 		if a := e.addr(sp); a.IsValid() && e.compile(sp).Restrictive() {
 			want = append(want, a)
 		}
@@ -161,10 +161,10 @@ func (e *egress) reconcile() {
 
 // setPolicy stores rules for the sprite and makes them effective immediately.
 // A restrictive policy that the kernel cannot back is rolled back and rejected.
-func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.Policy) error {
+func (e *egress) setPolicy(id string, rules []store.NetworkRule, p *netpolicy.Policy) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	sp, err := e.store.Get(name)
+	sp, err := e.store.Get(id)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 		return fmt.Errorf("%w: %s", errUnenforceable, e.down)
 	}
 	prev := sp.NetworkRules
-	if sp, err = e.store.Update(name, func(s *store.Sprite) {
+	if sp, err = e.store.Update(id, func(s *store.Sprite) {
 		s.NetworkRules = rules
 		s.UpdatedAt = time.Now().UTC()
 	}); err != nil {
@@ -181,7 +181,7 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 	// The enforcer learns the policy before the kernel starts diverting the
 	// sprite to it, so no connection is judged by the policy it replaced.
 	if a := e.addr(sp); a.IsValid() {
-		e.enf.Set(a, sp.Name, p)
+		e.enf.Set(a, sp.ID, p)
 	}
 	if err := e.syncLocked(); err != nil {
 		if !p.Restrictive() {
@@ -189,10 +189,10 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 			// diverted to listeners that now allow it everything.
 			return nil
 		}
-		e.store.Update(name, func(s *store.Sprite) { s.NetworkRules = prev })
+		e.store.Update(id, func(s *store.Sprite) { s.NetworkRules = prev })
 		if a := e.addr(sp); a.IsValid() {
 			sp.NetworkRules = prev
-			e.enf.Set(a, sp.Name, e.compile(sp))
+			e.enf.Set(a, sp.ID, e.compile(sp))
 		}
 		return fmt.Errorf("%w: wisp-netd: %v (is the helper installed? sudo scripts/setup-host.sh)", errUnenforceable, err)
 	}
@@ -205,12 +205,12 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 func (e *egress) admit(sp store.Sprite) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if cur, err := e.store.Get(sp.Name); err == nil {
+	if cur, err := e.store.Get(sp.ID); err == nil {
 		sp = cur // the caller's copy may predate a policy change
 	}
 	p := e.compile(sp)
 	if a := e.addr(sp); a.IsValid() {
-		e.enf.Set(a, sp.Name, p)
+		e.enf.Set(a, sp.ID, p)
 	}
 	if !p.Restrictive() {
 		return nil
@@ -238,12 +238,13 @@ func (e *egress) forget(sp store.Sprite) {
 
 // networkDenied publishes a refusal of the network policy. A guest retrying in
 // a loop can refuse itself thousands of times a second, so the events are
-// rate limited per sprite; the log keeps every one.
-func (l *Lifecycle) networkDenied(name, kind, target, reason string) {
-	if !l.denials.allow(name) {
+// rate limited per sprite; the log keeps every one. The enforcer knows sprites
+// by ID.
+func (l *Lifecycle) networkDenied(id, kind, target, reason string) {
+	if !l.denials.allow(id) {
 		return
 	}
-	sp, err := l.store.Get(name)
+	sp, err := l.store.Get(id)
 	if err != nil {
 		return
 	}

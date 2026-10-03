@@ -57,7 +57,7 @@ func TestShutdownStopsLoops(t *testing.T) {
 // in-flight API count still reported.
 func TestPeekDoesNotWaitForATransition(t *testing.T) {
 	s, rt, _, _ := newCheckpointServer(t, 0)
-	sp, _ := s.store.Get("cp")
+	sp, _ := s.store.GetByName(store.Sprites, "cp")
 	rt.begin()
 	defer rt.end()
 	if vm := s.life.peek(sp.ID); vm.busy || vm.running() || vm.inflight != 1 || vm.pid != 0 {

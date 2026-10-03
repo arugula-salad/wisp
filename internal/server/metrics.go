@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"github.com/arugula-salad/wisp/internal/store"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -124,7 +125,7 @@ func (m *metrics) sample(now time.Time) {
 	elapsed := now.Sub(m.last).Seconds()
 	ticks := map[int]int64{}
 	states := map[string]string{}
-	sprites := m.s.store.List("")
+	sprites := m.s.store.List(store.Sprites, "")
 	for _, sp := range sprites {
 		state := l.Status(sp)
 		states[sp.Name] = state

@@ -32,7 +32,11 @@ func (s *Server) setNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_policy", err.Error())
 		return
 	}
-	switch err := s.life.egress.setPolicy(r.PathValue("name"), req.Rules, policy); {
+	sp, err := s.store.GetByName(store.Sprites, r.PathValue("name"))
+	if err == nil {
+		err = s.life.egress.setPolicy(sp.ID, req.Rules, policy)
+	}
+	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 	case errors.Is(err, errUnenforceable):
@@ -43,10 +47,10 @@ func (s *Server) setNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 	default:
 		s.log.Info("network policy set", "sprite", r.PathValue("name"), "rules", len(req.Rules), "restricted", policy.Restrictive())
-		if sp, err := s.store.Get(r.PathValue("name")); err == nil {
+		if sp, err := s.store.Get(sp.ID); err == nil {
 			s.life.emit(sp, "policy.changed", map[string]any{"policy": "network", "rules": len(req.Rules), "restricted": policy.Restrictive()})
 		}
-		go s.life.RepublishNetworkPolicy(r.PathValue("name"))
+		go s.life.RepublishNetworkPolicy(sp.ID)
 		// 204, not the 200 the API reference lists: the official Go SDK treats anything else as failure.
 		w.WriteHeader(http.StatusNoContent)
 	}

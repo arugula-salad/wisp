@@ -42,7 +42,7 @@ func (l *Lifecycle) CreateCheckpoint(sp store.Sprite, from *guestChan, comment s
 	if from != nil && rt.guest != from {
 		return store.Checkpoint{}, errStaleGuest
 	}
-	return l.createCheckpointLocked(rt, sp.Name, comment, false, info)
+	return l.createCheckpointLocked(rt, sp.ID, comment, false, info)
 }
 
 // DeleteCheckpoint deletes one of sp's checkpoints, unless the sprite has it
@@ -54,7 +54,7 @@ func (l *Lifecycle) DeleteCheckpoint(sp store.Sprite, id string) error {
 	if l.checkpointMounted(sp, rt, id) {
 		return errCheckpointMounted
 	}
-	return l.deleteCheckpointLocked(sp.Name, id, false)
+	return l.deleteCheckpointLocked(sp.ID, id, false)
 }
 
 // RestoreCheckpoint replaces sp's disk with checkpoint id; see
@@ -66,7 +66,7 @@ func (l *Lifecycle) RestoreCheckpoint(sp store.Sprite, from *guestChan, id strin
 	if from != nil && rt.guest != from {
 		return errStaleGuest
 	}
-	return l.restoreCheckpointLocked(rt, sp.Name, id, info, beforeStop)
+	return l.restoreCheckpointLocked(rt, sp.ID, id, info, beforeStop)
 }
 
 // HoldCheckpoint locks sp and resolves one of its checkpoints, id or, when id
@@ -78,7 +78,7 @@ func (l *Lifecycle) RestoreCheckpoint(sp store.Sprite, from *guestChan, id strin
 func (l *Lifecycle) HoldCheckpoint(sp store.Sprite, id string) (cur store.Sprite, checkpoint string, release func(), err error) {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
-	if cur, err = l.store.Get(sp.Name); err != nil {
+	if cur, err = l.store.Get(sp.ID); err != nil {
 		rt.mu.Unlock()
 		return cur, "", nil, err
 	}
@@ -95,10 +95,10 @@ func (l *Lifecycle) HoldCheckpoint(sp store.Sprite, id string) (cur store.Sprite
 	return cur, checkpoint, rt.mu.Unlock, nil
 }
 
-// createCheckpointLocked clones the live disk. name is re-read under the lock so
-// concurrent creates get distinct IDs.
-func (l *Lifecycle) createCheckpointLocked(rt *runtime, name, comment string, auto bool, info progress) (store.Checkpoint, error) {
-	sp, err := l.store.Get(name)
+// createCheckpointLocked clones the live disk. The record is re-read under the
+// lock so concurrent creates get distinct IDs.
+func (l *Lifecycle) createCheckpointLocked(rt *runtime, sid, comment string, auto bool, info progress) (store.Checkpoint, error) {
+	sp, err := l.store.Get(sid)
 	if err != nil {
 		return store.Checkpoint{}, errors.New("sprite was deleted")
 	}
@@ -142,7 +142,7 @@ func (l *Lifecycle) createCheckpointLocked(rt *runtime, name, comment string, au
 	// The moment captured, not the moment the copy finished: the background loop
 	// compares this with the disk's mtime to tell whether anything changed since.
 	cp.CreateTime = start.UTC()
-	l.store.Update(sp.Name, func(sp *store.Sprite) {
+	l.store.Update(sp.ID, func(sp *store.Sprite) {
 		if auto {
 			sp.NextAuto++
 		} else {
@@ -157,9 +157,9 @@ func (l *Lifecycle) createCheckpointLocked(rt *runtime, name, comment string, au
 	return cp, nil
 }
 
-func (l *Lifecycle) deleteCheckpointLocked(name, id string, pruned bool) error {
+func (l *Lifecycle) deleteCheckpointLocked(sid, id string, pruned bool) error {
 	found := false
-	sp, _ := l.store.Update(name, func(sp *store.Sprite) {
+	sp, _ := l.store.Update(sid, func(sp *store.Sprite) {
 		n := len(sp.Checkpoints)
 		sp.Checkpoints = slices.DeleteFunc(sp.Checkpoints, func(cp store.Checkpoint) bool { return cp.ID == id })
 		found = len(sp.Checkpoints) < n
@@ -176,8 +176,8 @@ func (l *Lifecycle) deleteCheckpointLocked(name, id string, pruned bool) error {
 
 // pruneAutosLocked keeps the newest AutoCheckpointKeep automatic checkpoints.
 // spare, the one a restore is about to read, is neither deleted nor counted.
-func (l *Lifecycle) pruneAutosLocked(name, spare string) {
-	sp, err := l.store.Get(name)
+func (l *Lifecycle) pruneAutosLocked(sid, spare string) {
+	sp, err := l.store.Get(sid)
 	if err != nil {
 		return
 	}
@@ -189,31 +189,31 @@ func (l *Lifecycle) pruneAutosLocked(name, spare string) {
 		}
 	}
 	for i := 0; i < len(autos)-l.opts.AutoCheckpointKeep; i++ {
-		if err := l.deleteCheckpointLocked(name, autos[i], true); err != nil {
-			l.log.Warn("prune auto checkpoint", "sprite", name, "checkpoint", autos[i], "err", err)
+		if err := l.deleteCheckpointLocked(sid, autos[i], true); err != nil {
+			l.log.Warn("prune auto checkpoint", "sprite", sp.Name, "checkpoint", autos[i], "err", err)
 			continue
 		}
-		l.log.Info("auto checkpoint pruned", "sprite", name, "checkpoint", autos[i])
+		l.log.Info("auto checkpoint pruned", "sprite", sp.Name, "checkpoint", autos[i])
 	}
 }
 
 // autoCheckpointLocked is a no-op when autos are disabled (keep < 1).
-func (l *Lifecycle) autoCheckpointLocked(rt *runtime, name, comment, spare string, info progress) error {
+func (l *Lifecycle) autoCheckpointLocked(rt *runtime, sid, comment, spare string, info progress) error {
 	if l.opts.AutoCheckpointKeep < 1 {
 		return nil
 	}
-	if _, err := l.createCheckpointLocked(rt, name, comment, true, info); err != nil {
+	if _, err := l.createCheckpointLocked(rt, sid, comment, true, info); err != nil {
 		return err
 	}
-	l.pruneAutosLocked(name, spare)
+	l.pruneAutosLocked(sid, spare)
 	return nil
 }
 
 // restoreCheckpointLocked replaces the live disk with a checkpoint and, if the
 // sprite was running, restarts it. beforeStop runs once nothing can fail short
 // of the disk copy itself, just before the VM is killed.
-func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, name, id string, info progress, beforeStop func()) error {
-	sp, err := l.store.Get(name)
+func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, sid, id string, info progress, beforeStop func()) error {
+	sp, err := l.store.Get(sid)
 	if err != nil {
 		return errors.New("sprite was deleted")
 	}
@@ -227,7 +227,7 @@ func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, name, id string, info p
 	if err := l.disk.admit(sp, "a restore", l.cloneCost(l.checkpointPath(sp.ID, id))); err != nil {
 		return err
 	}
-	if err := l.autoCheckpointLocked(rt, name, "before restore to "+id, id, info); err != nil {
+	if err := l.autoCheckpointLocked(rt, sid, "before restore to "+id, id, info); err != nil {
 		return fmt.Errorf("save current state first: %w", err)
 	}
 	if beforeStop != nil {
@@ -251,7 +251,7 @@ func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, name, id string, info p
 	if target.IsAuto {
 		lineage = target.History
 	}
-	l.store.Update(name, func(sp *store.Sprite) { sp.Lineage = lineage })
+	l.store.Update(sid, func(sp *store.Sprite) { sp.Lineage = lineage })
 	l.log.Info("checkpoint restored", "sprite", sp.Name, "checkpoint", id)
 	l.emit(sp, "checkpoint.restored", map[string]any{"checkpoint": id})
 	if wasRunning {
@@ -274,7 +274,7 @@ func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, name, id string, info p
 // suspended disk is cloned as it lies) and never counts as activity.
 func (l *Lifecycle) autoCheckpoints() {
 	every := l.opts.AutoCheckpointInterval
-	for _, sp := range l.store.List("") {
+	for _, sp := range l.store.All() {
 		if sp.LastRunningAt == nil {
 			continue
 		}
@@ -288,7 +288,7 @@ func (l *Lifecycle) autoCheckpoints() {
 		}
 		rt := l.rt(sp.ID)
 		rt.mu.Lock()
-		err = l.autoCheckpointLocked(rt, sp.Name, "", "", func(string, ...any) {})
+		err = l.autoCheckpointLocked(rt, sp.ID, "", "", func(string, ...any) {})
 		rt.mu.Unlock()
 		// A full volume is already in the log (diskguard.go); not once per sprite per tick too.
 		if err != nil && !errors.Is(err, errNoRoom) {

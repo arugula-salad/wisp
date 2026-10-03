@@ -24,7 +24,7 @@ func (s *Store) unclaimedLocked(domains []string) []string {
 }
 
 func (s *Store) domainOwnerLocked(domain string) (*Sprite, bool) {
-	for _, sp := range s.byName {
+	for _, sp := range s.byID {
 		if slices.Contains(sp.Domains, domain) {
 			return sp, true
 		}
@@ -32,7 +32,7 @@ func (s *Store) domainOwnerLocked(domain string) (*Sprite, bool) {
 	return nil, false
 }
 
-// DomainOwner returns the name of the sprite that domain is attached to.
+// DomainOwner returns the ID of the sprite that domain is attached to.
 func (s *Store) DomainOwner(domain string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -40,17 +40,17 @@ func (s *Store) DomainOwner(domain string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return sp.Name, true
+	return sp.ID, true
 }
 
-// AllDomains is every attached domain, mapped to its sprite's name.
+// AllDomains is every attached domain, mapped to its sprite's ID.
 func (s *Store) AllDomains() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[string]string{}
-	for _, sp := range s.byName {
+	for _, sp := range s.byID {
 		for _, d := range sp.Domains {
-			out[d] = sp.Name
+			out[d] = sp.ID
 		}
 	}
 	return out
@@ -59,10 +59,10 @@ func (s *Store) AllDomains() map[string]string {
 // AttachDomain adds domain to the sprite, which may then hold at most perSprite
 // domains, with at most total across the host (0 = no limit). Attaching a domain
 // the sprite already has changes nothing.
-func (s *Store) AttachDomain(name, domain string, perSprite, total int) (Sprite, error) {
+func (s *Store) AttachDomain(id, domain string, perSprite, total int) (Sprite, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sp, ok := s.byName[name]
+	sp, ok := s.byID[id]
 	if !ok {
 		return Sprite{}, ErrNotFound
 	}
@@ -77,7 +77,7 @@ func (s *Store) AttachDomain(name, domain string, perSprite, total int) (Sprite,
 	}
 	if total > 0 {
 		n := 0
-		for _, o := range s.byName {
+		for _, o := range s.byID {
 			n += len(o.Domains)
 		}
 		if n >= total {
@@ -94,10 +94,10 @@ func (s *Store) AttachDomain(name, domain string, perSprite, total int) (Sprite,
 }
 
 // DetachDomain removes domain from the sprite.
-func (s *Store) DetachDomain(name, domain string) (Sprite, error) {
+func (s *Store) DetachDomain(id, domain string) (Sprite, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sp, ok := s.byName[name]
+	sp, ok := s.byID[id]
 	if !ok {
 		return Sprite{}, ErrNotFound
 	}

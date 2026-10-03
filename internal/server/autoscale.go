@@ -130,7 +130,7 @@ func (l *Lifecycle) autoscale(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 			return
 		case <-tick.C:
 		}
-		cur, err := l.store.Get(sp.Name)
+		cur, err := l.store.Get(sp.ID)
 		if err != nil {
 			return
 		}

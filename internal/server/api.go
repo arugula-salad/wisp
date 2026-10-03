@@ -68,7 +68,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	s.storage = life.storage
 	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admitHost, log)
 	s.metrics = newMetrics(s)
-	s.httpStats = httpstats.New(func(name string) bool { _, err := st.Get(name); return err == nil })
+	s.httpStats = httpstats.New(func(name string) bool { _, err := st.GetByName(store.Sprites, name); return err == nil })
 	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
 	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
@@ -272,7 +272,7 @@ func (s *Server) render(sp store.Sprite) spriteJSON {
 
 // lookup resolves {name}, writing the 404 itself when absent.
 func (s *Server) lookup(w http.ResponseWriter, r *http.Request) (store.Sprite, bool) {
-	sp, err := s.store.Get(r.PathValue("name"))
+	sp, err := s.store.GetByName(store.Sprites, r.PathValue("name"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return sp, false
@@ -322,7 +322,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		s.life.events.Publish(e)
 		writeLimitErr(w, lim)
 	}
-	if limit, n := s.opts.MaxSprites, len(s.store.List("")); limit > 0 && n >= limit {
+	if limit, n := s.opts.MaxSprites, s.store.Count(); limit > 0 && n >= limit {
 		refused(&LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
 			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)}, "max_sprites")
 		return
@@ -372,7 +372,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 			return
 		}
 		// Checked again by the store; this only saves a pull that would be for nothing.
-		if _, err := s.store.Get(req.Name); err == nil {
+		if _, err := s.store.GetByName(store.Sprites, req.Name); err == nil {
 			writeErr(w, http.StatusBadRequest, "name_taken", "a sprite with that name already exists")
 			return
 		}
@@ -440,7 +440,7 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request, keep func(store.Sp
 		HasMore               bool         `json:"has_more"`
 		NextContinuationToken string       `json:"next_continuation_token,omitempty"`
 	}{Sprites: []spriteJSON{}, Org: s.orgInfo()}
-	for _, sp := range s.store.List(q.Get("prefix")) {
+	for _, sp := range s.store.List(store.Sprites, q.Get("prefix")) {
 		if sp.Name <= after || !keep(sp) {
 			continue
 		}
@@ -493,7 +493,7 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sp, err := s.store.Update(r.PathValue("name"), func(sp *store.Sprite) {
+	sp, err := s.store.UpdateByName(store.Sprites, r.PathValue("name"), func(sp *store.Sprite) {
 		if req.URLSettings != nil {
 			sp.URLSettings = *req.URLSettings
 		}
