@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +8,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -21,7 +18,6 @@ import (
 
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
-	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // apiVersion is reported in Sprite-Version; SDKs use it to pick endpoint
@@ -366,9 +362,8 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		return
 	}
 
-	var image string
+	spec := CreateSpec{}
 	cloned := false
-	var detail map[string]any
 	switch {
 	case req.From != nil && req.From.Image != "":
 		if req.From.Sprite != "" || req.From.Checkpoint != "" {
@@ -387,12 +382,11 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the disk is cloned, so the cached image cannot be removed under the copy.
 		defer release()
-		image = disk
+		spec.ImageDisk = disk
 		sp.Image = ref.Name() + "@" + img.Digest
 		if img.Digest == "" {
 			sp.Image = ref.String()
 		}
-		detail = map[string]any{"from": map[string]string{"image": sp.Image}}
 	case req.From != nil:
 		src, cp, unlock, err := s.cloneSource(*req.From, parent)
 		if err != nil {
@@ -401,63 +395,31 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
-		image = s.life.checkpointPath(src.ID, cp)
-		detail = map[string]any{"from": map[string]string{"sprite": src.Name, "checkpoint": cp}}
+		spec.Checkpoint = &CheckpointRef{Sprite: src, ID: cp}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
 		sp.Image = src.Image // the disk still descends from it
 		cloned = true
-	default:
-		base, err := s.storage.base(r.Context())
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
-			return
-		}
-		image = base
 	}
 	if parent != nil {
 		inherit(sp, *parent, cloned)
 	} else if req.Config != nil {
 		sp.Config = *req.Config
 	}
-	if err := s.life.disk.admit(*sp, "a new sprite", s.life.cloneCost(image)); err != nil {
+	spec.Sprite = *sp
+	created, err := s.life.Create(r.Context(), spec)
+	switch {
+	case errors.Is(err, errNoRoom):
 		writeNoRoom(w, err)
 		return
-	}
-	if err := s.store.Create(sp); err != nil {
-		if errors.Is(err, store.ErrExists) {
-			writeErr(w, http.StatusBadRequest, "name_taken", "a sprite with that name already exists")
-			return
-		}
+	case errors.Is(err, store.ErrExists):
+		writeErr(w, http.StatusBadRequest, "name_taken", "a sprite with that name already exists")
+		return
+	case err != nil:
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	disk := filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile)
-	if err := cloneFile(r.Context(), image, disk); err != nil {
-		s.store.Delete(sp.Name)
-		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
-		return
-	}
-	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", cloned, "image", sp.Image)
-	s.life.emit(*sp, "sprite.created", detail)
-	// A sprite can be born already inside the warning window -- a lobby child with
-	// a two-minute lease, say, under a five-minute --lease-warning. The janitor
-	// would never get to warn about it, so the warning is evaluated here too,
-	// after sprite.created, keeping the stream's order honest.
-	s.leases.warn(*sp, time.Now())
-	writeJSON(w, http.StatusCreated, s.render(*sp))
-}
-
-// cloneFile copies a disk image, as a reflink where the filesystem supports
-// it (instant, copy-on-write) and as a sparse copy otherwise.
-func cloneFile(ctx context.Context, src, dst string) error {
-	tmp := dst + ".tmp"
-	out, err := exec.CommandContext(ctx, "cp", "--reflink=auto", "--sparse=always", src, tmp).CombinedOutput()
-	if err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return os.Rename(tmp, dst)
+	writeJSON(w, http.StatusCreated, s.render(created))
 }
 
 func (s *Server) listSprites(w http.ResponseWriter, r *http.Request) {
