@@ -369,3 +369,24 @@ func TestSuspendLeavesASandboxThatIsNotRunningAlone(t *testing.T) {
 		t.Errorf("states %s, %s", l.Status(warm.Record), l.Status(cold.Record))
 	}
 }
+
+// Stop on a sandbox that is not running drops its memory snapshot, so the
+// next start is a cold boot on its disk, and says so; a cold one is left alone.
+func TestStopColdsASandboxThatIsNotRunning(t *testing.T) {
+	l := newTestEngine(t, Options{})
+	warm := warmSprite(t, l, "warm", time.Now())
+	cold := warmSprite(t, l, "cold", time.Now())
+	vmm.DiscardSnapshot(l.store.Dir(cold.ID))
+	sub := ruleEvents(l)
+	for _, sp := range []store.Sprite{warm, cold} {
+		if err := l.Stop(sp.Record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := collect(sub); eventTypes(got) != "sprite.cold" {
+		t.Errorf("events %s, want one sprite.cold", eventTypes(got))
+	}
+	if l.Status(warm.Record) != "cold" || l.Status(cold.Record) != "cold" {
+		t.Errorf("states %s, %s", l.Status(warm.Record), l.Status(cold.Record))
+	}
+}

@@ -106,6 +106,26 @@ func (l *Engine) ChangeDeadline(id string, change func(*Deadline)) (store.Record
 // as it is. Acquire resumes it, from the snapshot.
 func (l *Engine) Suspend(sp store.Record) error { return l.stop(sp, true) }
 
+// Stop stops a running sandbox cold on demand, keeping its disk, as a
+// deadline whose action is stop does: the guest syncs its filesystems first
+// (and is stopped anyway if it does not answer). One that is not running
+// loses its memory snapshot, if it has one, so either way Acquire next boots
+// it afresh on its disk (Vercel's stop). The disk can then be checkpointed
+// with nothing running on it.
+func (l *Engine) Stop(sp store.Record) error {
+	rt := l.rt(sp.ID)
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.m == nil {
+		if dir := l.store.Dir(sp.ID); vmm.HasSnapshot(dir) {
+			vmm.DiscardSnapshot(dir)
+			l.Emit(sp, "sprite.cold", map[string]any{"reason": "operator"})
+		}
+		return nil
+	}
+	return l.stopLocked(sp, rt, false, "operator")
+}
+
 // idleRule is sp's idle timeout and action now. sp is the record a watcher
 // started with: a sandbox Create holds outside the store is ruled by that.
 func (l *Engine) idleRule(sp store.Record) (time.Duration, store.IdleAction) {

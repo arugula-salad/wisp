@@ -147,6 +147,20 @@ python3 -c 'from e2b import Sandbox; print(Sandbox.create().commands.run("uname 
 
 More in [Using the E2B SDKs](docs/e2b-sdk.md).
 
+### With the Vercel Sandbox SDKs
+
+The [Vercel Sandbox](https://vercel.com/docs/sandbox) API is a third listener on `sandboxd`, for
+the official `@vercel/sandbox` (JS, through a `fetch` preload) and `vercel-sandbox` (Python)
+SDKs, unmodified:
+
+```sh
+./scripts/build-image.sh vercel && ./bin/sandboxd --vercel-listen 127.0.0.1:7824
+export VERCEL_TOKEN=$(cat ~/.local/share/wisp/token) VERCEL_TEAM_ID=team_local VERCEL_PROJECT_ID=prj_local
+VERCEL_SANDBOX_URL=http://127.0.0.1:7824 node --import ./e2e/providers/vercel/target.mjs app.mjs
+```
+
+More in [Using the Vercel Sandbox SDKs](docs/vercel-sdk.md).
+
 ### Sprite URLs
 
 Every sprite has a URL that wakes it and proxies to port 8080 inside it (or to the service you
@@ -183,4 +197,5 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 | [Differences from the hosted product](docs/differences.md) | Deliberate ones, and the official Go SDK issues this server works around |
 | [Using the E2B SDKs](docs/e2b-sdk.md) | `sandboxd`: the E2B API beside the Sprites API, for the official E2B SDKs, and [how it differs from hosted E2B](docs/providers/e2b-differences.md) |
 | [Using the Modal client](docs/modal-client.md) | A spike: `sandboxd --modal-listen` runs the unmodified `modal` client's sandboxes and exec, and [how it differs from hosted Modal](docs/providers/modal-differences.md) |
+| [Using the Vercel Sandbox SDKs](docs/vercel-sdk.md) | `sandboxd --vercel-listen`: the Vercel Sandbox API for the official Vercel SDKs, and [how it differs from hosted Vercel](docs/providers/vercel-differences.md) |
 | [Development](docs/development.md) | Tests, the e2e suite against the official SDKs, extra dev stacks |

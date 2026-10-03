@@ -6,6 +6,7 @@
 #   ./scripts/build-image.sh        # base.ext4, the disk every sprite starts from
 #   ./scripts/build-image.sh e2b    # e2b.ext4, E2B's userland with envd (docs/images.md)
 #   ./scripts/build-image.sh modal  # modal.ext4, Modal's debian_slim (frontend/modal)
+#   ./scripts/build-image.sh vercel # vercel.ext4, Vercel Sandbox's userland (docs/images.md)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -16,7 +17,8 @@ case "$VARIANT" in
   base) ;;
   e2b) ./scripts/build-envd.sh ;; # the image COPYs the binary from its build context
   modal) ;;
-  *) echo "usage: build-image.sh [base|e2b|modal]" >&2; exit 2 ;;
+  vercel) ;;
+  *) echo "usage: build-image.sh [base|e2b|modal|vercel]" >&2; exit 2 ;;
 esac
 TAG="wisp-$VARIANT"
 OUT="$DATA/images/$VARIANT.ext4"

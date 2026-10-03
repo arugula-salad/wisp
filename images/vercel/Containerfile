@@ -1,0 +1,50 @@
+# Userland for Vercel Sandbox sandboxes: wisp's base image reshaped to look like
+# Vercel's default `universal` image (github.com/vercel/sandbox images/universal and
+# images/ubuntu): user `ubuntu` (uid 1000, in sudo, passwordless) whose home and
+# working directory is /vercel, Node.js LTS at /usr/local/bin/node, Python 3, git,
+# curl and the usual tools. Vercel's sandbox protocol (commands, files) is served
+# host-side by frontend/vercel through wisp-agent, so nothing Vercel-specific runs
+# in here. As with the base image there is no init system: the wisp-agent (booted
+# from the initramfs) is PID 1. Build with `scripts/build-image.sh vercel`; see
+# docs/images.md.
+FROM docker.io/library/ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+# The base image's set, plus python-is-python3 and python3-dev as on E2B's.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash-completion build-essential ca-certificates curl dnsutils file git gnupg \
+      iproute2 iputils-ping jq less locales lsof man-db nano netcat-openbsd openssh-client \
+      procps psmisc python-is-python3 python3 python3-dev python3-pip python3-venv ripgrep \
+      rsync sqlite3 sudo tmux tree unzip vim-tiny wget xz-utils zip \
+    && rm -rf /var/lib/apt/lists/* \
+    # pip installs work without a venv in Vercel's image.
+    && rm -f /usr/lib/python3*/EXTERNALLY-MANAGED
+
+# Node.js LTS from nodejs.org, as Vercel's universal image has it (Node 24).
+ARG NODE_VERSION=24.21.0
+RUN set -eu; cd /tmp; f="node-v$NODE_VERSION-linux-x64.tar.xz"; \
+    curl -fsSLO "https://nodejs.org/dist/v$NODE_VERSION/$f"; \
+    curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt" | grep " $f\$" | sha256sum -c -; \
+    tar -xJf "$f" -C /usr/local --strip-components=1 --no-same-owner \
+      --exclude CHANGELOG.md --exclude LICENSE --exclude README.md; \
+    rm "$f"; corepack enable; node --version; npm --version
+
+# Vercel's default user: ubuntu:24.04's `ubuntu` (uid 1000), moved to /vercel as
+# Vercel's images/ubuntu does (`usermod --home /vercel ubuntu`, WORKDIR /vercel).
+#
+# wisp-agent runs exec sessions as, and hands the files its filesystem API writes
+# to, the account named `sprite`. Here `sprite` is a second name for uid 1000
+# (useradd -o), listed after `ubuntu`, with the same home: so commands run as
+# uid 1000 with HOME=/vercel, and `id`, `whoami`, `ls -l` and `stat` all say
+# `ubuntu` (getpwuid finds the first entry), as on Vercel. Both names are in the
+# groups Vercel's `ubuntu` is in (observed: adm, dialout, cdrom, floppy, sudo,
+# audio, dip, video, plugdev), since the agent takes the groups of `sprite`.
+# /usr/local is world-writable so `npm i -g` works without sudo.
+RUN usermod --home /vercel --move-home ubuntu \
+    && mkdir -p /vercel && chown ubuntu:ubuntu /vercel \
+    && usermod -aG adm,dialout,cdrom,floppy,sudo,audio,dip,video,plugdev ubuntu && passwd -d ubuntu \
+    && useradd -o -u 1000 -g 1000 -G adm,dialout,cdrom,floppy,sudo,audio,dip,video,plugdev -M -d /vercel -s /bin/bash sprite \
+    && printf 'ubuntu ALL=(ALL:ALL) NOPASSWD: ALL\nsprite ALL=(ALL:ALL) NOPASSWD: ALL\n# Commands run with sudo: true keep their pipes: no pty.\nDefaults !use_pty\n' > /etc/sudoers.d/vercel \
+    && chmod 0440 /etc/sudoers.d/vercel \
+    && chmod -R a+w /usr/local \
+    && echo vercel-sandbox > /etc/hostname
