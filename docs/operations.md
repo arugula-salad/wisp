@@ -42,6 +42,38 @@ Until the drop-in is there the unit still waits, for up to 90 s, for the volume 
 and the bridge to exist: started early, wispd would see an empty sprite directory, or boot
 every sprite without a NIC.
 
+### A second daemon beside it (sandboxd)
+
+sandboxd installs the same way, as a unit of its own with its own data directory, flags and
+lib directory, without touching `wisp.service`:
+
+```sh
+make install-sandboxd NAME=sandboxd DATA=~/.local/share/sandboxd \
+  FLAGS='--listen 127.0.0.1:7790 --e2b-listen 127.0.0.1:7791 --net-pool 2 --cgroup-memory-max 32G --cgroup-cpu-weight 50'
+```
+
+That builds, packs the initrd into `DATA` (never the main one), and runs
+`install-service.sh --bin sandboxd --name NAME --data DATA -- FLAGS`. The unit is ordered
+`After=wisp.service`, so after a reboot the main install's sprites come back first, and its
+`wait-host.sh` waits for its own pool's bridge (`msbr2` for `--net-pool 2`). Copy
+`bin/firecracker`, `kernel/` and `images/` into `DATA` rather than symlinking the main
+install's, or an upgrade of one swaps them under the other.
+
+The installer refuses, before writing anything:
+
+| Asked for | Refused because |
+|---|---|
+| `--bin sandboxd` without `--name`, or `--name wisp` | `wisp.service` is the main wispd |
+| `--bin sandboxd` without `--data` (`WISP_DATA` alone does not count), or with the main data directory | it would run on the main install's sprites |
+| `--bin sandboxd` with no `--listen` in its flags | sandboxd's default, 127.0.0.1:7788, is wispd's |
+| a name other than `wisp` on the main data directory, or `wisp` on another one | usually a typo; `--force-pair` if you mean it |
+| a name whose unit already exists with another binary or data directory | it never repoints a service; `--uninstall` it first |
+
+`make install-service` is only ever the main install and refuses `NAME`/`DATA`/`BIN`;
+`make install-sandboxd` refuses to run without both `NAME` and `DATA`. `make initrd` and
+`make image` say which data directory they write (the main one unless `WISP_DATA` is set).
+`make test-scripts` checks all of this against a throwaway `HOME`.
+
 ## See what is running
 
 ```
@@ -137,6 +169,12 @@ accounted against each other under one lock — so two simultaneous wakes cannot
 admitted into room for one — but nothing already running is ever evicted to fit an arrival.
 Set the budget below physical RAM with room for all of the above, and treat it as a brake on
 overcommit rather than a promise.
+
+For a promise, add a kernel bound on top: `--cgroup-memory-max 32G` and
+`--cgroup-cpu-weight 50` write `memory.max` / `cpu.weight` on the cgroup subtree holding all of
+this daemon's VMs, which a systemd `MemoryMax=` on the unit does not reach. Useful when a second
+daemon shares the host with one that matters more. Keep the budget below the cap so admission
+refuses before the kernel OOM-kills; details in [security](security.md#capping-all-of-a-daemons-vms-together).
 
 ## Disk pressure
 

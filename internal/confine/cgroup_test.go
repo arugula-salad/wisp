@@ -173,7 +173,7 @@ func TestOpenDoesNotSweep(t *testing.T) {
 	}
 	defer os.Remove(stale)
 
-	c, err := Open(ModeBestEffort, name, nil)
+	c, err := Open(ModeBestEffort, name, Caps{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

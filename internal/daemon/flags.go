@@ -10,6 +10,7 @@ import (
 
 	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/certs"
+	"github.com/arugula-salad/wisp/internal/confine"
 	"github.com/arugula-salad/wisp/internal/server"
 )
 
@@ -28,6 +29,7 @@ type Flags struct {
 	domainsPer, domainsTotal, domainOrders int
 
 	confineMode string
+	cgroupCaps  confine.Caps
 
 	webhooks                    []string
 	webhookSecret, webhookTypes string
@@ -75,6 +77,8 @@ func Bind(fs *flag.FlagSet) (finish func() (server.Options, *Flags)) {
 	flag.IntVar(&f.domainsTotal, "max-domains", 50, "custom domains across all sprites (0 = no limit)")
 	flag.IntVar(&f.domainOrders, "acme-orders-per-hour", 10, "certificate orders per hour for custom domains, across all of them; keeps a misconfigured domain from spending the CA's rate limits")
 	flag.StringVar(&f.confineMode, "confine", os.Getenv("WISP_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
+	cgMemMax := flag.String("cgroup-memory-max", "", "hard memory cap (cgroup memory.max) on all of this daemon's VMs together: bytes or a size like 32G, or \"max\" to clear one. Written on its VM cgroup subtree (app.slice/wisp-<tag>), which a systemd MemoryMax= on the unit does not cover. Empty leaves memory.max as it is, including a cap an earlier run wrote. Without a cgroup subtree it warns, or with --confine=strict refuses to start")
+	flag.IntVar(&f.cgroupCaps.CPUWeight, "cgroup-cpu-weight", 0, "CPU share (cgroup cpu.weight, 1-10000; the kernel default is 100) of all of this daemon's VMs together against the rest of the host, on the same subtree as --cgroup-memory-max. 0 leaves it as it is")
 	backupOpts := BackupFlags(fs)
 	flag.IntVar(&o.MaxSprites, "max-sprites", 0, "most sprites that may exist; creating another is refused (0 = no limit)")
 	flag.IntVar(&o.MaxRunning, "max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
@@ -96,6 +100,15 @@ func Bind(fs *flag.FlagSet) (finish func() (server.Options, *Flags)) {
 	return func() (server.Options, *Flags) {
 		if o.NetPool < 0 {
 			fmt.Fprintln(os.Stderr, "--net-pool must not be negative")
+			os.Exit(2)
+		}
+		var err error
+		if f.cgroupCaps.MemoryMax, err = confine.ParseMemoryMax(*cgMemMax); err != nil {
+			fmt.Fprintln(os.Stderr, "--cgroup-memory-max:", err)
+			os.Exit(2)
+		}
+		if err := f.cgroupCaps.Validate(); err != nil {
+			fmt.Fprintln(os.Stderr, "--cgroup-cpu-weight:", err)
 			os.Exit(2)
 		}
 		o.Host.NoFreePageReporting = !*fpr

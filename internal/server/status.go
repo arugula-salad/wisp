@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/arugula-salad/wisp/engine"
+	"github.com/arugula-salad/wisp/internal/confine"
 	"github.com/arugula-salad/wisp/internal/netd"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
@@ -76,6 +77,9 @@ type HostStatus struct {
 	BootsInFlight       int `json:"boots_in_flight"`
 	// Images is the cache of disks built from container images (engine/images.go).
 	Images ImageCacheStatus `json:"images"`
+	// Cgroup is the subtree every VM's cgroup sits in, with its caps
+	// (--cgroup-memory-max, --cgroup-cpu-weight); daemon only, absent without one.
+	Cgroup *confine.SubtreeStatus `json:"cgroup,omitempty"`
 }
 
 type ImageCacheStatus struct {
@@ -325,6 +329,7 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	out.Host.Volume, _ = l.Volume()
 	out.Host.Images = imageCacheStatus(vmRoot)
 	out.Host.TapsTotal, out.Host.TapsUsed = l.TapUsage()
+	out.Host.Cgroup = s.opts.Host.Confine.Subtree()
 
 	var wg sync.WaitGroup
 	sprites := s.store.List(store.Sprites, "")
