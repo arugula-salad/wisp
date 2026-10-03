@@ -239,3 +239,21 @@ were. A cold boot, which includes every checkpoint restore, starts them afresh.
 
 An image with no `/etc/wisp/services.d`, such as the base image, gets nothing: no
 supervisor, no log directory, no change on its disk.
+
+## The Modal image
+
+`images/modal/Containerfile` is the disk for the Modal front-end, a spike
+([modal-client.md](modal-client.md)). It is what `modal.Image.debian_slim()` asks for, built
+ahead of time, because the front-end does not build images. With the modal 1.6.0 client
+(image builder 2025.06) and a local Python 3.14, the client asks for
+`FROM python:3.14.2-slim-bookworm`, `apt-get install -y gcc gfortran build-essential` and
+`pip install --upgrade pip wheel uv`, and the disk has exactly that.
+
+```sh
+./scripts/build-image.sh modal    # <data>/images/modal.ext4
+```
+
+Besides debian_slim's contents, the disk has `sudo`, `procps` and `iproute2`. It also has the
+`sprite` account (uid 1000, NOPASSWD sudo) that wisp-agent runs exec sessions as. The front-end
+runs Modal's commands as root through it. The hostname is `modal`. The disk is 594 MB of blocks
+(20 GB apparent).

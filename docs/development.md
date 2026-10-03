@@ -55,10 +55,16 @@ down.
   `backups`). `internal/daemon` is what runs it: the flags, the data directory, the engine
   (`engine.New`), the Sprites API over it (`server.New`) and the listeners.
 - `cmd/sandboxd`: the multi-API daemon: `internal/daemon` with more front ends, each on a
-  listener of its own (`daemon.Frontend`). Today that is E2B on `--e2b-listen`.
+  listener of its own (`daemon.Frontend`). Today that is E2B on `--e2b-listen`, and the
+  Modal spike on `--modal-listen`.
 - `frontend/e2b`: the E2B front end ([e2b-sdk.md](e2b-sdk.md)): E2B's REST API, and a proxy
   that routes envd and port traffic into the guest over `engine.DialPort`. It keeps its
   metadata in `store.Record.Ext["e2b"]` and initializes envd from an `OnBoot` hook.
+- `frontend/modal`: the Modal front end, a spike ([modal-client.md](modal-client.md)): two gRPC
+  services on one h2c listener, generated from the modal 1.6.0 wheel's descriptors
+  (`frontend/modal/modalpb`, cut down to the RPCs served). Exec goes through wisp-agent's
+  `POST /exec`. Metadata is in `store.Record.Ext["modal"]`, and apps and results are in
+  `<data>/modal/state.json`.
 - `engine/`: the sandbox engine, `*engine.Engine`, with no API of its own: VMs, disks and
   the sprite volume, checkpoints, network policy, admission and the disk guard, memory
   autoscale, backups, deadlines and leases, the idle rule, the image cache, the event bus

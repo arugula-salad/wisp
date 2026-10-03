@@ -161,3 +161,116 @@ That is about 10-15 RPCs for a credible "sandbox + exec" MVP, roughly 1-2 kLOC o
 - Volumes, NFS, Secrets (beyond ignoring `secret_ids`), Dict/Queue.
 - Snapshots and `_experimental_*`.
 - GPU (forces V1), PTY (forces V1), `modal deploy`/`modal run`, OAuth/token-flow CLI, and the dashboard.
+
+## Spike result
+
+**Phase 5, 2026-10-02.** The unmodified `modal` 1.6.0 client, with only `MODAL_SERVER_URL`,
+`MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` set, runs the target script against
+`sandboxd --modal-listen` and prints `hi`. That holds for V2 (the default) and for V1
+(`MODAL_SANDBOX_V2=0`). The whole script, VM boot included, takes about 0.7 s. All 14 extra
+checks in `e2e/providers/modal/run.sh` pass as well. How to use it is in
+[Using the Modal client](../modal-client.md), and what differs from hosted Modal is in
+[modal-differences.md](modal-differences.md).
+
+**What was built.**
+
+- `frontend/modal`: 1.4 kLOC of Go, plus 0.55 kLOC of tests. It serves both gRPC services on
+  one h2c listener, through the daemon's existing `daemon.Frontend` hook.
+- `cmd/sandboxd --modal-listen`, off by default.
+- `images/modal`, which is debian_slim prebuilt.
+- The e2e script.
+
+The engine, the store and the daemon are unchanged.
+
+- **Protocol: generated, not hand-written.** No 1.6.0 tag exists in modal-labs/modal-client on
+  GitHub, so the `.proto` sources were not fetched (option 2 of section 5).
+  `frontend/modal/modalpb/gen.sh` installs the pinned wheel, which is Apache-2.0 (its LICENSE
+  is copied next to the code). From it, `prune.py` reads the embedded `FileDescriptorProto`s,
+  keeps only the RPCs served and the types they reach, and prints them as `.proto` source.
+  `check.py` then verifies that the 100 kept types and methods match the wheel's own
+  descriptors field for field. Finally protoc and protoc-gen-go(-grpc) compile the result.
+  Generating everything would be 2.3 MB of Go for 277 RPCs; the subset is 284 KB.
+- **RPCs implemented: 19.** The ModalClient service has 15:
+  - `AppGetOrCreate`, `EnvironmentGetOrCreate`, `AuthTokenGet`;
+  - `ImageGetOrCreate`, `ImageJoinStreaming`;
+  - V2: `SandboxCreateV2`, `SandboxGetTaskIdV2`, `SandboxGetCommandRouterAccess`,
+    `SandboxWaitV2`, `SandboxTerminateV2`;
+  - V1: `SandboxCreate`, `SandboxGetTaskId`, `TaskGetCommandRouterAccess`, `SandboxWait`,
+    `SandboxTerminate`.
+
+  The TaskCommandRouter service has 4: `TaskExecStart`, `TaskExecStdioRead`, `TaskExecWait`
+  and `TaskExecPoll`. The target script itself uses 8 of them, exactly section 3's sequence.
+  `wait`, `poll`, `from_id`, stderr and exit codes come from the other 11, which were cheap
+  because the V1 RPCs are the V2 handlers under other names.
+- **Exec** goes through wisp-agent's existing `POST /exec`, the same call the Sprites API's
+  HTTP exec uses. The agent runs exec sessions as `sprite`, so the command runs as root through
+  `sudo -H -- env -C <workdir> K=V... argv`. This needs no guest-agent change.
+
+  Output is buffered whole per stream, and `TaskExecStdioRead` serves it from any byte offset.
+  The stream's clean end is the client's EOF. Section 5 flagged hangs and duplicates on resume
+  as a risk; the unit tests resume from offset 1 and stream output before the exit, and the
+  e2e run reads 3 MB in one exec.
+- **Sandbox lifecycle** maps onto the engine directly:
+  - A Modal sandbox is a record with `API: "modal"`, its metadata in `Ext["modal"]`, idle rule
+    none, and the timeout as the engine's delete deadline.
+  - The entrypoint runs as an exec, and its exit ends the sandbox.
+  - Apps, image IDs and results (`TIMEOUT` 124, `TERMINATED` 137, the entrypoint's code) live
+    in a small front-end file. That way `from_id` and `wait` still answer after the VM is gone.
+- **Auth** reuses the daemon's key check on `x-modal-token-secret`; the token ID is ignored.
+  The router takes HS256 JWTs scoped to one task, signed with a key made fresh each run.
+
+**What works** (all with the stock client):
+- `App.lookup`, `Image.debian_slim()` and `Sandbox.create`, with `timeout`, `workdir`, `env`,
+  `cpu` and `memory`;
+- `sb.exec` with stdout and stderr (PIPE, DEVNULL or STDOUT), `env`, `workdir` and `timeout`;
+- `p.stdout.read()`, `p.stderr.read()`, `p.wait()`, `p.poll()` and `p.returncode`, for zero
+  and non-zero exits, 127 and exec timeouts;
+- a second exec, with state persisting between execs;
+- `Sandbox.from_id`, `sb.poll()`, `sb.wait()` and `sb.terminate()` (returncode 137);
+- `timeout=` on create (`SandboxTimeoutError`, 124), and the entrypoint's exit code ending the
+  sandbox;
+- V1 sandboxes;
+- a clear `ConflictError` for an image it cannot build;
+- `AuthError` for a bad secret, `PermissionDeniedError` for a read-only key, and
+  `UnimplementedError` naming the method for everything else.
+
+**What does not:** everything outside sandbox-and-exec. That includes:
+- image building (only debian_slim, always Python 3.14), Functions and `modal run`/`deploy`;
+- stdin, PTYs and the sandbox's own stdio;
+- the filesystem API, tunnels and ports, tags, names, listing, secrets, volumes, snapshots and
+  GPUs;
+- remote clients without TLS (the router URL must be `https` unless the server is on
+  localhost).
+
+The full list is in [modal-differences.md](modal-differences.md).
+
+**Client-version pinning risk.** This is the main cost of keeping it. The API is Modal's private
+one, and the server is generated from one wheel. 1.6.0 alone already forced two things (section
+5): V2 sandboxes by default, and exec only through the command router. A future client may:
+- call an RPC that is not kept (`UNIMPLEMENTED`);
+- send a recipe for debian_slim that differs (new `FROM` tag or steps), which gives a
+  `ConflictError` until `debianSlimSteps` is updated;
+- require builder version `2025.xx` and refuse `2025.06`;
+- change the ID-shape rules.
+
+Mitigations:
+- Pin `modal==1.6.0` in `e2e/providers/modal/requirements.txt` and in `gen.sh` together.
+- Before moving the pin: rerun `gen.sh`, which fails loudly if a kept method has disappeared,
+  and `run.sh`.
+- A CI job that runs `run.sh` against the newest modal release would catch drift early. It needs
+  KVM, so it has not been added.
+
+**Recommendation: keep it as an opt-in spike, and extend it only on demand. Don't drop it, and
+don't build it out yet.**
+- It is cheap to keep: 1.4 kLOC, no engine or agent changes, off by default, and one e2e script.
+- The sandbox-plus-exec subset works and is fast.
+- Each next step has a known size:
+  - stdin (`TaskExecStdinWrite`) is small;
+  - tunnels (`SandboxGetTunnelsV2`, on the engine's port dial) are moderate;
+  - the filesystem RPCs are moderate.
+- The real ceiling is images. Anything beyond debian_slim needs actual Dockerfile builds (OCI
+  pull, then RUN steps in a builder VM) or a mapping to `from_registry` through the existing
+  image cache. That decision should come from a user who needs Modal compatibility, not
+  precede one.
+- Until then, the version-pinning risk argues against investing further. Each modal release
+  could move the target.
