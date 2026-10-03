@@ -391,6 +391,53 @@ children, so envd must not run as PID 1 and wisp-agent must not reap envd's chil
 a normal child, so this holds). envd's own idle timeout is 640 s per connection, fine behind a
 proxy. envd HEAD (0.9.0) includes live self-upgrade and handover code paths we never trigger.
 
+### envd in the guest (phase 2a)
+
+Done: the E2B image (`scripts/build-image.sh e2b`, [images.md](../images.md#the-e2b-image))
+runs envd as a wisp-agent *system service* declared by the image. Checked end to end on a
+`--net=false` stack through the Sprites API's port proxy, and with the Python SDK 2.52.0's
+envd client pointed at a forward of the guest port.
+
+- **Pin**: infra `92197909dce5a1bef33e764ae4af76f0732fd7a8` (2026-10-03), Apache-2.0,
+  **envd 0.9.0** (`envd -version`; `-commit` prints `9219790`). 0.9.0 is past every SDK gate
+  (newest 0.6.4), so the front-end reports `envdVersion: "0.9.0"` and nothing is gated off.
+  Hosted `base` still runs 0.6.10.
+- **Flags**: `-isnotfc -port 49983 -no-cgroups`, as root. With cgroups on, envd would create
+  `ptys`/`socats`/`user` under the cgroup root, outside the cgroup that holds the sprite's
+  memory limit, and moving them under it would break cgroup2's no-internal-processes rule for
+  the agent's own sessions, so they stay off. envd binds `0.0.0.0:49983`; wispd's guest port dial
+  (`dialGuestTCP`, agent `/internal/tcp`, dials `localhost:49983` in the guest) reaches it.
+- **`/init`**: `POST http://<guest>:49983/init`, `Content-Type: application/json`, no auth
+  header, body `{"accessToken": "<token>", "defaultUser": "user", "defaultWorkdir":
+  "/home/user", "envVars": {...}, "timestamp": "<RFC 3339 now>"}` -> **204**, with
+  `X-Envd-Version: 0.9.0` and `X-Envd-Defaults: {"user":"user","workdir":"/home/user","fallback":false}`.
+  `defaultUser` is required in practice: envd's built-in default is **root**. Under
+  `-isnotfc` the first `/init` is accepted from anyone; afterwards only one carrying the same
+  token is (another token: 401 `access token validation failed`). The timestamp makes envd
+  step the guest clock if it is more than 50 ms behind.
+- **State across lifecycle events** (verified):
+  - *warm suspend/wake*: envd is frozen with the VM; token, default user, env vars and
+    processes it started (a `sleep 900` started through `Start` was still in `List`) all
+    survive. No `/init` needed; a repeated `/init` with the same token is a harmless 204.
+  - *checkpoint restore* (a cold boot): envd starts fresh with **no token and default user
+    root**; files are the checkpoint's; envd-started processes are gone. Until `/init` it
+    answers anything without auth (e.g. `List` with any or no token -> 200), so the front-end
+    must `/init` before routing traffic, and must re-send the **same** token (the SDK holds it).
+  - *envd crash*: wisp-agent restarts it immediately (backoff only if it keeps dying), but
+    the new envd has also lost token and defaults, the same as after a cold boot. The
+    front-end can see this as `fallback: true` in `X-Envd-Defaults` on a re-`/init`, or as an
+    unauthenticated request succeeding. Re-`/init` whenever it reconnects to a sandbox is the
+    simple rule.
+- **Exposure before `/init`**: envd listens on all interfaces, so anything that can reach the
+  guest's port 49983 (its own processes, and the guest network when networking is on) can
+  call `/init` first and set its own token; the front-end's `/init` then fails with 401
+  rather than silently sharing. Keep the window short (call `/init` as soon as the agent
+  answers), and treat a 401 there as a broken sandbox.
+- After every `/init`, envd polls MMDS (169.254.169.254) for 60 s even with `-isnotfc`, and
+  logs that it gave up. Harmless here.
+- `E2B_SANDBOX` is `false` in the environment envd gives commands (hosted: `true`), because
+  of `-isnotfc`. Set it through `/init`'s `envVars` if parity matters.
+
 ## 8. Minimum viable surface for v1, in order
 
 1. `POST /v2/sandboxes` (template `base` only, `timeout`, `metadata`, `envVars`) returning

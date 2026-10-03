@@ -149,3 +149,93 @@ eviction: remove what you no longer need with `wispd images rm`.
 - The image is pulled for the host's architecture only; there is no `--platform`.
 - No pull progress through the API: a create simply blocks. `wispd images pull` streams it.
 - Image `HEALTHCHECK`, `STOPSIGNAL`, labels and the like are ignored.
+
+## The E2B image
+
+`images/e2b/Containerfile` is a second disk image, for the E2B-compatible front-end
+([providers/e2b.md](providers/e2b.md)): E2B's in-guest daemon, **envd**, running inside a
+wisp guest, so the official E2B SDKs talk to the real thing rather than a reimplementation.
+
+```sh
+./scripts/build-image.sh e2b      # <data>/images/e2b.ext4; base.ext4 is untouched
+```
+
+`build-image.sh e2b` first runs `scripts/build-envd.sh`, which builds envd from a pinned
+commit of [e2b-dev/infra](https://github.com/e2b-dev/infra) (`packages/envd`, Apache-2.0;
+the script checks the license and the version the binary reports) into a static binary at
+`images/e2b/envd` (git-ignored; the source is cached under `~/.cache/wisp/e2b-infra`). The
+pin is at the top of the script: infra `92197909`, **envd 0.9.0**.
+
+What the disk contains, modelled on E2B's `base` template (`docker.io/e2bdev/base`, which
+is `python:3.11` plus Node 20, git, gh and build tools, plus what E2B's template build adds):
+
+- Ubuntu 24.04 with the base image's package set, plus `gh`, `socat` (envd's port
+  forwarder uses it), `python-is-python3` and `python3-dev`. pip installs work without a
+  venv, as on E2B (Ubuntu's PEP 668 marker is removed).
+- Node.js 22 LTS from nodejs.org (checksum-verified) with npm and corepack (`yarn`). E2B
+  ships Node 20, which is past end of life.
+- User **`user`**, uid 1000, home `/home/user`, `/bin/bash`, in `sudo` with a NOPASSWD
+  sudoers entry and no password, as on E2B. `/usr/local` and `/code` are world-writable,
+  as on E2B, so `npm i -g` and `pip install` work as `user`.
+- A `sprite` account at uid 1001 with sudo: wisp-agent's own exec sessions and services
+  (the Sprites API, handy for debugging these sandboxes) run as `sprite`, as on any disk.
+- envd at `/usr/bin/envd` (where E2B puts it), declared as a system service in
+  `/etc/wisp/services.d/envd.json`, below.
+
+877 MB of blocks (20 GB apparent), against 554 MB for the base image.
+
+envd runs as root with `-isnotfc -port 49983 -no-cgroups`. `-isnotfc` skips what only
+exists on E2B's Firecracker hosts (the MMDS poll for its token, the log exporter).
+`-no-cgroups` keeps envd from building its own cgroup tree (`ptys`, `socats`, `user`)
+under the cgroup root, where E2B's commands would escape the workload cgroup that carries
+the sprite's memory limit; with it, everything envd starts stays in `/sys/fs/cgroup/sprite`
+with envd. envd listens on all addresses, so wispd's guest port dial (which dials
+`localhost:<port>` in the guest) reaches it like any other port.
+
+envd starts unauthenticated: until something calls its `POST /init` with an access token,
+every endpoint answers anyone who can reach port 49983. The E2B front-end does that
+right after boot; see [providers/e2b.md](providers/e2b.md#envd-in-the-guest-phase-2a).
+
+### System services
+
+An image can declare daemons of its own for wisp-agent to run, one JSON file per daemon in
+`/etc/wisp/services.d/` (the file name, without `.json`, is the service's name):
+
+```json
+{
+  "cmd": "/usr/bin/envd",
+  "args": ["-isnotfc", "-port", "49983", "-no-cgroups"],
+  "user": "root",
+  "env": {"GOTRACEBACK": "all"},
+  "dir": "/"
+}
+```
+
+Only `cmd` is required. `user` is an account on the disk (root when omitted); `dir`
+defaults to that user's home; the environment is the one services get (`PATH`, `HOME`,
+`USER`, the image's `ENV`) plus `env`. Unknown fields are an error, so a typo does not go
+unnoticed; a bad file is logged on the console and skipped, and the others still start.
+
+They are the image's, not the user's:
+
+- the agent starts them at every boot, before the user's services, and restarts one that
+  exits: at once after a run of 10 s or more, otherwise after 1 s, 2 s, 4 s ... up to 30 s;
+- they are not in the services API, cannot be defined, stopped or deleted through it, and
+  their starts and crashes are not service events;
+- they run under the sprite's privileges and resources policy like everything the agent
+  launches, so what they start is confined too. A policy pushed later binds processes
+  started after it, so a running daemon keeps the policy it started under until it next
+  restarts. The `minimal` profile drops `CAP_SETUID`, which envd needs to run commands as
+  `user`;
+- what they print goes to `/var/log/wisp/services/<name>.log`, rotated like services' logs
+  (8 MiB, two rotations); pid files are in `/run/wisp-system-services/`, which a restarted
+  agent uses to clear out a daemon its predecessor left running;
+- each runs in its own process group, as a child of `wisp-agent serve`, never PID 1. The
+  agent reaps only the daemon itself; the daemon's children are its own, and only a
+  daemon that dies leaves them to PID 1.
+
+They are suspended and resumed with the rest of the VM, so a warm wake finds them as they
+were. A cold boot, which includes every checkpoint restore, starts them afresh.
+
+An image with no `/etc/wisp/services.d`, such as the base image, gets nothing: no
+supervisor, no log directory, no change on its disk.
