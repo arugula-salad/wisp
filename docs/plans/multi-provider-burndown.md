@@ -149,4 +149,7 @@ That decision shapes any neutral exec API, so designing one now would be a guess
 | Slice 1.5: `engine` package | Done: PR #44. `engine.Engine`; Sprites metadata reaches it only through hooks. **Phase 1 gate met** |
 | netpolicy test flakes | Fixed: PR #43 (dial-time RST in a test helper; a UDP/TCP port pick race) |
 | Phase 2a: envd in the guest | Done: PR #42. envd 0.9.0 pinned; `/etc/wisp/services.d` system services; `images/e2b` |
-| Phase 2b: E2B front-end + `cmd/sandboxd` | Running (illogical pane 124, worktree `wisp-wt/e2b-frontend`) |
+| Phase 2b: E2B front-end + `cmd/sandboxd` | Done: PR #46. **Phase 2 gate met**: the unmodified E2B SDKs (py and js 2.52.0) pass 26/26 against sandboxd, and the recording matches hosted apart from documented differences. The review found and fixed a port-injection hole |
+| Phase 3: Vercel front-end | Running (illogical pane 128, worktree `wisp-wt/vercel-frontend`) |
+| Phase 4: Daytona front-end | Running (illogical pane 129, worktree `wisp-wt/daytona-frontend`) |
+| Phase 5: Modal spike | Running (illogical pane 133+, worktree `wisp-wt/modal-spike`) |
