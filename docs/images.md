@@ -257,3 +257,31 @@ Besides debian_slim's contents, the disk has `sudo`, `procps` and `iproute2`. It
 `sprite` account (uid 1000, NOPASSWD sudo) that wisp-agent runs exec sessions as. The front-end
 runs Modal's commands as root through it. The hostname is `modal`. The disk is 594 MB of blocks
 (20 GB apparent).
+
+## The Vercel image
+
+`images/vercel/Containerfile` is the disk for the Vercel Sandbox-compatible front-end
+([vercel-sdk.md](vercel-sdk.md)), modelled on Vercel's default `universal` image (from
+[vercel/sandbox](https://github.com/vercel/sandbox)'s `images/universal` and `images/ubuntu`):
+
+```sh
+./scripts/build-image.sh vercel   # <data>/images/vercel.ext4
+```
+
+- Ubuntu 24.04 (wisp's base; Vercel's is 26.04) with the base image's package set plus
+  `python-is-python3` and `python3-dev`; pip installs work without a venv.
+- Node.js 24 LTS from nodejs.org (checksum-verified) at `/usr/local/bin/node`, with npm and
+  corepack; `/usr/local` is world-writable so `npm i -g` works without sudo.
+- User **`ubuntu`**, uid 1000, home and working directory **`/vercel`** (Vercel's
+  `usermod --home /vercel ubuntu`), passwordless sudo, in the groups Vercel's `ubuntu` is in
+  (adm, dialout, cdrom, floppy, sudo, audio, dip, video, plugdev).
+- **`sprite` is a second name for uid 1000** (`useradd -o`), with the same home and groups,
+  listed after `ubuntu` in `/etc/passwd`. wisp-agent runs exec sessions as the account named
+  `sprite` and hands the files its filesystem API creates to it; here that is uid 1000, which
+  `id`, `whoami`, `ls -l` and `stat` call `ubuntu` (they look the uid up, and find `ubuntu`
+  first). So Vercel's commands and files come out as Vercel's user without the agent knowing
+  anything about Vercel. The front end sets `USER`/`LOGNAME` to `ubuntu` on its commands.
+- `Defaults !use_pty` in sudoers, so `sudo` (what `sudo: true` runs a command under) keeps
+  the command's pipes instead of a pty.
+- No daemon of its own: there is nothing in `/etc/wisp/services.d`. The front end speaks
+  Vercel's protocol on the host and drives the guest through wisp-agent.

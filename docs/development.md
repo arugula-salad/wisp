@@ -55,8 +55,8 @@ down.
   `backups`). `internal/daemon` is what runs it: the flags, the data directory, the engine
   (`engine.New`), the Sprites API over it (`server.New`) and the listeners.
 - `cmd/sandboxd`: the multi-API daemon: `internal/daemon` with more front ends, each on a
-  listener of its own (`daemon.Frontend`). Today that is E2B on `--e2b-listen`, and the
-  Modal spike on `--modal-listen`.
+  listener of its own (`daemon.Frontend`): E2B on `--e2b-listen`, Vercel Sandbox on
+  `--vercel-listen`, and the Modal spike on `--modal-listen`.
 - `frontend/e2b`: the E2B front end ([e2b-sdk.md](e2b-sdk.md)): E2B's REST API, and a proxy
   that routes envd and port traffic into the guest over `engine.DialPort`. It keeps its
   metadata in `store.Record.Ext["e2b"]` and initializes envd from an `OnBoot` hook.
@@ -65,6 +65,11 @@ down.
   (`frontend/modal/modalpb`, cut down to the RPCs served). Exec goes through wisp-agent's
   `POST /exec`. Metadata is in `store.Record.Ext["modal"]`, and apps and results are in
   `<data>/modal/state.json`.
+- `frontend/vercel`: the Vercel Sandbox front end ([vercel-sdk.md](vercel-sdk.md)): Vercel's
+  REST API, with commands and files translated into wisp-agent's exec and filesystem API
+  (no daemon in the guest) and routes proxied over `engine.DialPort`. Its metadata (sessions,
+  routes, snapshots) is in `store.Record.Ext["vercel"]`; a session's timeout is the engine
+  deadline (action stop), and snapshots are engine checkpoints.
 - `engine/`: the sandbox engine, `*engine.Engine`, with no API of its own: VMs, disks and
   the sprite volume, checkpoints, network policy, admission and the disk guard, memory
   autoscale, backups, deadlines and leases, the idle rule, the image cache, the event bus
