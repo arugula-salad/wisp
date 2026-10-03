@@ -1,0 +1,32 @@
+[py] sdk e2b==2.52.0 api=http://127.0.0.1:8791 sandbox_url=http://127.0.0.1:8791
+[py] create: OK (374ms) id=in2br7xb7a8ws9bz9t7cy template=rki5dems9wqfm4r03t7g name=base envd=0.6.10 domain=e2b.app cpu=2 mem=512
+[py] exec_stream: OK (1345ms) 6 stdout / 3 stderr callbacks spread over 1.2s; user=user cwd=/home/user
+[py] exec_exit_code: OK (315ms) exit 7 -> CommandExitError; cwd/envs/user honoured
+[py] background_kill: OK (1966ms) pid=2013 cmd=/bin/bash args=['-l', '-c', 'echo started; sleep 600'] -> killed, exit_code=-1
+[py] stdin_pty: OK (1309ms) stdin+reconnect saw 'line-2\n'; pty resized to 30x100 and echoed
+[py] files: OK (3152ms) write/read/list(depth 1,2)/stat/rename/remove OK; mode=0o644 owner=user; relative path resolved to /home/user/probe-rel.txt
+[py] upload_download: OK (846ms) 16384 byte binary roundtrip; signed upload/download URLs OK
+[py] port: OK (1500ms) GET https://8080-in2br7xb7a8ws9bz9t7cy.e2b.app/ -> 200
+[py] set_timeout: OK (472ms) endAt moved to now+600s
+[py] metrics: OK (178ms) 1 samples, last cpu=27.35% mem=56668160
+[py] list: OK (161ms) found by metadata; state=running
+[py] pause_resume: OK (2221ms) paused (state=paused), second pause -> False, connect resumed (state=running), files kept, process survived=True
+[py] kill: OK (994ms) killed; get_info -> NotFound; kill again -> False; connect -> Paused sandbox in2br7xb7a8ws9bz9t7cy not found
+[py] == 0 failure(s)
+[js] sdk e2b@2.52.0 api=http://127.0.0.1:8792 sandbox_url=http://127.0.0.1:8792
+[js] create: OK (346ms) id=izxxon8hhxd6ssugudjex template=rki5dems9wqfm4r03t7g name=base envd=0.6.10 domain=e2b.app cpu=2 mem=512
+[js] exec_stream: OK (1347ms) 6 stdout / 3 stderr callbacks over 1.2s; user=user cwd=/home/user
+[js] exec_exit_code: OK (260ms) exit 7 -> CommandExitError; cwd/envs/user honoured
+[js] background_kill: OK (1927ms) pid=2013 cmd=/bin/bash args=["-l","-c","echo started; sleep 600"] -> killed, exitCode=-1
+[js] stdin_pty: OK (1407ms) stdin+reconnect saw "line-2\n"; pty resized to 30x100 and echoed
+[js] files: OK (2854ms) write/read/list(depth 1,2)/stat/rename/remove OK; mode=644 owner=user; relative path resolved to /home/user/probe-rel.txt
+[js] upload_download: OK (1231ms) 16384 byte binary roundtrip; streamed (octet-stream) upload; signed upload/download URLs OK
+[js] port: OK (1011ms) GET https://8080-izxxon8hhxd6ssugudjex.e2b.app/ -> 200
+[js] set_timeout: OK (302ms) endAt moved to now+600s
+[js] metrics: OK (210ms) 0 samples
+[js] list: OK (122ms) found by metadata; state=running
+[js] pause_resume: OK (2037ms) paused (state=paused), second pause -> false, connect resumed (state=running), files kept, process survived=true
+[js] kill: OK (799ms) killed; getInfo -> NotFound; kill again -> false; connect -> Paused sandbox izxxon8hhxd6ssugudjex not found
+[js] == 0 failure(s)
+[sweep] 0 probe sandbox(es) were left; 0 sandbox(es) on the account after cleanup
+== 26 step(s) OK/skipped, 0 failure(s)
