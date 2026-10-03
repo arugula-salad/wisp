@@ -191,6 +191,9 @@ type Lifecycle struct {
 	guestAPI func(store.Sprite, *guestChan) http.Handler
 	egress   *egress
 	disk     *diskGuard
+	// storage is the sprite volume (storage.go). Set by the Server; nil means
+	// no reflinks.
+	storage *storage
 	// admit is the host memory budget and the concurrent-boot cap (admission.go).
 	admit *admission
 	// backups is the backup tier, nil when no bucket is configured. A nil manager's

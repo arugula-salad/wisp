@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -54,17 +56,17 @@ func TestAutoCheckpointsAreSeparateHiddenAndPruned(t *testing.T) {
 	quiet := func(string, ...any) {}
 	write("one")
 	for i := 0; i < 2; i++ {
-		if _, err := s.createCheckpointLocked(rt, "cp", "", false, quiet); err != nil {
+		if _, err := s.life.createCheckpointLocked(rt, "cp", "", false, quiet); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i := 0; i < 4; i++ {
-		if err := s.autoCheckpointLocked(rt, "cp", "", "", quiet); err != nil {
+		if err := s.life.autoCheckpointLocked(rt, "cp", "", "", quiet); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// An auto never consumes a version number.
-	if cp, err := s.createCheckpointLocked(rt, "cp", "", false, quiet); err != nil || cp.ID != "v3" {
+	if cp, err := s.life.createCheckpointLocked(rt, "cp", "", false, quiet); err != nil || cp.ID != "v3" {
 		t.Fatalf("next manual checkpoint = %q, %v; want v3", cp.ID, err)
 	}
 	sp, _ := s.store.Get("cp")
@@ -85,12 +87,12 @@ func TestRestoreIsUndoableAndTracksHistory(t *testing.T) {
 	s, rt, read, write := newCheckpointServer(t, 1)
 	quiet := func(string, ...any) {}
 	write("good")
-	s.createCheckpointLocked(rt, "cp", "", false, quiet) // v1
+	s.life.createCheckpointLocked(rt, "cp", "", false, quiet) // v1
 	write("better")
-	s.createCheckpointLocked(rt, "cp", "", false, quiet) // v2
+	s.life.createCheckpointLocked(rt, "cp", "", false, quiet) // v2
 	write("broken")
 
-	if err := s.restoreCheckpointLocked(rt, "cp", "v1", quiet, nil); err != nil {
+	if err := s.life.restoreCheckpointLocked(rt, "cp", "v1", quiet, nil); err != nil {
 		t.Fatal(err)
 	}
 	if read() != "good" {
@@ -98,18 +100,18 @@ func TestRestoreIsUndoableAndTracksHistory(t *testing.T) {
 	}
 	// The state the restore replaced was saved first; restoring it undoes the
 	// restore, and must survive the prune that its own pre-restore auto triggers (keep is 1).
-	if err := s.restoreCheckpointLocked(rt, "cp", "auto-1", quiet, nil); err != nil {
+	if err := s.life.restoreCheckpointLocked(rt, "cp", "auto-1", quiet, nil); err != nil {
 		t.Fatal(err)
 	}
 	if read() != "broken" {
 		t.Fatalf("disk after undo = %q", read())
 	}
-	if err := s.restoreCheckpointLocked(rt, "cp", "v9", quiet, nil); err != errNoCheckpoint {
+	if err := s.life.restoreCheckpointLocked(rt, "cp", "v9", quiet, nil); err != errNoCheckpoint {
 		t.Fatalf("restore of a missing checkpoint: %v", err)
 	}
 
-	s.restoreCheckpointLocked(rt, "cp", "v1", quiet, nil)
-	cp, _ := s.createCheckpointLocked(rt, "cp", "", false, quiet) // v3, a child of v1 and not of v2
+	s.life.restoreCheckpointLocked(rt, "cp", "v1", quiet, nil)
+	cp, _ := s.life.createCheckpointLocked(rt, "cp", "", false, quiet) // v3, a child of v1 and not of v2
 	if !slices.Equal(cp.History, []string{"v1"}) {
 		t.Errorf("v3 history = %v, want [v1]", cp.History)
 	}
@@ -153,4 +155,89 @@ func TestGuestRequestsAreScopedToTheirVM(t *testing.T) {
 	if w := post(nil); !strings.Contains(w.Body.String(), "Checkpoint v2 created") {
 		t.Errorf("the public API has no ceiling: %s", w.Body)
 	}
+}
+
+// The Lifecycle's checkpoint methods take the sprite's lock themselves, so a
+// transition in flight holds them off.
+func TestCheckpointMethodsWaitForTheSpriteLock(t *testing.T) {
+	s, rt, _, write := newCheckpointServer(t, 1)
+	write("disk")
+	sp, _ := s.store.Get("cp")
+	quiet := func(string, ...any) {}
+
+	rt.mu.Lock() // a suspend, say
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.life.CreateCheckpoint(sp, nil, "", quiet)
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("CreateCheckpoint did not wait for the sprite's lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	rt.mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	live, gone := &guestChan{}, &guestChan{}
+	rt.guest = live
+	if err := s.life.RestoreCheckpoint(sp, gone, "v1", quiet, nil); err != errStaleGuest {
+		t.Errorf("restore from a stale channel: %v, want errStaleGuest", err)
+	}
+	if err := s.life.RestoreCheckpoint(sp, live, "v1", quiet, nil); err != nil {
+		t.Errorf("restore from the live channel: %v", err)
+	}
+	if err := s.life.DeleteCheckpoint(sp, "v9"); err != errNoCheckpoint {
+		t.Errorf("delete of a missing checkpoint: %v, want errNoCheckpoint", err)
+	}
+}
+
+// A checkpoint mounted inside a running sprite cannot be deleted, and the
+// mount bookkeeping answers what it can without touching a drive.
+func TestCheckpointMountsUnderTheLock(t *testing.T) {
+	s, rt, _, write := newCheckpointServer(t, 1)
+	write("disk")
+	sp, _ := s.store.Get("cp")
+	quiet := func(string, ...any) {}
+	s.life.CreateCheckpoint(sp, nil, "", quiet) // v1
+	s.life.CreateCheckpoint(sp, nil, "", quiet) // v2
+
+	live := &guestChan{}
+	if _, err := s.life.MountCheckpoint(context.Background(), sp, live, "v1"); err != errStaleGuest {
+		t.Errorf("mount on a stopped sprite: %v, want errStaleGuest", err)
+	}
+	if err := s.life.UnmountCheckpoint(context.Background(), sp, live, "v1"); err != errStaleGuest {
+		t.Errorf("unmount on a stopped sprite: %v, want errStaleGuest", err)
+	}
+
+	// Running, as far as the bookkeeping can tell; no drive is swapped below.
+	rt.m, rt.guest = &vmm.Machine{}, live
+	sp, _ = s.store.Update("cp", func(sp *store.Sprite) { sp.Mounts = map[int]string{1: "v1"} })
+	if slot, err := s.life.MountCheckpoint(context.Background(), sp, live, "v1"); err != nil || slot != 1 {
+		t.Errorf("mounting a mounted checkpoint = %d, %v; want its slot, 1", slot, err)
+	}
+	if _, err := s.life.MountCheckpoint(context.Background(), sp, live, "v9"); err != errNoCheckpoint {
+		t.Errorf("mount of a missing checkpoint: %v, want errNoCheckpoint", err)
+	}
+	if err := s.life.UnmountCheckpoint(context.Background(), sp, live, "v2"); err != nil {
+		t.Errorf("unmounting what is not mounted: %v", err)
+	}
+	if err := s.life.DeleteCheckpoint(sp, "v1"); err != errCheckpointMounted {
+		t.Errorf("delete of a mounted checkpoint: %v, want errCheckpointMounted", err)
+	}
+	if err := s.life.DeleteCheckpoint(sp, "v2"); err != nil {
+		t.Errorf("delete of an unmounted checkpoint: %v", err)
+	}
+
+	full := map[int]string{}
+	for i := range vmm.CheckpointSlots {
+		full[i] = fmt.Sprintf("x%d", i)
+	}
+	s.store.Update("cp", func(sp *store.Sprite) { sp.Mounts = full })
+	if _, err := s.life.MountCheckpoint(context.Background(), sp, live, "v1"); err != errMountsFull {
+		t.Errorf("mount with every slot taken: %v, want errMountsFull", err)
+	}
+	rt.m, rt.guest = nil, nil
 }

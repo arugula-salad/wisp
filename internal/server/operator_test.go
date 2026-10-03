@@ -137,7 +137,7 @@ func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
 		t.Fatal("a refused create left a sprite behind")
 	}
 	sp, _ := s.store.Get("fits")
-	_, err := s.createCheckpointLocked(s.life.rt(sp.ID), "fits", "", false, func(string, ...any) {})
+	_, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), "fits", "", false, func(string, ...any) {})
 	if !errors.Is(err, errNoRoom) {
 		t.Fatalf("checkpoint on a full volume: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestStatusLiveAndOffline(t *testing.T) {
 	s, h := newOperatorServer(t, Options{MaxRunning: 3})
 	apiCall(t, h, "POST", "/v1/sprites", `{"name":"one"}`)
 	sp, _ := s.store.Get("one")
-	if _, err := s.createCheckpointLocked(s.life.rt(sp.ID), "one", "", false, func(string, ...any) {}); err != nil {
+	if _, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), "one", "", false, func(string, ...any) {}); err != nil {
 		t.Fatal(err)
 	}
 
