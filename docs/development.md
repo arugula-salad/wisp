@@ -56,7 +56,7 @@ down.
   (`engine.New`), the Sprites API over it (`server.New`) and the listeners.
 - `cmd/sandboxd`: the multi-API daemon: `internal/daemon` with more front ends, each on a
   listener of its own (`daemon.Frontend`): E2B on `--e2b-listen`, Vercel Sandbox on
-  `--vercel-listen`, and the Modal spike on `--modal-listen`.
+  `--vercel-listen`, Daytona on `--daytona-listen`, and the Modal spike on `--modal-listen`.
 - `frontend/e2b`: the E2B front end ([e2b-sdk.md](e2b-sdk.md)): E2B's REST API, and a proxy
   that routes envd and port traffic into the guest over `engine.DialPort`. It keeps its
   metadata in `store.Record.Ext["e2b"]` and initializes envd from an `OnBoot` hook.
@@ -70,6 +70,11 @@ down.
   (no daemon in the guest) and routes proxied over `engine.DialPort`. Its metadata (sessions,
   routes, snapshots) is in `store.Record.Ext["vercel"]`; a session's timeout is the engine
   deadline (action stop), and snapshots are engine checkpoints.
+- `frontend/daytona`: the Daytona front end ([daytona-sdk.md](daytona-sdk.md)): Daytona's
+  REST API under `/api`; the toolbox (`/toolbox/<id>/...`), served host-side by translating
+  each call to wisp-agent's exec and filesystem API over `engine.AgentDial`, including
+  sessions; and preview URLs by Host over `engine.DialPort`. Its metadata is in
+  `store.Record.Ext["daytona"]`; auto-stop is the engine's idle rule, stop is `engine.Stop`.
 - `engine/`: the sandbox engine, `*engine.Engine`, with no API of its own: VMs, disks and
   the sprite volume, checkpoints, network policy, admission and the disk guard, memory
   autoscale, backups, deadlines and leases, the idle rule, the image cache, the event bus

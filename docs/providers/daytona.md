@@ -4,6 +4,11 @@ Phase 0 survey for a Daytona-compatible front-end (see `docs/plans/multi-provide
 Goal: the unmodified Python `daytona` and TypeScript `@daytonaio/sdk` packages work against wisp
 with only `DAYTONA_API_URL` and `DAYTONA_API_KEY` changed.
 
+The core v1 surface (section 8) is built: `frontend/daytona`, served by `sandboxd
+--daytona-listen` ([Using the Daytona SDKs](../daytona-sdk.md)). Where it differs from what this
+survey describes, and every choice made where the survey says "unverified", is in
+[daytona-differences.md](daytona-differences.md).
+
 ## Sources and licensing
 
 | Artifact | Version read | License | Notes |
