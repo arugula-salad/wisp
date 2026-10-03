@@ -1,0 +1,6 @@
+{
+  "cmd": "/usr/bin/envd",
+  "args": ["-isnotfc", "-port", "49983", "-no-cgroups"],
+  "user": "root",
+  "env": {"GOTRACEBACK": "all"}
+}

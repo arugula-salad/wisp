@@ -150,12 +150,14 @@ type service struct {
 	exited      chan struct{} // closed when the current process has been reaped
 	subs        map[chan ServiceEvent]struct{}
 	logFile     *os.File
-	logBytes    int64 // what logFile holds, so rotation needs no stat per line
+	logBytes    int64  // what logFile holds, so rotation needs no stat per line
+	user        string // run as this account; "" is the sprite user. Only system services set it.
 }
 
 type Supervisor struct {
-	stateDir string // definitions + logs; on the sprite's disk
-	runDir   string // pid files; tmpfs, so it empties on cold boot
+	defsDir string // definitions; on the sprite's disk
+	logsDir string // service output; on the sprite's disk
+	runDir  string // pid files; tmpfs, so it empties on cold boot
 
 	// report hears of starts, crashes and stops; nil for none. It is called with
 	// mu held and must not block.
@@ -174,14 +176,14 @@ func NewSupervisor(stateDir, runDir string) *Supervisor {
 // NewReportingSupervisor is NewSupervisor with report set before the first
 // service starts, so the starts at boot are reported too.
 func NewReportingSupervisor(stateDir, runDir string, report func(ServiceReport)) *Supervisor {
-	sv := &Supervisor{stateDir: stateDir, runDir: runDir, services: map[string]*service{}, report: report,
-		logRot: loadLogRotation(stateDir)}
-	os.MkdirAll(sv.defsDir(), 0o755)
-	os.MkdirAll(sv.logsDir(), 0o755)
+	sv := &Supervisor{defsDir: filepath.Join(stateDir, "services"), logsDir: filepath.Join(stateDir, "logs", "services"),
+		runDir: runDir, services: map[string]*service{}, report: report, logRot: loadLogRotation(stateDir)}
+	os.MkdirAll(sv.defsDir, 0o755)
+	os.MkdirAll(sv.logsDir, 0o755)
 	os.MkdirAll(runDir, 0o755)
-	entries, defsErr := os.ReadDir(sv.defsDir())
+	entries, defsErr := os.ReadDir(sv.defsDir)
 	for _, e := range entries {
-		b, err := os.ReadFile(filepath.Join(sv.defsDir(), e.Name()))
+		b, err := os.ReadFile(filepath.Join(sv.defsDir, e.Name()))
 		if err != nil || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
@@ -191,27 +193,32 @@ func NewReportingSupervisor(stateDir, runDir string, report func(ServiceReport))
 		}
 		sv.services[def.Name] = newService(def)
 	}
+	sv.startAll(defsErr == nil)
+	return sv
+}
+
+// startAll starts every loaded service, after clearing out what a previous agent
+// instance left running. sweep drops logs no definition owns, which is only safe
+// once every definition has been read.
+func (sv *Supervisor) startAll(sweep bool) {
 	sv.mu.Lock()
 	defer sv.mu.Unlock()
-	if defsErr == nil {
+	if sweep {
 		sv.sweepOrphanLogsLocked() // logs left by an older agent, which kept a deleted service's for ever
 	}
 	for _, name := range sv.sortedNames() {
 		sv.killStale(name)
 		sv.startLocked(name, map[string]bool{})
 	}
-	return sv
 }
 
 func newService(def ServiceDef) *service {
 	return &service{def: def, state: ServiceState{Name: def.Name, Status: "stopped"}, subs: map[chan ServiceEvent]struct{}{}}
 }
 
-func (sv *Supervisor) defsDir() string         { return filepath.Join(sv.stateDir, "services") }
-func (sv *Supervisor) logsDir() string         { return filepath.Join(sv.stateDir, "logs", "services") }
-func (sv *Supervisor) LogPath(n string) string { return filepath.Join(sv.logsDir(), n+".log") }
+func (sv *Supervisor) LogPath(n string) string { return filepath.Join(sv.logsDir, n+".log") }
 func (sv *Supervisor) pidPath(n string) string { return filepath.Join(sv.runDir, n+".pid") }
-func (sv *Supervisor) defPath(n string) string { return filepath.Join(sv.defsDir(), n+".json") }
+func (sv *Supervisor) defPath(n string) string { return filepath.Join(sv.defsDir, n+".json") }
 
 // SetLogRotation replaces the limits while the agent runs. A lowered MaxBytes
 // applies from the next line written, so it does not wait for a restart.
@@ -294,7 +301,7 @@ func (sv *Supervisor) rotateLocked(s *service) {
 // reader that already has one open still finishes what it was reading.
 func (sv *Supervisor) removeLogsLocked(name string) {
 	for _, f := range sv.logFilesFor(name) {
-		os.Remove(filepath.Join(sv.logsDir(), f))
+		os.Remove(filepath.Join(sv.logsDir, f))
 	}
 }
 
@@ -302,7 +309,7 @@ func (sv *Supervisor) removeLogsLocked(name string) {
 // rotation an earlier setting may have left behind.
 func (sv *Supervisor) logFilesFor(name string) []string {
 	var out []string
-	entries, _ := os.ReadDir(sv.logsDir())
+	entries, _ := os.ReadDir(sv.logsDir)
 	for _, e := range entries {
 		if m := logFileRE.FindStringSubmatch(e.Name()); m != nil && m[1] == name {
 			out = append(out, e.Name())
@@ -317,7 +324,7 @@ func (sv *Supervisor) logFilesFor(name string) []string {
 // occupancy on the sprite's disk. It runs at start, where the caller has just
 // loaded every definition and knows the read succeeded.
 func (sv *Supervisor) sweepOrphanLogsLocked() {
-	entries, err := os.ReadDir(sv.logsDir())
+	entries, err := os.ReadDir(sv.logsDir)
 	if err != nil {
 		return
 	}
@@ -327,7 +334,7 @@ func (sv *Supervisor) sweepOrphanLogsLocked() {
 			continue
 		}
 		if _, live := sv.services[m[1]]; !live {
-			os.Remove(filepath.Join(sv.logsDir(), e.Name()))
+			os.Remove(filepath.Join(sv.logsDir, e.Name()))
 		}
 	}
 }
@@ -503,6 +510,10 @@ func (sv *Supervisor) startLocked(name string, visiting map[string]bool) {
 
 func (sv *Supervisor) spawnLocked(s *service) {
 	cred, home, uname := defaultUser()
+	var err error
+	if s.user != "" {
+		cred, home, uname, err = lookupUser(s.user)
+	}
 	dir := s.def.Dir
 	if dir == "" {
 		dir = home
@@ -512,8 +523,7 @@ func (sv *Supervisor) spawnLocked(s *service) {
 		env = append(env, k+"="+v)
 	}
 	path := s.def.Cmd
-	var err error
-	if !strings.Contains(path, "/") {
+	if err == nil && !strings.Contains(path, "/") {
 		if path, err = lookPath(path, env); err != nil {
 			err = fmt.Errorf("executable %q not found in PATH", s.def.Cmd)
 		}

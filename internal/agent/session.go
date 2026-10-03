@@ -256,17 +256,7 @@ func defaultUser() (cred *syscall.Credential, home, name string) {
 		}
 		return nil, h, os.Getenv("USER")
 	}
-	uid, _ := strconv.Atoi(u.Uid)
-	gid, _ := strconv.Atoi(u.Gid)
-	cred = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
-	if gids, err := u.GroupIds(); err == nil {
-		for _, g := range gids {
-			if n, err := strconv.Atoi(g); err == nil {
-				cred.Groups = append(cred.Groups, uint32(n))
-			}
-		}
-	}
-	return cred, u.HomeDir, u.Username
+	return credential(u), u.HomeDir, u.Username
 }
 
 // baseEnv is the environment every exec session and service starts from.
