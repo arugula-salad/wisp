@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +8,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -19,10 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arugula-salad/wisp/internal/backup"
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
-	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // apiVersion is reported in Sprite-Version; SDKs use it to pick endpoint
@@ -70,13 +65,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	if s.keys.broken != nil {
 		log.Error("API keys unreadable: only the root token works until this is fixed", "err", s.keys.broken)
 	}
-	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
-	life.storage = s.storage
-	if s.storage.reflink {
-		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
-	} else {
-		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
-	}
+	s.storage = life.storage
 	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admitHost, log)
 	s.metrics = newMetrics(s)
 	s.httpStats = httpstats.New(func(name string) bool { _, err := st.Get(name); return err == nil })
@@ -85,18 +74,12 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
 	}
-	if opts.Backup.Bucket != "" {
-		s.backups = newBackupManager(s, backup.Config{Endpoint: opts.Backup.Endpoint,
-			Bucket: opts.Backup.Bucket, Region: opts.Backup.Region,
-			CredentialsFile: opts.Backup.CredentialsFile, KeyFile: opts.Backup.KeyFile,
-			Parallel: opts.Backup.Parallel, RateLimit: opts.Backup.RateLimit, Log: log})
-		life.backups = s.backups
-	}
-	s.leases = newLeases(s)
-	life.setLeases(s.leases)
+	s.backups = life.backups
+	life.OnDelete(s.deleted)
+	s.leases = life.leases
 	// Once here, before anything is served: a lease that ran out while the
 	// daemon was down has still run out, and the sprite should not come back.
-	s.leases.sweep()
+	life.StartReaping()
 	return s
 }
 
@@ -379,9 +362,8 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		return
 	}
 
-	var image string
+	spec := CreateSpec{}
 	cloned := false
-	var detail map[string]any
 	switch {
 	case req.From != nil && req.From.Image != "":
 		if req.From.Sprite != "" || req.From.Checkpoint != "" {
@@ -400,12 +382,11 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the disk is cloned, so the cached image cannot be removed under the copy.
 		defer release()
-		image = disk
+		spec.ImageDisk = disk
 		sp.Image = ref.Name() + "@" + img.Digest
 		if img.Digest == "" {
 			sp.Image = ref.String()
 		}
-		detail = map[string]any{"from": map[string]string{"image": sp.Image}}
 	case req.From != nil:
 		src, cp, unlock, err := s.cloneSource(*req.From, parent)
 		if err != nil {
@@ -414,63 +395,31 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
-		image = s.life.checkpointPath(src.ID, cp)
-		detail = map[string]any{"from": map[string]string{"sprite": src.Name, "checkpoint": cp}}
+		spec.Checkpoint = &CheckpointRef{Sprite: src, ID: cp}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
 		sp.Image = src.Image // the disk still descends from it
 		cloned = true
-	default:
-		base, err := s.storage.base(r.Context())
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
-			return
-		}
-		image = base
 	}
 	if parent != nil {
 		inherit(sp, *parent, cloned)
 	} else if req.Config != nil {
 		sp.Config = *req.Config
 	}
-	if err := s.life.disk.admit(*sp, "a new sprite", s.life.cloneCost(image)); err != nil {
+	spec.Sprite = *sp
+	created, err := s.life.Create(r.Context(), spec)
+	switch {
+	case errors.Is(err, errNoRoom):
 		writeNoRoom(w, err)
 		return
-	}
-	if err := s.store.Create(sp); err != nil {
-		if errors.Is(err, store.ErrExists) {
-			writeErr(w, http.StatusBadRequest, "name_taken", "a sprite with that name already exists")
-			return
-		}
+	case errors.Is(err, store.ErrExists):
+		writeErr(w, http.StatusBadRequest, "name_taken", "a sprite with that name already exists")
+		return
+	case err != nil:
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	disk := filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile)
-	if err := cloneFile(r.Context(), image, disk); err != nil {
-		s.store.Delete(sp.Name)
-		writeErr(w, http.StatusInternalServerError, "internal", "provision disk: "+err.Error())
-		return
-	}
-	s.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", cloned, "image", sp.Image)
-	s.life.emit(*sp, "sprite.created", detail)
-	// A sprite can be born already inside the warning window -- a lobby child with
-	// a two-minute lease, say, under a five-minute --lease-warning. The janitor
-	// would never get to warn about it, so the warning is evaluated here too,
-	// after sprite.created, keeping the stream's order honest.
-	s.leases.warn(*sp, time.Now())
-	writeJSON(w, http.StatusCreated, s.render(*sp))
-}
-
-// cloneFile copies a disk image, as a reflink where the filesystem supports
-// it (instant, copy-on-write) and as a sparse copy otherwise.
-func cloneFile(ctx context.Context, src, dst string) error {
-	tmp := dst + ".tmp"
-	out, err := exec.CommandContext(ctx, "cp", "--reflink=auto", "--sparse=always", src, tmp).CombinedOutput()
-	if err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return os.Rename(tmp, dst)
+	writeJSON(w, http.StatusCreated, s.render(created))
 }
 
 func (s *Server) listSprites(w http.ResponseWriter, r *http.Request) {
@@ -574,32 +523,16 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deleted is the front end's part of a deletion (Lifecycle.OnDelete), however
+// it came about: the sprite's custom domains go with it.
+func (s *Server) deleted(store.Sprite) { s.syncDomains() }
+
 func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
-	if err := s.destroy(sp); err != nil {
+	if err := s.life.Delete(sp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// destroy is the deletion itself, with no request behind it: an expiring lease
-// (leases.go) frees exactly what a DELETE frees — net index, tap, disk,
-// checkpoints, domains — because it is the same code and not a second copy of
-// the list.
-func (s *Server) destroy(sp store.Sprite) error {
-	s.life.Stop(sp, false)
-	if err := s.store.Delete(sp.Name); err != nil {
-		return err
-	}
-	s.life.Forget(sp.ID)
-	s.life.egress.forget(sp)
-	s.syncDomains() // its custom domains go with it
-	// Tombstone rather than delete: losing this machine and deleting a sprite must
-	// not look the same to the bucket. `wispd backups prune` retires it later.
-	s.backups.MarkDeleted(sp)
-	s.log.Info("sprite deleted", "sprite", sp.Name)
-	s.life.emit(sp, "sprite.deleted", nil)
-	return nil
 }
 
 // proxyAgent wakes the sprite and forwards the request (HTTP or WebSocket) to

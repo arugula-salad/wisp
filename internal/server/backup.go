@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,9 +50,16 @@ type backupState struct {
 }
 
 // backupManager serialises backups: one sprite at a time, off the request path.
+// The Lifecycle owns it (NewLifecycle) and is all of the engine it sees: the
+// disk generation, the sprite's status, the capture under its lock, and the
+// periodic loop.
 type backupManager struct {
-	srv *Server
-	cfg backup.Config
+	cfg     backup.Config
+	opts    BackupOptions
+	store   *store.Store
+	log     *slog.Logger
+	life    *Lifecycle
+	storage *storage
 
 	// The bucket is opened on first use and again after every failure to, not once
 	// at startup: a daemon that came up during an outage must not stay without
@@ -68,17 +76,17 @@ type backupManager struct {
 	bucketErr string // why the bucket cannot be opened; reported on every sprite
 }
 
-func newBackupManager(s *Server, cfg backup.Config) *backupManager {
-	m := &backupManager{srv: s, cfg: cfg, state: map[string]*backupState{},
-		pending: map[string]string{}, wake: make(chan struct{}, 1)}
+func newBackupManager(cfg backup.Config, opts BackupOptions, st *store.Store, log *slog.Logger, life *Lifecycle, storage *storage) *backupManager {
+	m := &backupManager{cfg: cfg, opts: opts, store: st, log: log, life: life, storage: storage,
+		state: map[string]*backupState{}, pending: map[string]string{}, wake: make(chan struct{}, 1)}
 	go m.run()
 	// Reaching the bucket is not a condition of starting: wispd is still a
 	// working sprite host without durability, and the error belongs in the log and
 	// in sprite status, not in a refusal to boot or a slower one.
 	go func() {
 		m.repository(context.Background())
-		if s.opts.Backup.Interval > 0 {
-			s.life.every(m.periodTick(), m.periodic)
+		if opts.Interval > 0 {
+			life.every(m.periodTick(), m.periodic)
 		}
 	}()
 	return m
@@ -93,7 +101,7 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 	if m.repo != nil {
 		return m.repo, nil
 	}
-	log := m.srv.log
+	log := m.log
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	repo, err := backup.Open(ctx, m.cfg)
@@ -114,7 +122,7 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 		return nil, err
 	}
 
-	for _, sp := range m.srv.store.List("") {
+	for _, sp := range m.store.List("") {
 		latest, err := repo.Latest(ctx, sp.ID)
 		if err != nil {
 			continue // never backed up, or unreadable: either way, no recovery point
@@ -128,7 +136,7 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 	}
 	m.repo = repo
 	log.Info("backups enabled", "bucket", m.cfg.Bucket, "endpoint", m.cfg.Endpoint,
-		"encrypted", repo.Encrypted(), "interval", m.srv.opts.Backup.Interval)
+		"encrypted", repo.Encrypted(), "interval", m.opts.Interval)
 	return repo, nil
 }
 
@@ -214,7 +222,7 @@ func (m *backupManager) run() {
 
 // one backs up a single sprite and records the outcome.
 func (m *backupManager) one(id, reason string) {
-	log := m.srv.log
+	log := m.log
 	sp, err := m.findByID(id)
 	if err != nil {
 		return // deleted while it waited
@@ -258,7 +266,7 @@ func (m *backupManager) one(id, reason string) {
 }
 
 func (m *backupManager) findByID(id string) (store.Sprite, error) {
-	for _, sp := range m.srv.store.List("") {
+	for _, sp := range m.store.List("") {
 		if sp.ID == id {
 			return sp, nil
 		}
@@ -276,7 +284,7 @@ func (m *backupManager) backupSprite(ctx context.Context, sp store.Sprite, reaso
 	if err != nil {
 		return nil, backup.Stats{}, err
 	}
-	c, err := m.capture(ctx, sp)
+	c, err := m.life.captureDisk(ctx, sp)
 	if err != nil {
 		return nil, backup.Stats{}, err
 	}
@@ -287,7 +295,7 @@ func (m *backupManager) backupSprite(ctx context.Context, sp store.Sprite, reaso
 		// The disk is being read where a VM would write to it. A wake is never made
 		// to wait for that: the upload is what gives way, as soon as it notices, and
 		// in any case before it commits a manifest of a disk that moved under it.
-		life := m.srv.life
+		life := m.life
 		woke := fmt.Errorf("%w: the sprite woke during the upload", errBackupDeferred)
 		var cancel context.CancelCauseFunc
 		ctx, cancel = context.WithCancelCause(ctx)
@@ -332,7 +340,8 @@ type capture struct {
 	cleanup func()
 }
 
-// capture picks a consistent point to read the sprite's disk from.
+// captureDisk picks a consistent point to read the sprite's disk from, for a
+// backup.
 //
 // With reflink support the clone is instant, so it is taken under the lifecycle
 // lock (quiescing a running VM first, exactly as a checkpoint does) and the upload
@@ -340,10 +349,10 @@ type capture struct {
 // point: a running sprite is deferred rather than paused for the length of an
 // upload, and a stopped one is read in place, by a caller that watches for it
 // starting.
-func (m *backupManager) capture(ctx context.Context, sp store.Sprite) (*capture, error) {
-	dir := m.srv.store.Dir(sp.ID)
+func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture, error) {
+	dir := l.store.Dir(sp.ID)
 	live := filepath.Join(dir, vmm.DiskFile)
-	rt := m.srv.life.rt(sp.ID)
+	rt := l.rt(sp.ID)
 	// Lock, not TryLock: this waits out a transition that is in flight, and holds
 	// the lock only for an instant clone or for no work at all.
 	rt.mu.Lock()
@@ -351,7 +360,7 @@ func (m *backupManager) capture(ctx context.Context, sp store.Sprite) (*capture,
 
 	c := &capture{at: time.Now(), cleanup: func() {}}
 	diskPath := live
-	if !m.srv.storage.reflink {
+	if !l.storage.reflink {
 		if rt.m != nil {
 			return nil, fmt.Errorf("%w: running, and this volume has no reflink support", errBackupDeferred)
 		}
@@ -368,7 +377,7 @@ func (m *backupManager) capture(ctx context.Context, sp store.Sprite) (*capture,
 			}
 			defer func() {
 				if rerr := rt.m.Resume(ctx); rerr != nil {
-					m.srv.log.Error("resume after backup snapshot failed", "sprite", sp.Name, "err", rerr)
+					l.log.Error("resume after backup snapshot failed", "sprite", sp.Name, "err", rerr)
 				}
 			}()
 			c.at = time.Now()
@@ -383,7 +392,7 @@ func (m *backupManager) capture(ctx context.Context, sp store.Sprite) (*capture,
 	// The record and the checkpoint list are read under the same lock a checkpoint
 	// is taken under, so the manifest's two halves agree.
 	var err error
-	if c.sprite, err = m.srv.store.Get(sp.Name); err != nil {
+	if c.sprite, err = l.store.Get(sp.Name); err != nil {
 		c.cleanup()
 		return nil, err
 	}
@@ -398,11 +407,11 @@ func (m *backupManager) capture(ctx context.Context, sp store.Sprite) (*capture,
 // retry for everything else: a backup that failed, one that was deferred, and one
 // that was queued when wispd shut down. One pass runs every periodTick.
 func (m *backupManager) periodic() {
-	every, tick := m.srv.opts.Backup.Interval, m.periodTick()
+	every, tick := m.opts.Interval, m.periodTick()
 	if _, err := m.repository(context.Background()); err != nil {
 		return // State reports it; there is nothing to upload to
 	}
-	for _, sp := range m.srv.store.List("") {
+	for _, sp := range m.store.List("") {
 		if slices.Contains(sp.Labels, NoBackupLabel) {
 			continue
 		}
@@ -416,8 +425,8 @@ func (m *backupManager) periodic() {
 		}
 		// Without reflinks there is nothing consistent to read until it stops, and
 		// its suspend will ask for a backup itself.
-		running := m.srv.life.Status(sp) == "running"
-		if running && !m.srv.storage.reflink {
+		running := m.life.Status(sp) == "running"
+		if running && !m.storage.reflink {
 			continue
 		}
 		if st.LastAt == nil {
@@ -425,7 +434,7 @@ func (m *backupManager) periodic() {
 			continue
 		}
 		// Only if something actually changed since that backup.
-		disk, err := os.Stat(filepath.Join(m.srv.store.Dir(sp.ID), vmm.DiskFile))
+		disk, err := os.Stat(filepath.Join(m.store.Dir(sp.ID), vmm.DiskFile))
 		if err != nil || !disk.ModTime().After(*st.LastAt) {
 			continue
 		}
@@ -440,7 +449,7 @@ func (m *backupManager) periodic() {
 }
 
 func (m *backupManager) periodTick() time.Duration {
-	return min(max(m.srv.opts.Backup.Interval/10, time.Second), 5*time.Minute)
+	return min(max(m.opts.Interval/10, time.Second), 5*time.Minute)
 }
 
 // MarkDeleted records a tombstone so that a deleted sprite and a lost machine do
@@ -468,7 +477,7 @@ func (m *backupManager) tombstone(sp store.Sprite) {
 		}
 	}
 	if err != nil {
-		m.srv.log.Warn("could not record the deletion in the backup bucket",
+		m.log.Warn("could not record the deletion in the backup bucket",
 			"sprite", sp.Name, "err", err)
 	}
 }

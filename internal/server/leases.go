@@ -2,7 +2,7 @@ package server
 
 import (
 	"errors"
-	"net/http"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -38,10 +38,12 @@ const leasePath = "/wisp/v1/sprites/{name}/lease"
 // the operator has set no Options.LeaseWarning.
 const defaultLeaseWarning = 5 * time.Minute
 
-// leases is the reaper and the bookkeeping the reaper needs. It hangs off the
-// Server because deleting a sprite is the API's path, not the lifecycle's.
+// leases is the reaper and the bookkeeping the reaper needs.
 type leases struct {
-	s *Server
+	store   *store.Store
+	log     *slog.Logger
+	life    *Lifecycle
+	warnFor time.Duration // Options.LeaseWarning; 0 is defaultLeaseWarning
 
 	mu sync.Mutex
 	// warned is the deadline each sprite was already warned about, so a sweep
@@ -56,29 +58,34 @@ type leases struct {
 	reaping map[string]bool
 }
 
-func newLeases(s *Server) *leases {
-	return &leases{s: s, warned: map[string]time.Time{}, reaping: map[string]bool{}}
+func newLeases(st *store.Store, log *slog.Logger, life *Lifecycle, warning time.Duration) *leases {
+	return &leases{store: st, log: log, life: life, warnFor: warning,
+		warned: map[string]time.Time{}, reaping: map[string]bool{}}
 }
 
-// setLeases hands the reaper to the janitor. The nil check on every method
-// below covers the window before this, and a Lifecycle built by hand in tests.
-func (l *Lifecycle) setLeases(ls *leases) {
+// StartReaping sweeps the leases once, now, and lets the janitor sweep them
+// from then on. The front end calls it once it is attached (its OnDelete hook,
+// the webhooks), so that what the reaper deletes, including what ran out while
+// the daemon was down, reaches it like any other deletion.
+func (l *Lifecycle) StartReaping() {
 	l.mu.Lock()
-	l.leases = ls
+	l.reapStarted = true
 	l.mu.Unlock()
+	l.leases.sweep()
 }
 
-// reapLeases is what the janitor calls. It reads the reaper under l.mu because
-// the Server installs it after the janitor is already running.
+// reapLeases is what the janitor calls.
 func (l *Lifecycle) reapLeases() {
 	l.mu.Lock()
-	ls := l.leases
+	on := l.reapStarted
 	l.mu.Unlock()
-	ls.sweep()
+	if on {
+		l.leases.sweep()
+	}
 }
 
 func (ls *leases) warning() time.Duration {
-	if d := ls.s.opts.LeaseWarning; d > 0 {
+	if d := ls.warnFor; d > 0 {
 		return d
 	}
 	return defaultLeaseWarning
@@ -100,7 +107,7 @@ func (ls *leases) sweep() {
 		return
 	}
 	now := time.Now()
-	for _, sp := range ls.s.store.List("") {
+	for _, sp := range ls.store.List("") {
 		if leaseExpired(sp, now) {
 			ls.reap(sp)
 			continue
@@ -112,6 +119,9 @@ func (ls *leases) sweep() {
 // warn publishes sprite.expiring once per deadline. A renewal or a protection
 // clears the mark, so the next deadline is warned about in its own right.
 func (ls *leases) warn(sp store.Sprite, now time.Time) {
+	if ls == nil {
+		return
+	}
 	if sp.ExpiresAt == nil || sp.Protected || now.Add(ls.warning()).Before(*sp.ExpiresAt) {
 		ls.forget(sp.ID)
 		return
@@ -123,8 +133,8 @@ func (ls *leases) warn(sp store.Sprite, now time.Time) {
 	if !first {
 		return
 	}
-	ls.s.log.Info("sprite lease running out", "sprite", sp.Name, "expires_at", sp.ExpiresAt)
-	ls.s.life.emit(sp, "sprite.expiring", map[string]any{
+	ls.log.Info("sprite lease running out", "sprite", sp.Name, "expires_at", sp.ExpiresAt)
+	ls.life.emit(sp, "sprite.expiring", map[string]any{
 		"expires_at": sp.ExpiresAt.UTC().Format(time.RFC3339), "in_ms": sp.ExpiresAt.Sub(now).Milliseconds()})
 }
 
@@ -141,9 +151,9 @@ func (ls *leases) warn(sp store.Sprite, now time.Time) {
 func (ls *leases) reap(sp store.Sprite) {
 	var cur store.Sprite
 	commit := false
-	ls.s.life.WithLocked(sp.ID, func() error {
+	ls.life.WithLocked(sp.ID, func() error {
 		var err error
-		cur, err = ls.s.store.Get(sp.Name)
+		cur, err = ls.store.Get(sp.Name)
 		commit = err == nil && cur.ID == sp.ID && leaseExpired(cur, time.Now())
 		if commit {
 			ls.claim(cur.ID)
@@ -154,15 +164,15 @@ func (ls *leases) reap(sp store.Sprite) {
 		return
 	}
 	defer ls.release(cur.ID)
-	ls.s.log.Info("lease expired; deleting sprite", "sprite", cur.Name, "id", cur.ID, "expires_at", cur.ExpiresAt)
+	ls.log.Info("lease expired; deleting sprite", "sprite", cur.Name, "id", cur.ID, "expires_at", cur.ExpiresAt)
 	// Before the delete, so a follower sees why the sprite.deleted that comes
 	// next was not somebody's DELETE.
-	ls.s.life.emit(cur, "sprite.expired", map[string]any{"expires_at": cur.ExpiresAt.UTC().Format(time.RFC3339)})
-	if err := ls.s.destroy(cur); err != nil {
-		ls.s.log.Error("deleting an expired sprite failed; it will be tried again", "sprite", cur.Name, "err", err)
-		return
+	ls.life.emit(cur, "sprite.expired", map[string]any{"expires_at": cur.ExpiresAt.UTC().Format(time.RFC3339)})
+	// Lifecycle.Delete, the same deletion a DELETE is, so expiry frees exactly
+	// what a DELETE frees, and forgets the warning sent.
+	if err := ls.life.Delete(cur); err != nil {
+		ls.log.Error("deleting an expired sprite failed; it will be tried again", "sprite", cur.Name, "err", err)
 	}
-	ls.forget(cur.ID)
 }
 
 func (ls *leases) claim(id string) {
@@ -197,164 +207,32 @@ func (ls *leases) forget(id string) {
 	ls.mu.Unlock()
 }
 
-// leaseRequest is the lease in a create, an update or a renewal. There are two
-// ways to name the moment because callers differ: an operator has a date in
-// mind, a lobby handing out a sprite knows only how long it should live. A
-// field left out changes nothing, so a caller that knows nothing of leases
-// cannot clear one by accident; expires_at "" or ttl_seconds 0 clears it.
-type leaseRequest struct {
-	ExpiresAt  *string `json:"expires_at"`
-	TTLSeconds *int64  `json:"ttl_seconds"`
-	Protected  *bool   `json:"protected"`
-}
-
-func (q leaseRequest) touchesExpiry() bool { return q.ExpiresAt != nil || q.TTLSeconds != nil }
-
-// expiry resolves the deadline asked for: nil with an empty message means no
-// lease, and a non-empty message is what the caller returns as a 400.
-func (q leaseRequest) expiry(now time.Time) (*time.Time, string) {
-	switch {
-	case q.ExpiresAt != nil && q.TTLSeconds != nil:
-		return nil, "give either expires_at or ttl_seconds, not both"
-	case q.TTLSeconds != nil:
-		if *q.TTLSeconds < 0 {
-			return nil, "ttl_seconds must not be negative"
-		}
-		if *q.TTLSeconds == 0 {
-			return nil, ""
-		}
-		t := now.Add(time.Duration(*q.TTLSeconds) * time.Second).UTC()
-		return &t, ""
-	case q.ExpiresAt != nil:
-		if *q.ExpiresAt == "" {
-			return nil, ""
-		}
-		t, err := time.Parse(time.RFC3339, *q.ExpiresAt)
-		if err != nil {
-			return nil, "expires_at must be an RFC3339 time, e.g. 2026-09-23T10:00:00Z"
-		}
-		if t.Before(now) {
-			// A deadline already past would be reaped within the half minute,
-			// which is a lot of deletion for a mistyped year.
-			return nil, "expires_at is in the past"
-		}
-		t = t.UTC()
-		return &t, ""
-	}
-	return nil, ""
-}
-
-// apply writes the lease onto a record that is not in the store yet (a create,
-// where there is nothing to race with).
-func (q leaseRequest) apply(sp *store.Sprite, now time.Time) string {
-	exp, msg := q.expiry(now)
-	if msg != "" {
-		return msg
-	}
-	if q.touchesExpiry() {
-		sp.ExpiresAt = exp
-	}
-	if q.Protected != nil {
-		sp.Protected = *q.Protected
-	}
-	return ""
-}
-
-// leaseJSON is the lease on its own. ExpiresAt is explicitly null rather than
-// absent when there is none, so a client can tell "no lease" from an old daemon.
-type leaseJSON struct {
-	ExpiresAt *time.Time `json:"expires_at"`
-	Protected bool       `json:"protected"`
-	// ExpiresIn saves every caller the clock comparison, and is negative for a
-	// deadline that has passed on a protected sprite.
-	ExpiresIn *int64 `json:"expires_in_seconds,omitempty"`
-}
-
-func leaseOf(sp store.Sprite) leaseJSON {
-	out := leaseJSON{ExpiresAt: sp.ExpiresAt, Protected: sp.Protected}
-	if sp.ExpiresAt != nil {
-		in := int64(time.Until(*sp.ExpiresAt).Round(time.Second) / time.Second)
-		out.ExpiresIn = &in
-	}
-	return out
-}
-
-func (s *Server) registerLeases(mux *http.ServeMux) {
-	mux.HandleFunc("GET "+leasePath, func(w http.ResponseWriter, r *http.Request) {
-		if sp, ok := s.lookup(w, r); ok {
-			writeJSON(w, http.StatusOK, leaseOf(sp))
-		}
-	})
-	mux.HandleFunc("POST "+leasePath, func(w http.ResponseWriter, r *http.Request) {
-		var req leaseRequest
-		if !readJSON(w, r, 1<<16, &req) {
-			return
-		}
-		if sp, ok := s.applyLease(w, r, req); ok {
-			writeJSON(w, http.StatusOK, leaseOf(sp))
-		}
-	})
-	// Dropping the lease drops the protection with it: protection only ever
-	// meant "not this deadline", and leaving it set on a sprite with no deadline
-	// would read as a promise nothing enforces.
-	mux.HandleFunc("DELETE "+leasePath, func(w http.ResponseWriter, r *http.Request) {
-		none, off := "", false
-		if _, ok := s.applyLease(w, r, leaseRequest{ExpiresAt: &none, Protected: &off}); ok {
-			w.WriteHeader(http.StatusNoContent)
-		}
-	})
-}
-
-// applyLease is every lease change from outside: the renewal endpoint and the
-// lease fields of PUT /v1/sprites/{name}. It writes under the sprite's
-// lifecycle lock, which is what serializes it against a reap in flight; see
-// reap for the two orders and their outcomes.
-func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseRequest) (store.Sprite, bool) {
-	sp, ok := s.lookup(w, r)
-	if !ok {
-		return sp, false
-	}
-	exp, msg := req.expiry(time.Now())
-	if msg != "" {
-		writeErr(w, http.StatusBadRequest, "bad_request", msg)
-		return sp, false
+// set changes a sprite's lease from outside: update is applied to the record
+// under the sprite's lifecycle lock, which is what serializes it against a
+// reap in flight; see reap for the two orders and their outcomes. A sprite a
+// reap has committed to is errLeaseReaping, one that is gone store.ErrNotFound.
+func (ls *leases) set(sp store.Sprite, update func(*store.Sprite)) (store.Sprite, error) {
+	if ls == nil {
+		return store.Sprite{}, errors.New("no lease reaper")
 	}
 	var cur store.Sprite
-	err := s.life.WithLocked(sp.ID, func() error {
-		if s.leases.claimed(sp.ID) {
+	err := ls.life.WithLocked(sp.ID, func() error {
+		if ls.claimed(sp.ID) {
 			return errLeaseReaping
 		}
 		var err error
-		cur, err = s.store.Update(sp.Name, func(sp *store.Sprite) {
-			if req.touchesExpiry() {
-				sp.ExpiresAt = exp
-			}
-			if req.Protected != nil {
-				sp.Protected = *req.Protected
-			}
-			sp.UpdatedAt = time.Now().UTC()
-		})
-		if err != nil {
+		if cur, err = ls.store.Update(sp.Name, update); err != nil {
 			return err
 		}
-		s.leases.forget(cur.ID)
-		s.log.Info("lease set", "sprite", cur.Name, "expires_at", cur.ExpiresAt, "protected", cur.Protected)
+		ls.forget(cur.ID)
+		ls.log.Info("lease set", "sprite", cur.Name, "expires_at", cur.ExpiresAt, "protected", cur.Protected)
 		// forget cleared the mark for the old deadline; warn re-earns it for the new
 		// one straight away, because a lease set to less than --lease-warning (or to
 		// less than a janitor tick) would otherwise expire unannounced.
-		s.leases.warn(cur, time.Now())
+		ls.warn(cur, time.Now())
 		return nil
 	})
-	switch {
-	case errors.Is(err, errLeaseReaping):
-		writeErr(w, http.StatusConflict, "expired",
-			"this sprite's lease ran out and it is being deleted; create a new sprite")
-		return sp, false
-	case err != nil:
-		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
-		return sp, false
-	}
-	return cur, true
+	return cur, err
 }
 
 // errLeaseReaping is a lease change that lost the race with a reap.

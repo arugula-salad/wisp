@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/backup"
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/netd"
 	"github.com/arugula-salad/wisp/internal/store"
@@ -38,9 +39,9 @@ import (
 //     must wait for a second lock lets go of its own first (leases.reap
 //     before the delete).
 //  3. Everything else is a leaf, taken under rt.mu or alone and held only
-//     for bookkeeping: l.mu (the runtime table, the tap pool, the loops),
-//     rt.useMu, the store's own lock, and the mutexes of the disk guard,
-//     admission, egress, backups and leases. None of them is ever held while
+//     for bookkeeping: l.mu (the runtime table, the tap pool, the loops, the
+//     delete hooks), rt.useMu, the store's own lock, and the mutexes of the
+//     disk guard, admission, egress, backups and leases. None is ever held while
 //     waiting for rt.mu, so l.rt(id) may be called with or without a sprite
 //     locked, and the store may be read and written under rt.mu.
 //
@@ -191,17 +192,24 @@ type Lifecycle struct {
 	guestAPI func(store.Sprite, *guestChan) http.Handler
 	egress   *egress
 	disk     *diskGuard
-	// storage is the sprite volume (storage.go). Set by the Server; nil means
-	// no reflinks.
+	// storage is the sprite volume (storage.go). nil (a Lifecycle built by
+	// hand in tests) means no reflinks.
 	storage *storage
 	// admit is the host memory budget and the concurrent-boot cap (admission.go).
 	admit *admission
 	// backups is the backup tier, nil when no bucket is configured. A nil manager's
 	// methods are no-ops, so the lifecycle needs no conditionals.
 	backups *backupManager
-	// leases reaps sprites whose workspace lease ran out (leases.go). The Server
-	// installs it, since deleting a sprite is the API's path; nil until then.
+	// leases reaps sprites whose workspace lease ran out (leases.go). nil only
+	// in a Lifecycle built by hand in tests: its methods are then no-ops, except
+	// set, which has no store to write to and refuses.
 	leases *leases
+	// reapStarted is set by StartReaping: until then the janitor reaps nothing.
+	// Guarded by mu.
+	reapStarted bool
+	// onDelete is what the front end does when a sprite is deleted (OnDelete);
+	// guarded by mu.
+	onDelete []func(store.Sprite)
 	// events is where everything below reports what it did (events.go).
 	events *eventBus
 	// denials rate-limits policy.denied events for the network policy.
@@ -218,6 +226,12 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log), events: newEventBus(),
 		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate), quit: make(chan struct{})}
 	l.disk.events = l.events
+	l.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
+	if l.storage.reflink {
+		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
+	} else {
+		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
+	}
 	pool := netd.Pool(opts.NetPool)
 	if opts.NoNetwork {
 		log.Info("guest networking disabled by --net=false")
@@ -245,6 +259,12 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	// sweeping before the reaping above would leave every stale leaf behind.
 	opts.Host.Confine.SweepStale()
 	l.egress = newEgress(opts, st, log, l.gateway, l.networkDenied)
+	if b := opts.Backup; b.Bucket != "" {
+		l.backups = newBackupManager(backup.Config{Endpoint: b.Endpoint, Bucket: b.Bucket, Region: b.Region,
+			CredentialsFile: b.CredentialsFile, KeyFile: b.KeyFile, Parallel: b.Parallel, RateLimit: b.RateLimit, Log: log},
+			b, st, log, l, l.storage)
+	}
+	l.leases = newLeases(st, log, l, opts.LeaseWarning)
 	l.every(30*time.Second, l.janitor)
 	return l
 }
@@ -823,7 +843,7 @@ func (l *Lifecycle) Cool(sp store.Sprite) bool {
 // that has to be decided atomically with respect to those transitions, and
 // fn must not call a Lifecycle method that takes the same lock. Prefer a
 // specific method; every use is listed here:
-//   - leases.reap and Server.applyLease (leases.go) decide a sprite's lease
+//   - leases.reap and leases.set (leases.go) decide a sprite's lease
 //     against each other under it, so that a renewal and a reap in flight
 //     cannot both win.
 func (l *Lifecycle) WithLocked(id string, fn func() error) error {

@@ -67,7 +67,9 @@ func newTestServer(t *testing.T, helper *fakeHelper) (*Server, *store.Store) {
 	}
 	e := &egress{log: quiet, store: st, gateway: netip.MustParseAddr("10.209.0.1"), enf: netpolicy.NewEnforcer(quiet), push: helper.push}
 	life := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, egress: e}
-	return &Server{store: st, life: life, log: quiet, token: "t"}, st
+	s := &Server{store: st, life: life, log: quiet, token: "t"}
+	life.OnDelete(s.deleted)
+	return s, st
 }
 
 func addSprite(t *testing.T, st *store.Store, name string) store.Sprite {
