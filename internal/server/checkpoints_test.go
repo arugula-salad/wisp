@@ -73,10 +73,10 @@ func TestAutoCheckpointsAreSeparateHiddenAndPruned(t *testing.T) {
 		t.Fatalf("next manual checkpoint = %q, %v; want v3", cp.ID, err)
 	}
 	sp, _ := s.store.GetByName(store.Sprites, "cp")
-	if got, want := ids(filterCheckpoints(sp, "", false)), []string{"v3", "v2", "v1"}; !slices.Equal(got, want) {
+	if got, want := ids(filterCheckpoints(sp.Record, "", false)), []string{"v3", "v2", "v1"}; !slices.Equal(got, want) {
 		t.Errorf("default listing = %v, want %v", got, want)
 	}
-	if got, want := ids(filterCheckpoints(sp, "", true)), []string{"v3", "auto-4", "auto-3", "v2", "v1"}; !slices.Equal(got, want) {
+	if got, want := ids(filterCheckpoints(sp.Record, "", true)), []string{"v3", "auto-4", "auto-3", "v2", "v1"}; !slices.Equal(got, want) {
 		t.Errorf("listing with autos = %v, want %v (oldest autos pruned)", got, want)
 	}
 	for id, want := range map[string]bool{"auto-1": false, "auto-2": false, "auto-3": true, "v1": true} {
@@ -119,10 +119,10 @@ func TestRestoreIsUndoableAndTracksHistory(t *testing.T) {
 		t.Errorf("v3 history = %v, want [v1]", cp.History)
 	}
 	sp, _ := s.store.GetByName(store.Sprites, "cp")
-	if got, want := ids(filterCheckpoints(sp, "v1", false)), []string{"v3", "v2"}; !slices.Equal(got, want) {
+	if got, want := ids(filterCheckpoints(sp.Record, "v1", false)), []string{"v3", "v2"}; !slices.Equal(got, want) {
 		t.Errorf("history=v1 = %v, want %v", got, want)
 	}
-	if got := ids(filterCheckpoints(sp, "v2", false)); len(got) != 0 {
+	if got := ids(filterCheckpoints(sp.Record, "v2", false)); len(got) != 0 {
 		t.Errorf("history=v2 = %v, want none", got)
 	}
 }
@@ -171,7 +171,7 @@ func TestCheckpointMethodsWaitForTheSpriteLock(t *testing.T) {
 	rt.mu.Lock() // a suspend, say
 	done := make(chan error, 1)
 	go func() {
-		_, err := s.life.CreateCheckpoint(sp, nil, "", quiet)
+		_, err := s.life.CreateCheckpoint(sp.Record, nil, "", quiet)
 		done <- err
 	}()
 	select {
@@ -186,13 +186,13 @@ func TestCheckpointMethodsWaitForTheSpriteLock(t *testing.T) {
 
 	live, gone := &guestChan{}, &guestChan{}
 	rt.guest = live
-	if err := s.life.RestoreCheckpoint(sp, gone, "v1", quiet, nil); err != errStaleGuest {
+	if err := s.life.RestoreCheckpoint(sp.Record, gone, "v1", quiet, nil); err != errStaleGuest {
 		t.Errorf("restore from a stale channel: %v, want errStaleGuest", err)
 	}
-	if err := s.life.RestoreCheckpoint(sp, live, "v1", quiet, nil); err != nil {
+	if err := s.life.RestoreCheckpoint(sp.Record, live, "v1", quiet, nil); err != nil {
 		t.Errorf("restore from the live channel: %v", err)
 	}
-	if err := s.life.DeleteCheckpoint(sp, "v9"); err != errNoCheckpoint {
+	if err := s.life.DeleteCheckpoint(sp.Record, "v9"); err != errNoCheckpoint {
 		t.Errorf("delete of a missing checkpoint: %v, want errNoCheckpoint", err)
 	}
 }
@@ -204,33 +204,33 @@ func TestCheckpointMountsUnderTheLock(t *testing.T) {
 	write("disk")
 	sp, _ := s.store.GetByName(store.Sprites, "cp")
 	quiet := func(string, ...any) {}
-	s.life.CreateCheckpoint(sp, nil, "", quiet) // v1
-	s.life.CreateCheckpoint(sp, nil, "", quiet) // v2
+	s.life.CreateCheckpoint(sp.Record, nil, "", quiet) // v1
+	s.life.CreateCheckpoint(sp.Record, nil, "", quiet) // v2
 
 	live := &guestChan{}
-	if _, err := s.life.MountCheckpoint(context.Background(), sp, live, "v1"); err != errStaleGuest {
+	if _, err := s.life.MountCheckpoint(context.Background(), sp.Record, live, "v1"); err != errStaleGuest {
 		t.Errorf("mount on a stopped sprite: %v, want errStaleGuest", err)
 	}
-	if err := s.life.UnmountCheckpoint(context.Background(), sp, live, "v1"); err != errStaleGuest {
+	if err := s.life.UnmountCheckpoint(context.Background(), sp.Record, live, "v1"); err != errStaleGuest {
 		t.Errorf("unmount on a stopped sprite: %v, want errStaleGuest", err)
 	}
 
 	// Running, as far as the bookkeeping can tell; no drive is swapped below.
 	rt.m, rt.guest = &vmm.Machine{}, live
 	sp, _ = s.store.UpdateByName(store.Sprites, "cp", func(sp *store.Sprite) { sp.Mounts = map[int]string{1: "v1"} })
-	if slot, err := s.life.MountCheckpoint(context.Background(), sp, live, "v1"); err != nil || slot != 1 {
+	if slot, err := s.life.MountCheckpoint(context.Background(), sp.Record, live, "v1"); err != nil || slot != 1 {
 		t.Errorf("mounting a mounted checkpoint = %d, %v; want its slot, 1", slot, err)
 	}
-	if _, err := s.life.MountCheckpoint(context.Background(), sp, live, "v9"); err != errNoCheckpoint {
+	if _, err := s.life.MountCheckpoint(context.Background(), sp.Record, live, "v9"); err != errNoCheckpoint {
 		t.Errorf("mount of a missing checkpoint: %v, want errNoCheckpoint", err)
 	}
-	if err := s.life.UnmountCheckpoint(context.Background(), sp, live, "v2"); err != nil {
+	if err := s.life.UnmountCheckpoint(context.Background(), sp.Record, live, "v2"); err != nil {
 		t.Errorf("unmounting what is not mounted: %v", err)
 	}
-	if err := s.life.DeleteCheckpoint(sp, "v1"); err != errCheckpointMounted {
+	if err := s.life.DeleteCheckpoint(sp.Record, "v1"); err != errCheckpointMounted {
 		t.Errorf("delete of a mounted checkpoint: %v, want errCheckpointMounted", err)
 	}
-	if err := s.life.DeleteCheckpoint(sp, "v2"); err != nil {
+	if err := s.life.DeleteCheckpoint(sp.Record, "v2"); err != nil {
 		t.Errorf("delete of an unmounted checkpoint: %v", err)
 	}
 
@@ -239,7 +239,7 @@ func TestCheckpointMountsUnderTheLock(t *testing.T) {
 		full[i] = fmt.Sprintf("x%d", i)
 	}
 	s.store.UpdateByName(store.Sprites, "cp", func(sp *store.Sprite) { sp.Mounts = full })
-	if _, err := s.life.MountCheckpoint(context.Background(), sp, live, "v1"); err != errMountsFull {
+	if _, err := s.life.MountCheckpoint(context.Background(), sp.Record, live, "v1"); err != errMountsFull {
 		t.Errorf("mount with every slot taken: %v, want errMountsFull", err)
 	}
 	rt.m, rt.guest = nil, nil
@@ -252,13 +252,13 @@ func TestHoldCheckpointKeepsTheCheckpoint(t *testing.T) {
 	write("disk")
 	sp, _ := s.store.GetByName(store.Sprites, "cp")
 	quiet := func(string, ...any) {}
-	if _, _, _, err := s.life.HoldCheckpoint(sp, ""); err != errNoCheckpoint {
+	if _, _, _, err := s.life.HoldCheckpoint(sp.Record, ""); err != errNoCheckpoint {
 		t.Fatalf("hold with no checkpoints: %v, want errNoCheckpoint", err)
 	}
-	s.life.CreateCheckpoint(sp, nil, "", quiet)          // v1
-	s.life.CreateCheckpoint(sp, nil, "", quiet)          // v2
+	s.life.CreateCheckpoint(sp.Record, nil, "", quiet)          // v1
+	s.life.CreateCheckpoint(sp.Record, nil, "", quiet)          // v2
 	s.life.autoCheckpointLocked(rt, cpID, "", "", quiet) // auto-1, never the default
-	cur, id, release, err := s.life.HoldCheckpoint(sp, "")
+	cur, id, release, err := s.life.HoldCheckpoint(sp.Record, "")
 	if err != nil || id != "v2" || len(cur.Checkpoints) != 3 {
 		t.Fatalf("hold = %q (%d checkpoints), %v; want v2 on a fresh record", id, len(cur.Checkpoints), err)
 	}
@@ -273,7 +273,7 @@ func TestHoldCheckpointKeepsTheCheckpoint(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := s.life.HoldCheckpoint(store.Sprite{ID: "nope"}, ""); err != store.ErrNotFound {
+	if _, _, _, err := s.life.HoldCheckpoint(store.Record{ID: "nope"}, ""); err != store.ErrNotFound {
 		t.Errorf("hold on a deleted sprite: %v, want store.ErrNotFound", err)
 	}
 }

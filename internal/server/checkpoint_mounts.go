@@ -21,7 +21,7 @@ type mountReply struct {
 }
 
 func (s *Server) mountCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, from *guestChan) {
-	slot, err := s.life.MountCheckpoint(r.Context(), sp, from, r.PathValue("id"))
+	slot, err := s.life.MountCheckpoint(r.Context(), sp.Record, from, r.PathValue("id"))
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, mountReply{Slot: slot})
@@ -39,7 +39,7 @@ func (s *Server) mountCheckpoint(w http.ResponseWriter, r *http.Request, sp stor
 }
 
 func (s *Server) unmountCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, from *guestChan) {
-	switch err := s.life.UnmountCheckpoint(r.Context(), sp, from, r.PathValue("id")); {
+	switch err := s.life.UnmountCheckpoint(r.Context(), sp.Record, from, r.PathValue("id")); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent) // unmounting what is not mounted is not an error
 	case errors.Is(err, errStaleGuest):

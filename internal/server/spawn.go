@@ -64,7 +64,7 @@ func (s *Server) cloneSource(from cloneFrom, parent *store.Sprite) (src store.Sp
 		// nothing about sprites that are not its business.
 		return src, "", nil, notFound
 	}
-	src, checkpoint, unlock, err = s.life.HoldCheckpoint(src, from.Checkpoint)
+	src.Record, checkpoint, unlock, err = s.life.HoldCheckpoint(src.Record, from.Checkpoint)
 	switch {
 	case errors.Is(err, errNoCheckpoint):
 		return src, "", nil, &createError{http.StatusNotFound, "checkpoint_not_found",

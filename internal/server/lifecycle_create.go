@@ -36,7 +36,7 @@ type CreateSpec struct {
 
 // CheckpointRef names one checkpoint of a sprite.
 type CheckpointRef struct {
-	Sprite store.Sprite
+	Sprite store.Record
 	ID     string
 }
 
@@ -58,7 +58,8 @@ func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, 
 	case spec.Checkpoint != nil:
 		src := spec.Checkpoint
 		image = l.checkpointPath(src.Sprite.ID, src.ID)
-		detail = map[string]any{"from": map[string]string{"sprite": src.Sprite.Name, "checkpoint": src.ID}}
+		from, _ := l.describe(src.Sprite.ID)
+		detail = map[string]any{"from": map[string]string{"sprite": from, "checkpoint": src.ID}}
 	case spec.ImageDisk != "":
 		image = spec.ImageDisk
 		detail = map[string]any{"from": map[string]string{"image": sp.Image}}

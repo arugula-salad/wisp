@@ -397,7 +397,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
-		spec.Checkpoint = &CheckpointRef{Sprite: src, ID: cp}
+		spec.Checkpoint = &CheckpointRef{Sprite: src.Record, ID: cp}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
 		sp.Image = src.Image // the disk still descends from it
