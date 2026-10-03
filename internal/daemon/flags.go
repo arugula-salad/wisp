@@ -1,4 +1,4 @@
-package main
+package daemon
 
 import (
 	"errors"
@@ -8,14 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/certs"
 	"github.com/arugula-salad/wisp/internal/server"
 )
 
-// daemonFlags are the flags main wires up itself: the data directory, the
+// Flags are the flags Run wires up itself: the data directory, the
 // listeners, certificates and custom domains, confinement and webhooks.
 // Everything else goes straight into server.Options.
-type daemonFlags struct {
+type Flags struct {
 	data, listen, apiListen, urlDomain, org string
 
 	publicListen                           string
@@ -32,12 +33,15 @@ type daemonFlags struct {
 	webhookSecret, webhookTypes string
 }
 
-// parseFlags reads the daemon's command line. The paths under the data
-// directory and the confiner are main's to fill in.
-func parseFlags() (server.Options, daemonFlags) {
+// Bind registers the daemon's flags on fs; a daemon that has flags of its
+// own (sandboxd) registers them too, and parses. finish then reads what was
+// parsed. The paths under the data directory and the confiner are Run's to
+// fill in.
+func Bind(fs *flag.FlagSet) (finish func() (server.Options, *Flags)) {
 	var o server.Options
-	var f daemonFlags
-	flag.StringVar(&f.data, "data", defaultDataDir(), "data directory")
+	f := &Flags{}
+	flag := fs // the definitions below read as they did on the global set
+	flag.StringVar(&f.data, "data", DefaultDataDir(), "data directory")
 	flag.StringVar(&f.listen, "listen", "127.0.0.1:7788", "API listen address")
 	flag.StringVar(&f.apiListen, "api-listen", "", "a second listen address serving the bearer API alone, whatever the Host: no dashboard and no sprite URLs. Point a reverse proxy that publishes the API here rather than at --listen")
 	flag.DurationVar(&o.IdleTimeout, "idle-timeout", 30*time.Second, "suspend a sprite after this long with no activity")
@@ -71,7 +75,7 @@ func parseFlags() (server.Options, daemonFlags) {
 	flag.IntVar(&f.domainsTotal, "max-domains", 50, "custom domains across all sprites (0 = no limit)")
 	flag.IntVar(&f.domainOrders, "acme-orders-per-hour", 10, "certificate orders per hour for custom domains, across all of them; keeps a misconfigured domain from spending the CA's rate limits")
 	flag.StringVar(&f.confineMode, "confine", os.Getenv("WISP_CONFINE"), "sandbox each Firecracker with Landlock + a cgroup: \"best-effort\" (default; apply what the kernel supports and log the rest), \"strict\" (refuse to start without both) or \"off\"")
-	backupOpts := backupFlags(flag.CommandLine)
+	backupOpts := BackupFlags(fs)
 	flag.IntVar(&o.MaxSprites, "max-sprites", 0, "most sprites that may exist; creating another is refused (0 = no limit)")
 	flag.IntVar(&o.MaxRunning, "max-running", 0, "most sprites that may run at once; waking another is refused until one goes idle (0 = no limit)")
 	flag.IntVar(&o.MaxRunningMemoryMiB, "max-running-memory-mib", 0, "guest RAM (MiB) all running sprites together may hold; waking another is refused until one goes idle (0 = no budget). Each sprite is counted at its ceiling (its memory limit + 128 MiB, or --mem-mib), because a guest with memory autoscale may deflate its balloon back up to that at any time. Set it below this host's RAM: page cache, Firecracker overhead and everything else on the host are not counted")
@@ -89,16 +93,39 @@ func parseFlags() (server.Options, daemonFlags) {
 	})
 	flag.StringVar(&f.webhookSecret, "webhook-secret-file", "", "the HMAC key for webhook signatures (default <data>/webhook-secret, generated on first use)")
 	flag.StringVar(&f.webhookTypes, "webhook-types", "", "comma-separated event type prefixes to send to webhooks, e.g. sprite.,service.crashed (default: every event)")
-	flag.Parse()
-	if o.NetPool < 0 {
-		fmt.Fprintln(os.Stderr, "--net-pool must not be negative")
-		os.Exit(2)
+	return func() (server.Options, *Flags) {
+		if o.NetPool < 0 {
+			fmt.Fprintln(os.Stderr, "--net-pool must not be negative")
+			os.Exit(2)
+		}
+		o.Host.NoFreePageReporting = !*fpr
+		o.NoNetwork, o.NoControl = !*netOn, !*control
+		o.Backup = backupOpts()
+		o.DiskReserve = *diskReserve << 20
+		o.Listen, o.APIHosts = f.listen, parseHosts(*apiHosts)
+		return o, f
 	}
+}
 
-	o.Host.NoFreePageReporting = !*fpr
-	o.NoNetwork, o.NoControl = !*netOn, !*control
-	o.Backup = backupOpts()
-	o.DiskReserve = *diskReserve << 20
-	o.Listen, o.APIHosts = f.listen, parseHosts(*apiHosts)
-	return o, f
+// Listen is the Sprites API's address, --listen.
+func (f *Flags) Listen() string { return f.listen }
+
+// BackupFlags registers the bucket flags on fs, shared by the daemon and both
+// subcommands so that the same arguments work everywhere.
+func BackupFlags(fs *flag.FlagSet) func() engine.BackupOptions {
+	endpoint := fs.String("backup-endpoint", "", "S3 endpoint for the backup tier, e.g. http://garage-s3:3900")
+	bucket := fs.String("backup-bucket", "", "S3 bucket for sprite backups (empty disables backups entirely)")
+	region := fs.String("backup-region", "us-east-1", "S3 region the bucket reports, e.g. home-cloud for Garage")
+	creds := fs.String("backup-credentials-file", "", "file of AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY lines (default: the environment)")
+	key := fs.String("backup-key-file", "", "32-byte key (64 hex chars) enabling client-side encryption; a key kept only on this machine is not a backup unless you copy it elsewhere")
+	parallel := fs.Int("backup-parallel", 4, "concurrent chunk transfers; each holds 4 MiB")
+	rate := fs.Int64("backup-rate-limit", 0, "cap backup traffic in bytes/second (0 = unlimited)")
+	interval := fs.Duration("backup-interval", 6*time.Hour, "re-upload a sprite whose disk changed this long after its last backup; also the retry for a failed one (0 = only on suspend)")
+	retention := fs.Duration("backup-retention", 30*24*time.Hour, "how long a deleted sprite's backups are kept by `wispd backups prune`")
+	keep := fs.Int("backup-keep", 0, "manifests to keep per sprite in `wispd backups prune` (0 = all)")
+	return func() engine.BackupOptions {
+		return engine.BackupOptions{Endpoint: *endpoint, Bucket: *bucket, Region: *region,
+			CredentialsFile: *creds, KeyFile: *key, Parallel: *parallel, RateLimit: *rate,
+			Interval: *interval, Retention: *retention, Keep: *keep}
+	}
 }

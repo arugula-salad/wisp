@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/daemon"
 	"github.com/arugula-salad/wisp/internal/server"
 )
 
@@ -38,7 +39,7 @@ func runKeys(args []string) int {
 	}
 	verb := args[0]
 	fs := flag.NewFlagSet("keys "+verb, flag.ExitOnError)
-	data := fs.String("data", defaultDataDir(), "data directory")
+	data := fs.String("data", daemon.DefaultDataDir(), "data directory")
 	asJSON := fs.Bool("json", false, "print JSON")
 	scope := fs.String("scope", server.ScopeAdmin, "admin or read (create)")
 	var pos []string

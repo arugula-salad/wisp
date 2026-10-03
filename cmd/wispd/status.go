@@ -17,6 +17,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/daemon"
 	"github.com/arugula-salad/wisp/internal/netd"
 	"github.com/arugula-salad/wisp/internal/server"
 )
@@ -24,20 +25,6 @@ import (
 // `wispd status`: what is on this host. It asks the running daemon over the
 // unix socket in the data directory, and falls back to reading the files when
 // there is none, so it needs neither the API token nor a daemon.
-
-// listenStatus opens the operator socket. A daemon already answering there
-// owns this data directory; two of them would fight over every sprite in it.
-func listenStatus(dataDir string) (net.Listener, error) {
-	path := filepath.Join(dataDir, server.StatusSocket)
-	if c, err := net.DialTimeout("unix", path, time.Second); err == nil {
-		c.Close()
-		return nil, fmt.Errorf("another wispd is already running on %s (its socket %s answers)", dataDir, path)
-	}
-	os.Remove(path) // left behind by a daemon that died
-	old := syscall.Umask(0o177)
-	defer syscall.Umask(old)
-	return net.Listen("unix", path)
-}
 
 func fetchStatus(dataDir string) (server.Status, error) {
 	path := filepath.Join(dataDir, server.StatusSocket)
@@ -60,7 +47,7 @@ func fetchStatus(dataDir string) (server.Status, error) {
 
 func runStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	data := fs.String("data", defaultDataDir(), "data directory")
+	data := fs.String("data", daemon.DefaultDataDir(), "data directory")
 	asJSON := fs.Bool("json", false, "print the full status as JSON")
 	netdSocket := fs.String("netd-socket", "", "wisp-netd socket to look for when no daemon is running (default /run/wisp/netd.sock, /run/wispN/netd.sock with --net-pool N)")
 	pool := fs.Int("net-pool", 0, "the daemon's --net-pool, which picks the default --netd-socket")
@@ -99,7 +86,7 @@ func runStatus(args []string) int {
 // daemonDataDir works out which data directory another wispd serves, from
 // its command line. (Its environment may differ from ours; that much is a guess.)
 func daemonDataDir(d server.OtherDaemon) string {
-	dir := defaultDataDir()
+	dir := daemon.DefaultDataDir()
 	for i, a := range d.Cmd {
 		a = strings.TrimLeft(a, "-")
 		if v, ok := strings.CutPrefix(a, "data="); ok {

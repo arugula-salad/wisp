@@ -14,6 +14,7 @@ import (
 
 	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/backup"
+	"github.com/arugula-salad/wisp/internal/daemon"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -21,26 +22,6 @@ import (
 // machine directories from the bucket onto a fresh host, and `wispd backups`,
 // which lists, forgets and garbage-collects what is up there. Both talk to the bucket
 // directly; neither needs a running daemon, and restore must not have one.
-
-// backupFlags registers the bucket flags on fs, shared by the daemon and both
-// subcommands so that the same arguments work everywhere.
-func backupFlags(fs *flag.FlagSet) func() engine.BackupOptions {
-	endpoint := fs.String("backup-endpoint", "", "S3 endpoint for the backup tier, e.g. http://garage-s3:3900")
-	bucket := fs.String("backup-bucket", "", "S3 bucket for sprite backups (empty disables backups entirely)")
-	region := fs.String("backup-region", "us-east-1", "S3 region the bucket reports, e.g. home-cloud for Garage")
-	creds := fs.String("backup-credentials-file", "", "file of AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY lines (default: the environment)")
-	key := fs.String("backup-key-file", "", "32-byte key (64 hex chars) enabling client-side encryption; a key kept only on this machine is not a backup unless you copy it elsewhere")
-	parallel := fs.Int("backup-parallel", 4, "concurrent chunk transfers; each holds 4 MiB")
-	rate := fs.Int64("backup-rate-limit", 0, "cap backup traffic in bytes/second (0 = unlimited)")
-	interval := fs.Duration("backup-interval", 6*time.Hour, "re-upload a sprite whose disk changed this long after its last backup; also the retry for a failed one (0 = only on suspend)")
-	retention := fs.Duration("backup-retention", 30*24*time.Hour, "how long a deleted sprite's backups are kept by `wispd backups prune`")
-	keep := fs.Int("backup-keep", 0, "manifests to keep per sprite in `wispd backups prune` (0 = all)")
-	return func() engine.BackupOptions {
-		return engine.BackupOptions{Endpoint: *endpoint, Bucket: *bucket, Region: *region,
-			CredentialsFile: *creds, KeyFile: *key, Parallel: *parallel, RateLimit: *rate,
-			Interval: *interval, Retention: *retention, Keep: *keep}
-	}
-}
 
 func openRepo(ctx context.Context, opts engine.BackupOptions, log *slog.Logger) (*backup.Repo, error) {
 	if opts.Bucket == "" {
@@ -54,12 +35,12 @@ func openRepo(ctx context.Context, opts engine.BackupOptions, log *slog.Logger) 
 // runRestore rebuilds sprites from the bucket into a data directory.
 func runRestore(args []string) int {
 	fs := flag.NewFlagSet("wispd restore", flag.ExitOnError)
-	data := fs.String("data", defaultDataDir(), "data directory to restore into")
+	data := fs.String("data", daemon.DefaultDataDir(), "data directory to restore into")
 	all := fs.Bool("all", false, "restore every sprite in the bucket that has not been deleted")
 	manifest := fs.String("manifest", "", "restore this manifest instead of the newest (a stamp from `wispd backups list`)")
 	force := fs.Bool("force", false, "replace a sprite that already exists in the data directory")
 	rename := fs.String("rename", "", "restore under this name instead of the one in the backup")
-	backupOpts := backupFlags(fs)
+	backupOpts := daemon.BackupFlags(fs)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), `Usage: wispd restore [flags] [sprite ...]
 
@@ -218,7 +199,7 @@ func runBackups(args []string) int {
 	fs := flag.NewFlagSet("wispd backups "+sub, flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "report what prune would delete, and delete nothing")
 	grace := fs.Duration("grace", time.Hour, "prune leaves unreferenced chunks younger than this alone: they may belong to a backup that has not written its manifest yet")
-	backupOpts := backupFlags(fs)
+	backupOpts := daemon.BackupFlags(fs)
 	fs.Parse(rest)
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
