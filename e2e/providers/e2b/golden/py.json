@@ -1,0 +1,3850 @@
+[
+ {
+  "seq": 1,
+  "t": 0.682,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/v2/sandboxes",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "content-type: application/json",
+    "content-length: 124",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "json": {
+     "templateID": "base",
+     "timeout": 300,
+     "metadata": {
+      "probe": "wisp-e2b",
+      "run": "py-1552417"
+     },
+     "envVars": {
+      "PROBE_ENV": "from-create"
+     }
+    }
+   }
+  },
+  "response": {
+   "status": 201,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:42 GMT",
+    "Content-Length: 218",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "alias": "base",
+     "clientID": "6532622b",
+     "envdAccessToken": "<redacted>",
+     "envdVersion": "0.6.10",
+     "sandboxID": "in2br7xb7a8ws9bz9t7cy",
+     "templateID": "rki5dems9wqfm4r03t7g"
+    }
+   },
+   "duration_s": 0.198
+  }
+ },
+ {
+  "seq": 2,
+  "t": 0.884,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:42 GMT",
+    "Content-Length: 490",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "alias": "base",
+     "clientID": "6532622b",
+     "cpuCount": 2,
+     "diskSizeMB": 23301,
+     "endAt": "2026-10-03T00:43:42.322085214Z",
+     "envdAccessToken": "<redacted>",
+     "envdVersion": "0.6.10",
+     "lifecycle": {
+      "autoResume": false,
+      "onTimeout": "kill"
+     },
+     "memoryMB": 512,
+     "metadata": {
+      "probe": "wisp-e2b",
+      "run": "py-1552417"
+     },
+     "sandboxID": "in2br7xb7a8ws9bz9t7cy",
+     "startedAt": "2026-10-03T00:38:42.322085214Z",
+     "state": "running",
+     "templateID": "rki5dems9wqfm4r03t7g",
+     "volumeMounts": []
+    }
+   },
+   "duration_s": 0.121
+  }
+ },
+ {
+  "seq": 3,
+  "t": 1.047,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "for i in 1 2 3; do echo out-$i; echo err-$i >&2; sleep 0.4; done; echo $PROBE_ENV; whoami; pwd"
+       ]
+      },
+      "stdin": false
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:42 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2000
+       }
+      }
+     },
+     "t": 0.127
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stderr": "ZXJyLTEK"
+       }
+      }
+     },
+     "decoded": {
+      "stderr": "err-1\n"
+     },
+     "t": 0.133
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "b3V0LTEK"
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "out-1\n"
+     },
+     "t": 0.133
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "b3V0LTIK"
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "out-2\n"
+     },
+     "t": 0.538
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stderr": "ZXJyLTIK"
+       }
+      }
+     },
+     "decoded": {
+      "stderr": "err-2\n"
+     },
+     "t": 0.538
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stderr": "ZXJyLTMK"
+       }
+      }
+     },
+     "decoded": {
+      "stderr": "err-3\n"
+     },
+     "t": 0.939
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "b3V0LTMK"
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "out-3\n"
+     },
+     "t": 0.939
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "ZnJvbS1jcmVhdGUK"
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "from-create\n"
+     },
+     "t": 1.341
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "dXNlcgo="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "user\n"
+     },
+     "t": 1.344
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "L2hvbWUvdXNlcgo="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "/home/user\n"
+     },
+     "t": 1.344
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exited": true,
+        "status": "exit status 0"
+       }
+      }
+     },
+     "t": 1.344
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 1.344
+    }
+   ],
+   "duration_s": 1.345
+  }
+ },
+ {
+  "seq": 4,
+  "t": 2.393,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "echo partial; echo bad >&2; exit 7"
+       ]
+      },
+      "stdin": false
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:43 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2006
+       }
+      }
+     },
+     "t": 0.12
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stderr": "YmFkCg=="
+       }
+      }
+     },
+     "decoded": {
+      "stderr": "bad\n"
+     },
+     "t": 0.126
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "cGFydGlhbAo="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "partial\n"
+     },
+     "t": 0.126
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exitCode": 7,
+        "exited": true,
+        "status": "exit status 7",
+        "error": "exit status 7"
+       }
+      }
+     },
+     "t": 0.13
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 0.13
+    }
+   ],
+   "duration_s": 0.13
+  }
+ },
+ {
+  "seq": 5,
+  "t": 2.555,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "authorization: <redacted> (basic, user='root')",
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "pwd; echo $FOO"
+       ],
+       "envs": {
+        "FOO": "bar"
+       },
+       "cwd": "/tmp"
+      },
+      "stdin": false
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:44 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2009
+       }
+      }
+     },
+     "t": 0.111
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "L3RtcApiYXIK"
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "/tmp\nbar\n"
+     },
+     "t": 0.12
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exited": true,
+        "status": "exit status 0"
+       }
+      }
+     },
+     "t": 0.121
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 0.121
+    }
+   ],
+   "duration_s": 0.121
+  }
+ },
+ {
+  "seq": 6,
+  "t": 2.708,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "echo started; sleep 600"
+       ]
+      },
+      "stdin": false
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:44 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2013
+       }
+      }
+     },
+     "t": 0.133
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "c3RhcnRlZAo="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "started\n"
+     },
+     "t": 0.133
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exitCode": -1,
+        "status": "signal: killed",
+        "error": "signal: killed"
+       }
+      }
+     },
+     "t": 1.422
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 1.422
+    }
+   ],
+   "duration_s": 1.423
+  }
+ },
+ {
+  "seq": 7,
+  "t": 3.883,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/List",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 2"
+   ],
+   "body": {
+    "json": {}
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 106",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:45 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "processes": [
+      {
+       "config": {
+        "cmd": "/bin/bash",
+        "args": [
+         "-l",
+         "-c",
+         "echo started; sleep 600"
+        ]
+       },
+       "pid": 2013
+      }
+     ]
+    }
+   },
+   "duration_s": 0.118
+  }
+ },
+ {
+  "seq": 8,
+  "t": 4.002,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/SendSignal",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 54"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2013
+     },
+     "signal": "SIGNAL_SIGKILL"
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:45 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.129
+  }
+ },
+ {
+  "seq": 9,
+  "t": 4.173,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/List",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 2"
+   ],
+   "body": {
+    "json": {}
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:45 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.329
+  }
+ },
+ {
+  "seq": 10,
+  "t": 4.503,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/SendSignal",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 54"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2013
+     },
+     "signal": "SIGNAL_SIGKILL"
+    }
+   }
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 64",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:46 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": "not_found",
+     "message": "process with pid 2013 not found"
+    }
+   },
+   "duration_s": 0.129
+  }
+ },
+ {
+  "seq": 11,
+  "t": 4.675,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "cat"
+       ]
+      },
+      "stdin": true
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:46 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2015
+       }
+      }
+     },
+     "t": 0.129
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "bGluZS0xCg=="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "line-1\n"
+     },
+     "t": 0.298
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "bGluZS0yCg=="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "line-2\n"
+     },
+     "t": 0.737
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exited": true,
+        "status": "exit status 0"
+       }
+      }
+     },
+     "t": 0.85
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 0.85
+    }
+   ],
+   "duration_s": 0.851
+  }
+ },
+ {
+  "seq": 12,
+  "t": 4.846,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/SendInput",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 62"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2015
+     },
+     "input": {
+      "stdin": "bGluZS0xCg=="
+     }
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:46 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.122
+  }
+ },
+ {
+  "seq": 13,
+  "t": 4.968,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Connect",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "pid": 2015
+      }
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:46 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2015
+       }
+      }
+     },
+     "t": 0.283
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "bGluZS0yCg=="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "line-2\n"
+     },
+     "t": 0.437
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exited": true,
+        "status": "exit status 0"
+       }
+      }
+     },
+     "t": 0.55
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 0.55
+    }
+   ],
+   "duration_s": 0.55
+  }
+ },
+ {
+  "seq": 14,
+  "t": 5.293,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/SendInput",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 62"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2015
+     },
+     "input": {
+      "stdin": "bGluZS0yCg=="
+     }
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:46 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.111
+  }
+ },
+ {
+  "seq": 15,
+  "t": 5.405,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/CloseStdin",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 26"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2015
+     }
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:46 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.122
+  }
+ },
+ {
+  "seq": 16,
+  "t": 5.569,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-i",
+        "-l"
+       ],
+       "envs": {
+        "TERM": "xterm-256color",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8"
+       }
+      },
+      "pty": {
+       "size": {
+        "cols": 80,
+        "rows": 24
+       }
+      }
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:47 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2017
+       }
+      }
+     },
+     "t": 0.12
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "G1s/MjAwNGgbXTA7dXNlckBlMmI6IH4HG1swMTszMm11c2VyQGUyYhtbMDBtOhtbMDE7MzRtfhtbMDBtJCA="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "\u001b[?2004h\u001b]0;user@e2b: ~\u0007\u001b[01;32muser@e2b\u001b[00m:\u001b[01;34m~\u001b[00m$ "
+     },
+     "t": 0.148
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "DRtbSw0bXTA7dXNlckBlMmI6IH4HG1swMTszMm11c2VyQGUyYhtbMDBtOhtbMDE7MzRtfhtbMDBtJCA="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "\r\u001b[K\r\u001b]0;user@e2b: ~\u0007\u001b[01;32muser@e2b\u001b[00m:\u001b[01;34m~\u001b[00m$ "
+     },
+     "t": 0.23
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "c3R0eSBzaXplOyBlY2hvIHB0eS0kKCg0MCsyKSk="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "stty size; echo pty-$((40+2))"
+     },
+     "t": 0.351
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "DQo="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "\r\n"
+     },
+     "t": 0.351
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "G1s/MjAwNGwN"
+       }
+      }
+     },
+     "decoded": {
+      "pty": "\u001b[?2004l\r"
+     },
+     "t": 0.351
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "MzAgMTAwDQo="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "30 100\r\n"
+     },
+     "t": 0.356
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "cHR5LTQyDQo="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "pty-42\r\n"
+     },
+     "t": 0.356
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "G1s/MjAwNGg="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "\u001b[?2004h"
+     },
+     "t": 0.356
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "G10wO3VzZXJAZTJiOiB+BxtbMDE7MzJtdXNlckBlMmIbWzAwbTobWzAxOzM0bX4bWzAwbSQg"
+       }
+      }
+     },
+     "decoded": {
+      "pty": "\u001b]0;user@e2b: ~\u0007\u001b[01;32muser@e2b\u001b[00m:\u001b[01;34m~\u001b[00m$ "
+     },
+     "t": 0.356
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "ZXhpdA0KG1s/MjAwNGwN"
+       }
+      }
+     },
+     "decoded": {
+      "pty": "exit\r\n\u001b[?2004l\r"
+     },
+     "t": 0.415
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "pty": "bG9nb3V0DQo="
+       }
+      }
+     },
+     "decoded": {
+      "pty": "logout\r\n"
+     },
+     "t": 0.415
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exited": true,
+        "status": "exit status 0"
+       }
+      }
+     },
+     "t": 0.415
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 0.415
+    }
+   ],
+   "duration_s": 0.415
+  }
+ },
+ {
+  "seq": 17,
+  "t": 5.689,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Update",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 70"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2017
+     },
+     "pty": {
+      "size": {
+       "cols": 100,
+       "rows": 30
+      }
+     }
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:47 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.11
+  }
+ },
+ {
+  "seq": 18,
+  "t": 5.801,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/SendInput",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 96"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2017
+     },
+     "input": {
+      "pty": "c3R0eSBzaXplOyBlY2hvIHB0eS0kKCg0MCsyKSkKZXhpdAo="
+     }
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:47 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.12
+  }
+ },
+ {
+  "seq": 19,
+  "t": 5.986,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/files?path=%2Ftmp%2Fprobe-py-1552417%2Fa%2Fhello.txt",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "content-length: 205",
+    "content-type: multipart/form-data; boundary=38f2533794e9fcf8140a4d70711ec98c",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "text": "--38f2533794e9fcf8140a4d70711ec98c\r\nContent-Disposition: form-data; name=\"file\"; filename=\"/tmp/probe-py-1552417/a/hello.txt\"\r\nContent-Type: text/plain\r\n\r\nhello e2b\n\r\n--38f2533794e9fcf8140a4d70711ec98c--\r\n"
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "Content-Length: 79",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:47 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "[{\"name\":\"hello.txt\",\"path\":\"/tmp/probe-py-1552417/a/hello.txt\",\"type\":\"file\"}]"
+   },
+   "duration_s": 0.414
+  }
+ },
+ {
+  "seq": 20,
+  "t": 6.442,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/files?path=%2Ftmp%2Fprobe-py-1552417%2Fa%2Fhello.txt",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-disposition: inline; filename=hello.txt",
+    "content-encoding: gzip",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:48 GMT",
+    "vary: Accept-Encoding",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "body": {
+    "text": "hello e2b\n"
+   },
+   "duration_s": 0.132
+  }
+ },
+ {
+  "seq": 21,
+  "t": 6.615,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/MakeDir",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 37"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417/dir"
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 224",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:48 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "entry": {
+      "name": "dir",
+      "type": "FILE_TYPE_DIRECTORY",
+      "path": "/tmp/probe-py-1552417/dir",
+      "size": "60",
+      "mode": 493,
+      "permissions": "drwxr-xr-x",
+      "owner": "user",
+      "group": "user",
+      "modifiedTime": "2026-10-03T00:38:48.172231950Z"
+     }
+    }
+   },
+   "duration_s": 0.12
+  }
+ },
+ {
+  "seq": 22,
+  "t": 6.777,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/MakeDir",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 37"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417/dir"
+    }
+   }
+  },
+  "response": {
+   "status": 409,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 89",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:48 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": "already_exists",
+     "message": "directory already exists: /tmp/probe-py-1552417/dir"
+    }
+   },
+   "duration_s": 0.12
+  }
+ },
+ {
+  "seq": 23,
+  "t": 6.938,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/ListDir",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 45"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417",
+     "depth": 1
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 440",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:48 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "entries": [
+      {
+       "name": "a",
+       "type": "FILE_TYPE_DIRECTORY",
+       "path": "/tmp/probe-py-1552417/a",
+       "size": "60",
+       "mode": 493,
+       "permissions": "drwxr-xr-x",
+       "owner": "user",
+       "group": "user",
+       "modifiedTime": "2026-10-03T00:38:47.804227980Z"
+      },
+      {
+       "name": "dir",
+       "type": "FILE_TYPE_DIRECTORY",
+       "path": "/tmp/probe-py-1552417/dir",
+       "size": "60",
+       "mode": 493,
+       "permissions": "drwxr-xr-x",
+       "owner": "user",
+       "group": "user",
+       "modifiedTime": "2026-10-03T00:38:48.172231950Z"
+      }
+     ]
+    }
+   },
+   "duration_s": 0.278
+  }
+ },
+ {
+  "seq": 24,
+  "t": 7.258,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/ListDir",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 45"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417",
+     "depth": 2
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 665",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:48 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "entries": [
+      {
+       "name": "a",
+       "type": "FILE_TYPE_DIRECTORY",
+       "path": "/tmp/probe-py-1552417/a",
+       "size": "60",
+       "mode": 493,
+       "permissions": "drwxr-xr-x",
+       "owner": "user",
+       "group": "user",
+       "modifiedTime": "2026-10-03T00:38:47.804227980Z"
+      },
+      {
+       "name": "hello.txt",
+       "type": "FILE_TYPE_FILE",
+       "path": "/tmp/probe-py-1552417/a/hello.txt",
+       "size": "10",
+       "mode": 420,
+       "permissions": "-rw-r--r--",
+       "owner": "user",
+       "group": "user",
+       "modifiedTime": "2026-10-03T00:38:47.804227980Z"
+      },
+      {
+       "name": "dir",
+       "type": "FILE_TYPE_DIRECTORY",
+       "path": "/tmp/probe-py-1552417/dir",
+       "size": "60",
+       "mode": 493,
+       "permissions": "drwxr-xr-x",
+       "owner": "user",
+       "group": "user",
+       "modifiedTime": "2026-10-03T00:38:48.172231950Z"
+      }
+     ]
+    }
+   },
+   "duration_s": 0.122
+  }
+ },
+ {
+  "seq": 25,
+  "t": 7.423,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/Stat",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 45"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417/a/hello.txt"
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 233",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:49 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "entry": {
+      "name": "hello.txt",
+      "type": "FILE_TYPE_FILE",
+      "path": "/tmp/probe-py-1552417/a/hello.txt",
+      "size": "10",
+      "mode": 420,
+      "permissions": "-rw-r--r--",
+      "owner": "user",
+      "group": "user",
+      "modifiedTime": "2026-10-03T00:38:47.804227980Z"
+     }
+    }
+   },
+   "duration_s": 0.193
+  }
+ },
+ {
+  "seq": 26,
+  "t": 7.659,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/Move",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 101"
+   ],
+   "body": {
+    "json": {
+     "source": "/tmp/probe-py-1552417/a/hello.txt",
+     "destination": "/tmp/probe-py-1552417/dir/moved.txt"
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 235",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:49 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "entry": {
+      "name": "moved.txt",
+      "type": "FILE_TYPE_FILE",
+      "path": "/tmp/probe-py-1552417/dir/moved.txt",
+      "size": "10",
+      "mode": 420,
+      "permissions": "-rw-r--r--",
+      "owner": "user",
+      "group": "user",
+      "modifiedTime": "2026-10-03T00:38:47.804227980Z"
+     }
+    }
+   },
+   "duration_s": 0.189
+  }
+ },
+ {
+  "seq": 27,
+  "t": 7.89,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/Stat",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 45"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417/a/hello.txt"
+    }
+   }
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 115",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:49 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": "not_found",
+     "message": "file not found: lstat /tmp/probe-py-1552417/a/hello.txt: no such file or directory"
+    }
+   },
+   "duration_s": 0.119
+  }
+ },
+ {
+  "seq": 28,
+  "t": 8.051,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/Stat",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 47"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417/dir/moved.txt"
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 235",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:49 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "entry": {
+      "name": "moved.txt",
+      "type": "FILE_TYPE_FILE",
+      "path": "/tmp/probe-py-1552417/dir/moved.txt",
+      "size": "10",
+      "mode": 420,
+      "permissions": "-rw-r--r--",
+      "owner": "user",
+      "group": "user",
+      "modifiedTime": "2026-10-03T00:38:47.804227980Z"
+     }
+    }
+   },
+   "duration_s": 0.181
+  }
+ },
+ {
+  "seq": 29,
+  "t": 8.273,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/Remove",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 47"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417/dir/moved.txt"
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:49 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.118
+  }
+ },
+ {
+  "seq": 30,
+  "t": 8.434,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/filesystem.Filesystem/Stat",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 47"
+   ],
+   "body": {
+    "json": {
+     "path": "/tmp/probe-py-1552417/dir/moved.txt"
+    }
+   }
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 117",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:49 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": "not_found",
+     "message": "file not found: lstat /tmp/probe-py-1552417/dir/moved.txt: no such file or directory"
+    }
+   },
+   "duration_s": 0.117
+  }
+ },
+ {
+  "seq": 31,
+  "t": 8.592,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/files?path=%2Ftmp%2Fprobe-py-1552417%2Fnope",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "Content-Length: 74",
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:50 GMT",
+    "vary: Origin",
+    "x-content-type-options: nosniff",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": 404,
+     "message": "path '/tmp/probe-py-1552417/nope' does not exist"
+    }
+   },
+   "duration_s": 0.117
+  }
+ },
+ {
+  "seq": 32,
+  "t": 8.751,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/files?path=probe-rel.txt",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "content-length: 178",
+    "content-type: multipart/form-data; boundary=24091f50574c364cab52cd668cbc0619",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "text": "--24091f50574c364cab52cd668cbc0619\r\nContent-Disposition: form-data; name=\"file\"; filename=\"probe-rel.txt\"\r\nContent-Type: text/plain\r\n\r\nrel\r\n--24091f50574c364cab52cd668cbc0619--\r\n"
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "Content-Length: 74",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:50 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "[{\"name\":\"probe-rel.txt\",\"path\":\"/home/user/probe-rel.txt\",\"type\":\"file\"}]"
+   },
+   "duration_s": 0.343
+  }
+ },
+ {
+  "seq": 33,
+  "t": 9.137,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/files?path=%2Ftmp%2Fprobe-py-1552417%2Fblob.bin",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "content-length: 16590",
+    "content-type: multipart/form-data; boundary=ea7ec0e0551eb4c78eb37934919148a5",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "base64": "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"
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "Content-Length: 75",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:50 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "[{\"name\":\"blob.bin\",\"path\":\"/tmp/probe-py-1552417/blob.bin\",\"type\":\"file\"}]"
+   },
+   "duration_s": 0.232
+  }
+ },
+ {
+  "seq": 34,
+  "t": 9.411,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/files?path=%2Ftmp%2Fprobe-py-1552417%2Fblob.bin",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-disposition: inline; filename=blob.bin",
+    "content-encoding: gzip",
+    "content-type: application/octet-stream",
+    "date: Sat, 03 Oct 2026 00:38:51 GMT",
+    "vary: Accept-Encoding",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "body": {
+    "base64": "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xMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8AAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+   },
+   "duration_s": 0.19
+  }
+ },
+ {
+  "seq": 35,
+  "t": 9.643,
+  "route": "envd-direct",
+  "upstream": "49983-in2br7xb7a8ws9bz9t7cy.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/files?path=%2Ftmp%2Fprobe-py-1552417%2Fvia-url.txt&signature=<redacted>&signature_expiration=1790988051",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "Host: 127.0.0.1:8791",
+    "Accept-Encoding: identity",
+    "Content-Type: multipart/form-data; boundary=probeboundary",
+    "Content-Length: 164"
+   ],
+   "body": {
+    "text": "--probeboundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"via-url.txt\"\r\nContent-Type: application/octet-stream\r\n\r\nuploaded-by-url\r\n--probeboundary--\r\n"
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "Content-Length: 81",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:51 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "[{\"name\":\"via-url.txt\",\"path\":\"/tmp/probe-py-1552417/via-url.txt\",\"type\":\"file\"}]"
+   },
+   "duration_s": 0.213
+  }
+ },
+ {
+  "seq": 36,
+  "t": 9.858,
+  "route": "envd-direct",
+  "upstream": "49983-in2br7xb7a8ws9bz9t7cy.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/files?path=%2Ftmp%2Fprobe-py-1552417%2Fvia-url.txt&signature=<redacted>&signature_expiration=1790988051",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "Host: 127.0.0.1:8791",
+    "Accept-Encoding: identity"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-ranges: bytes",
+    "content-disposition: inline; filename=via-url.txt",
+    "Content-Length: 15",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:51 GMT",
+    "last-modified: Sat, 03 Oct 2026 00:38:51 GMT",
+    "vary: Accept-Encoding",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "uploaded-by-url"
+   },
+   "duration_s": 0.125
+  }
+ },
+ {
+  "seq": 37,
+  "t": 9.984,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/files?path=%2Ftmp%2Fwww%2Findex.html",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "content-length: 188",
+    "content-type: multipart/form-data; boundary=186ef331f0228bb9b03b79218ecf2311",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "text": "--186ef331f0228bb9b03b79218ecf2311\r\nContent-Disposition: form-data; name=\"file\"; filename=\"/tmp/www/index.html\"\r\nContent-Type: text/html\r\n\r\nport-ok\n\r\n--186ef331f0228bb9b03b79218ecf2311--\r\n"
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "Content-Length: 66",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:51 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "[{\"name\":\"index.html\",\"path\":\"/tmp/www/index.html\",\"type\":\"file\"}]"
+   },
+   "duration_s": 0.119
+  }
+ },
+ {
+  "seq": 38,
+  "t": 10.105,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "cd /tmp/www && python3 -m http.server 8080"
+       ]
+      },
+      "stdin": false
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:51 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2024
+       }
+      }
+     },
+     "t": 0.166
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stderr": "MTAuMTIuMC4yNiAtIC0gWzAzL09jdC8yMDI2IDAwOjM4OjUyXSAiR0VUIC8gSFRUUC8xLjEiIDIwMCAtCg=="
+       }
+      }
+     },
+     "decoded": {
+      "stderr": "10.12.0.26 - - [03/Oct/2026 00:38:52] \"GET / HTTP/1.1\" 200 -\n"
+     },
+     "t": 1.354
+    },
+    {
+     "flags": 2,
+     "json": {
+      "error": {
+       "code": "unavailable",
+       "message": "the connection to sandbox in2br7xb7a8ws9bz9t7cy ended before the stream completed"
+      }
+     },
+     "t": 2.697
+    }
+   ],
+   "duration_s": 2.697
+  }
+ },
+ {
+  "seq": 39,
+  "t": 10.272,
+  "route": "port",
+  "upstream": "8080-in2br7xb7a8ws9bz9t7cy.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/",
+   "host_sent_by_sdk": "8080-in2br7xb7a8ws9bz9t7cy.e2b.app",
+   "headers": [
+    "Accept-Encoding: identity",
+    "Host: 8080-in2br7xb7a8ws9bz9t7cy.e2b.app"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "Content-Length: 8",
+    "content-type: text/html",
+    "date: Sat, 03 Oct 2026 00:38:52 GMT",
+    "last-modified: Sat, 03 Oct 2026 00:38:51 GMT",
+    "server: SimpleHTTP/0.6 Python/3.11.6",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "port-ok\n"
+   },
+   "duration_s": 1.212
+  }
+ },
+ {
+  "seq": 40,
+  "t": 11.484,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy/timeout",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "content-type: application/json",
+    "content-length: 15",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "json": {
+     "timeout": 600
+    }
+   }
+  },
+  "response": {
+   "status": 204,
+   "headers": [
+    "date: Sat, 03 Oct 2026 00:38:53 GMT",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": null,
+   "duration_s": 0.121
+  }
+ },
+ {
+  "seq": 41,
+  "t": 11.606,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:53 GMT",
+    "Content-Length: 490",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "alias": "base",
+     "clientID": "6532622b",
+     "cpuCount": 2,
+     "diskSizeMB": 23301,
+     "endAt": "2026-10-03T00:48:53.045069429Z",
+     "envdAccessToken": "<redacted>",
+     "envdVersion": "0.6.10",
+     "lifecycle": {
+      "autoResume": false,
+      "onTimeout": "kill"
+     },
+     "memoryMB": 512,
+     "metadata": {
+      "probe": "wisp-e2b",
+      "run": "py-1552417"
+     },
+     "sandboxID": "in2br7xb7a8ws9bz9t7cy",
+     "startedAt": "2026-10-03T00:38:42.322085214Z",
+     "state": "running",
+     "templateID": "rki5dems9wqfm4r03t7g",
+     "volumeMounts": []
+    }
+   },
+   "duration_s": 0.308
+  }
+ },
+ {
+  "seq": 42,
+  "t": 11.957,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy/metrics",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:53 GMT",
+    "Content-Length: 203",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": [
+     {
+      "cpuCount": 2,
+      "cpuUsedPct": 27.35,
+      "diskTotal": 22757814272,
+      "diskUsed": 1652707328,
+      "memCache": 73605120,
+      "memTotal": 501293056,
+      "memUsed": 56668160,
+      "timestamp": "2026-10-03T00:38:40Z",
+      "timestampUnix": 1790987920
+     }
+    ]
+   },
+   "duration_s": 0.137
+  }
+ },
+ {
+  "seq": 43,
+  "t": 12.136,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/v2/sandboxes?metadata=run%3Dpy-1552417",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "x-total-running: 1",
+    "date: Sat, 03 Oct 2026 00:38:53 GMT",
+    "Content-Length: 355",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": [
+     {
+      "alias": "base",
+      "clientID": "6532622b",
+      "cpuCount": 2,
+      "diskSizeMB": 23301,
+      "endAt": "2026-10-03T00:48:53.045069429Z",
+      "envdVersion": "0.6.10",
+      "memoryMB": 512,
+      "metadata": {
+       "probe": "wisp-e2b",
+       "run": "py-1552417"
+      },
+      "sandboxID": "in2br7xb7a8ws9bz9t7cy",
+      "startedAt": "2026-10-03T00:38:42.322085214Z",
+      "state": "running",
+      "templateID": "rki5dems9wqfm4r03t7g",
+      "volumeMounts": []
+     }
+    ]
+   },
+   "duration_s": 0.119
+  }
+ },
+ {
+  "seq": 44,
+  "t": 12.297,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/files?path=%2Ftmp%2Fbefore-pause.txt",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "content-length: 187",
+    "content-type: multipart/form-data; boundary=6c9a61c6b7b2465fc053537cabf6aecd",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "text": "--6c9a61c6b7b2465fc053537cabf6aecd\r\nContent-Disposition: form-data; name=\"file\"; filename=\"/tmp/before-pause.txt\"\r\nContent-Type: text/plain\r\n\r\nkept\r\n--6c9a61c6b7b2465fc053537cabf6aecd--\r\n"
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "Content-Length: 74",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:53 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "text": "[{\"name\":\"before-pause.txt\",\"path\":\"/tmp/before-pause.txt\",\"type\":\"file\"}]"
+   },
+   "duration_s": 0.109
+  }
+ },
+ {
+  "seq": 45,
+  "t": 12.446,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "sleep 900"
+       ]
+      },
+      "stdin": false
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:54 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2027
+       }
+      }
+     },
+     "t": 0.122
+    },
+    {
+     "flags": 2,
+     "json": {
+      "error": {
+       "code": "unavailable",
+       "message": "the connection to sandbox in2br7xb7a8ws9bz9t7cy ended before the stream completed"
+      }
+     },
+     "t": 0.364
+    }
+   ],
+   "duration_s": 0.365
+  }
+ },
+ {
+  "seq": 46,
+  "t": 12.61,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy/pause",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "content-type: application/json",
+    "content-length: 2",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "json": {}
+   }
+  },
+  "response": {
+   "status": 204,
+   "headers": [
+    "date: Sat, 03 Oct 2026 00:38:54 GMT",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": null,
+   "duration_s": 0.199
+  }
+ },
+ {
+  "seq": 47,
+  "t": 12.81,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:54 GMT",
+    "Content-Length: 465",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "alias": "base",
+     "clientID": "6532622b",
+     "cpuCount": 2,
+     "diskSizeMB": 23301,
+     "endAt": "2026-10-03T00:38:54.174846Z",
+     "envdAccessToken": "<redacted>",
+     "envdVersion": "0.6.10",
+     "lifecycle": {
+      "autoResume": false,
+      "onTimeout": "kill"
+     },
+     "memoryMB": 512,
+     "metadata": {
+      "probe": "wisp-e2b",
+      "run": "py-1552417"
+     },
+     "sandboxID": "in2br7xb7a8ws9bz9t7cy",
+     "startedAt": "2026-10-03T00:38:42.322085Z",
+     "state": "paused",
+     "templateID": "rki5dems9wqfm4r03t7g"
+    }
+   },
+   "duration_s": 0.112
+  }
+ },
+ {
+  "seq": 48,
+  "t": 12.964,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy/pause",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "content-type: application/json",
+    "content-length: 2",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "json": {}
+   }
+  },
+  "response": {
+   "status": 409,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:54 GMT",
+    "Content-Length: 98",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": 409,
+     "message": "Error pausing sandbox - sandbox 'in2br7xb7a8ws9bz9t7cy' is already paused"
+    }
+   },
+   "duration_s": 0.132
+  }
+ },
+ {
+  "seq": 49,
+  "t": 13.137,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/v2/sandboxes/in2br7xb7a8ws9bz9t7cy/connect",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "content-type: application/json",
+    "content-length: 2",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "json": {}
+   }
+  },
+  "response": {
+   "status": 201,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:55 GMT",
+    "Content-Length: 218",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "alias": "base",
+     "clientID": "6532622b",
+     "envdAccessToken": "<redacted>",
+     "envdVersion": "0.6.10",
+     "sandboxID": "in2br7xb7a8ws9bz9t7cy",
+     "templateID": "rki5dems9wqfm4r03t7g"
+    }
+   },
+   "duration_s": 0.537
+  }
+ },
+ {
+  "seq": 50,
+  "t": 13.717,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:55 GMT",
+    "Content-Length: 490",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "alias": "base",
+     "clientID": "6532622b",
+     "cpuCount": 2,
+     "diskSizeMB": 23301,
+     "endAt": "2026-10-03T00:43:55.124166441Z",
+     "envdAccessToken": "<redacted>",
+     "envdVersion": "0.6.10",
+     "lifecycle": {
+      "autoResume": false,
+      "onTimeout": "kill"
+     },
+     "memoryMB": 512,
+     "metadata": {
+      "probe": "wisp-e2b",
+      "run": "py-1552417"
+     },
+     "sandboxID": "in2br7xb7a8ws9bz9t7cy",
+     "startedAt": "2026-10-03T00:38:55.124166441Z",
+     "state": "running",
+     "templateID": "rki5dems9wqfm4r03t7g",
+     "volumeMounts": []
+    }
+   },
+   "duration_s": 0.107
+  }
+ },
+ {
+  "seq": 51,
+  "t": 13.865,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/files?path=%2Ftmp%2Fbefore-pause.txt",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "content-disposition: inline; filename=before-pause.txt",
+    "content-encoding: gzip",
+    "content-type: text/plain; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:55 GMT",
+    "vary: Accept-Encoding",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "body": {
+    "text": "kept"
+   },
+   "duration_s": 0.122
+  }
+ },
+ {
+  "seq": 52,
+  "t": 14.027,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/List",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 2"
+   ],
+   "body": {
+    "json": {}
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 203",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:55 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "processes": [
+      {
+       "config": {
+        "cmd": "/bin/bash",
+        "args": [
+         "-l",
+         "-c",
+         "cd /tmp/www && python3 -m http.server 8080"
+        ]
+       },
+       "pid": 2024
+      },
+      {
+       "config": {
+        "cmd": "/bin/bash",
+        "args": [
+         "-l",
+         "-c",
+         "sleep 900"
+        ]
+       },
+       "pid": 2027
+      }
+     ]
+    }
+   },
+   "duration_s": 0.119
+  }
+ },
+ {
+  "seq": 53,
+  "t": 14.189,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/Start",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "keepalive-ping-interval: 50",
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "connect-accept-encoding: identity",
+    "connect-content-encoding: identity",
+    "content-type: application/connect+json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "accept-encoding: zstd,gzip,br",
+    "host: 127.0.0.1:8791",
+    "transfer-encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "process": {
+       "cmd": "/bin/bash",
+       "args": [
+        "-l",
+        "-c",
+        "echo resumed"
+       ]
+      },
+      "stdin": false
+     }
+    }
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "connect-accept-encoding: gzip",
+    "content-type: application/connect+json",
+    "date: Sat, 03 Oct 2026 00:38:55 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+    "Transfer-Encoding: chunked"
+   ],
+   "frames": [
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "start": {
+        "pid": 2029
+       }
+      }
+     },
+     "t": 0.128
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "data": {
+        "stdout": "cmVzdW1lZAo="
+       }
+      }
+     },
+     "decoded": {
+      "stdout": "resumed\n"
+     },
+     "t": 0.137
+    },
+    {
+     "flags": 0,
+     "json": {
+      "event": {
+       "end": {
+        "exited": true,
+        "status": "exit status 0"
+       }
+      }
+     },
+     "t": 0.137
+    },
+    {
+     "flags": 2,
+     "json": {},
+     "t": 0.138
+    }
+   ],
+   "duration_s": 0.138
+  }
+ },
+ {
+  "seq": 54,
+  "t": 14.36,
+  "route": "sandbox",
+  "upstream": "sandbox.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/process.Process/SendSignal",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "user-agent: connectrpc/0.11.1",
+    "connect-protocol-version: 1",
+    "accept-encoding: identity",
+    "content-encoding: identity",
+    "content-type: application/json",
+    "connect-timeout-ms: 60000",
+    "x-access-token: <redacted>",
+    "e2b-sandbox-id: in2br7xb7a8ws9bz9t7cy",
+    "e2b-sandbox-port: 49983",
+    "accept: */*",
+    "host: 127.0.0.1:8791",
+    "content-length: 54"
+   ],
+   "body": {
+    "json": {
+     "process": {
+      "pid": 2027
+     },
+     "signal": "SIGNAL_SIGKILL"
+    }
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": [
+    "accept-encoding: gzip",
+    "Content-Length: 2",
+    "content-type: application/json",
+    "date: Sat, 03 Oct 2026 00:38:55 GMT",
+    "vary: Origin",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {}
+   },
+   "duration_s": 0.118
+  }
+ },
+ {
+  "seq": 55,
+  "t": 14.519,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "DELETE",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 204,
+   "headers": [
+    "date: Sat, 03 Oct 2026 00:38:56 GMT",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": null,
+   "duration_s": 0.135
+  }
+ },
+ {
+  "seq": 56,
+  "t": 14.655,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "GET",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:56 GMT",
+    "Content-Length: 103",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": 404,
+     "message": "Sandbox \"in2br7xb7a8ws9bz9t7cy\" doesn't exist or you don't have access to it"
+    }
+   },
+   "duration_s": 0.125
+  }
+ },
+ {
+  "seq": 57,
+  "t": 14.822,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "DELETE",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:56 GMT",
+    "Content-Length: 103",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": 404,
+     "message": "Sandbox \"in2br7xb7a8ws9bz9t7cy\" doesn't exist or you don't have access to it"
+    }
+   },
+   "duration_s": 0.308
+  }
+ },
+ {
+  "seq": 58,
+  "t": 15.171,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "POST",
+   "path": "/v2/sandboxes/in2br7xb7a8ws9bz9t7cy/connect",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "content-type: application/json",
+    "content-length: 2",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": {
+    "json": {}
+   }
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:56 GMT",
+    "Content-Length: 103",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": 404,
+     "message": "Sandbox \"in2br7xb7a8ws9bz9t7cy\" doesn't exist or you don't have access to it"
+    }
+   },
+   "duration_s": 0.301
+  }
+ },
+ {
+  "seq": 59,
+  "t": 15.514,
+  "route": "api",
+  "upstream": "api.e2b.app",
+  "request": {
+   "method": "DELETE",
+   "path": "/sandboxes/in2br7xb7a8ws9bz9t7cy",
+   "host_sent_by_sdk": "127.0.0.1:8791",
+   "headers": [
+    "accept: */*",
+    "accept-encoding: gzip, deflate",
+    "lang: python",
+    "lang_version: 3.14.4",
+    "package_version: 2.52.0",
+    "publisher: e2b",
+    "sdk_runtime: python",
+    "system: Linux",
+    "user-agent: e2b-python-sdk/2.52.0",
+    "x-api-key: <redacted>",
+    "host: 127.0.0.1:8791"
+   ],
+   "body": null
+  },
+  "response": {
+   "status": 404,
+   "headers": [
+    "content-type: application/json; charset=utf-8",
+    "date: Sat, 03 Oct 2026 00:38:57 GMT",
+    "Content-Length: 103",
+    "x-ratelimit-limit: 60000",
+    "x-ratelimit-remaining: 60000",
+    "x-ratelimit-reset: 0",
+    "via: 1.1 google",
+    "Alt-Svc: h3=\":443\"; ma=2592000"
+   ],
+   "body": {
+    "json": {
+     "code": 404,
+     "message": "Sandbox \"in2br7xb7a8ws9bz9t7cy\" doesn't exist or you don't have access to it"
+    }
+   },
+   "duration_s": 0.122
+  }
+ }
+]
