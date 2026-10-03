@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,4 +51,24 @@ func TestShutdownStopsLoops(t *testing.T) {
 	l.every(time.Millisecond, func() { t.Error("loop started after Shutdown ran") })
 	time.Sleep(20 * time.Millisecond)
 	l.Shutdown()
+}
+
+// peek never waits for a transition: a held lock reads as busy, with the
+// in-flight API count still reported.
+func TestPeekDoesNotWaitForATransition(t *testing.T) {
+	s, rt, _, _ := newCheckpointServer(t, 0)
+	sp, _ := s.store.Get("cp")
+	rt.begin()
+	defer rt.end()
+	if vm := s.life.peek(sp.ID); vm.busy || vm.running() || vm.inflight != 1 || vm.pid != 0 {
+		t.Errorf("stopped sprite = %+v; want settled, not running, one request in flight", vm)
+	}
+	if _, ok := s.life.peek(sp.ID).taskHolds(context.Background()); ok {
+		t.Error("a stopped sprite answered for its tasks")
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if vm := s.life.peek(sp.ID); !vm.busy || vm.inflight != 1 {
+		t.Errorf("sprite mid-transition = %+v; want busy, one request in flight", vm)
+	}
 }

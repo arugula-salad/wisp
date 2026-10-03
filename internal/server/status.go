@@ -344,16 +344,6 @@ func OfflineStatus(dataDir, netdSocket string) (Status, error) {
 	return out, nil
 }
 
-// peek reads a sprite's runtime state without waiting for a transition in flight.
-func (l *Lifecycle) peek(id string) (m *vmm.Machine, tap string, settled bool) {
-	rt := l.rt(id)
-	if !rt.mu.TryLock() {
-		return nil, "", false
-	}
-	defer rt.mu.Unlock()
-	return rt.m, rt.tap, true
-}
-
 func (e *egress) helperStatus() HelperStatus {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -381,9 +371,7 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	out.Host.ReservedMemoryMiB, out.Host.BootsInFlight = l.admit.usage()
 	out.Host.Volume, _ = l.disk.probe()
 	out.Host.Images = imageCacheStatus(vmRoot)
-	l.mu.Lock()
-	out.Host.TapsTotal, out.Host.TapsUsed = l.taps, l.taps-len(l.freeTaps)
-	l.mu.Unlock()
+	out.Host.TapsTotal, out.Host.TapsUsed = l.tapUsage()
 
 	var wg sync.WaitGroup
 	sprites := s.store.List("")
@@ -395,30 +383,23 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 		if ip := l.spriteIP(sp); ip != nil {
 			st.IP = ip.String()
 		}
-		rt := l.rt(sp.ID)
-		rt.useMu.Lock()
-		st.APIInflight = rt.inflight
-		rt.useMu.Unlock()
-		m, tap, settled := l.peek(sp.ID)
-		st.Busy, st.Tap = !settled, tap
+		vm := l.peek(sp.ID)
+		st.APIInflight = vm.inflight
+		st.Busy, st.Tap = vm.busy, vm.tap
 		out.Host.count(st.State)
 		out.Sprites[i] = st
-		if m != nil {
-			out.Sprites[i].VMMPid = m.Pid()
-			if p, ok := readProc(m.Pid()); ok {
+		if vm.running() {
+			out.Sprites[i].VMMPid = vm.pid
+			if p, ok := readProc(vm.pid); ok {
 				out.Sprites[i].VMMRSS = p.rss
 			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				var act struct {
-					Tasks int `json:"tasks"`
-				}
-				// The same question the idle watcher asks, so it does not count as activity.
 				cctx, cancel := context.WithTimeout(ctx, time.Second)
 				defer cancel()
-				if agentCall(cctx, m, http.MethodGet, "/internal/activity", nil, &act) == nil {
-					out.Sprites[i].TaskHolds = &act.Tasks
+				if tasks, ok := vm.taskHolds(cctx); ok {
+					out.Sprites[i].TaskHolds = &tasks
 				}
 			}()
 		}

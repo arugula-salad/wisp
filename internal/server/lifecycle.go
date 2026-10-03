@@ -320,6 +320,56 @@ func (l *Lifecycle) rt(id string) *runtime {
 	return rt
 }
 
+// vmView is what can be read about a sprite's VM without waiting for a
+// transition in flight (peek). Callers outside the lifecycle read its fields
+// and ask the VM things through its methods, never through m.
+type vmView struct {
+	busy     bool         // a transition is in flight; tap and pid are unknown
+	tap      string       // "" when not running or without networking
+	pid      int          // the VMM's; 0 unless running
+	inflight int          // API requests pinning the sprite awake
+	m        *vmm.Machine // nil unless running; for the methods below only
+}
+
+func (v vmView) running() bool { return v.m != nil }
+
+// taskHolds asks the guest how many tasks are holding it awake. It is the same
+// question the idle watcher asks, so it does not count as activity.
+func (v vmView) taskHolds(ctx context.Context) (int, bool) {
+	var act struct {
+		Tasks int `json:"tasks"`
+	}
+	if v.m == nil || agentCall(ctx, v.m, http.MethodGet, "/internal/activity", nil, &act) != nil {
+		return 0, false
+	}
+	return act.Tasks, true
+}
+
+// peek reads a sprite's runtime state without waiting for a transition in flight.
+func (l *Lifecycle) peek(id string) vmView {
+	rt := l.rt(id)
+	rt.useMu.Lock()
+	v := vmView{inflight: rt.inflight}
+	rt.useMu.Unlock()
+	if !rt.mu.TryLock() {
+		v.busy = true
+		return v
+	}
+	defer rt.mu.Unlock()
+	v.tap, v.m = rt.tap, rt.m
+	if rt.m != nil {
+		v.pid = rt.m.Pid()
+	}
+	return v
+}
+
+// tapUsage is the size of the tap pool and how much of it is taken.
+func (l *Lifecycle) tapUsage() (total, used int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.taps, l.taps - len(l.freeTaps)
+}
+
 func (l *Lifecycle) takeTap() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
