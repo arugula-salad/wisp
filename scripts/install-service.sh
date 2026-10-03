@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
-# Runs wispd as a systemd *user* service, so the API comes back after a reboot
-# the way the network and the storage volume already do. No root: the daemon
-# runs as you, exactly as `make run` does.
+# Runs wispd (or sandboxd) as a systemd *user* service, so the API comes back
+# after a reboot the way the network and the storage volume already do. No root:
+# the daemon runs as you, exactly as `make run` does.
 #
 #   make install-service                         # build, install, (re)start
 #   ./scripts/install-service.sh -- --url-domain sprites.example.com --max-running 8
 #   ./scripts/install-service.sh --uninstall
+#   make install-sandboxd NAME=sandboxd DATA=~/.local/share/sandboxd FLAGS='--listen ...'
 #
-# Flags after `--` are wispd's and are remembered in
+# Flags after `--` are the daemon's and are remembered in
 # ~/.config/wisp/<name>.env; without them a re-install keeps what is there.
 #
 #   --name NAME   unit name, default wisp (a second stack needs its own)
 #   --data DIR    data directory, default $WISP_DATA or ~/.local/share/wisp
+#   --bin BIN     wispd (default) or sandboxd. sandboxd needs an explicit --name
+#                 other than wisp, an explicit --data other than wisp's, and --listen
+#   --check       only run the checks below and exit (make install-sandboxd runs
+#                 it before building anything into --data)
+#   --force-pair  allow a name other than wisp on wisp's data directory, or the
+#                 name wisp on another one (refused by default: either is
+#                 usually a typo that would repoint or fight the main install)
+#
+# An existing <name>.service whose binary or data directory differs from what
+# is being installed is never repointed: uninstall it first.
 #
 # Two things need root, once, and this script only tells you about them:
 #
@@ -30,18 +41,25 @@ trap 'echo "install-service.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 NAME=wisp
 DATA="${WISP_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}"
+BIN=wispd
+NAME_SET=0
+DATA_SET=0
+FORCE_PAIR=0
 ACTION=install
 FLAGS=()
 HAVE_FLAGS=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --name) NAME="$2"; shift 2 ;;
-    --data) DATA="$2"; shift 2 ;;
+    --name) NAME="$2"; NAME_SET=1; shift 2 ;;
+    --data) DATA="$2"; DATA_SET=1; shift 2 ;;
+    --bin) BIN="$2"; shift 2 ;;
+    --force-pair) FORCE_PAIR=1; shift ;;
+    --check) ACTION=check; shift ;;
     --uninstall) ACTION=uninstall; shift ;;
     --system-dropin) ACTION=dropin; shift ;;
     --remove-system-dropin) ACTION=rmdropin; shift ;;
     --) shift; FLAGS=("$@"); HAVE_FLAGS=1; break ;;
-    *) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    *) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
   esac
 done
 
@@ -97,9 +115,58 @@ if [ "$ACTION" = uninstall ]; then
   exit 0
 fi
 
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
-[ -x "$REPO/bin/wispd" ] || { echo "no $REPO/bin/wispd: run make build (or make install-service)" >&2; exit 1; }
+refuse() { echo "install-service.sh: refusing: $*" >&2; exit 1; }
+
+# Guard rails, all checked before anything is written: the main install (name
+# wisp, wispd, wisp's data directory) must only ever be reinstalled as itself.
+case "$BIN" in
+  wispd|sandboxd) ;;
+  *) refuse "--bin must be wispd or sandboxd, not '$BIN'" ;;
+esac
+case "$NAME" in
+  ''|*/*|.*) refuse "bad --name '$NAME'" ;;
+esac
 DATA="$(realpath -m "$DATA")"
+# wisp's data directory, under both spellings the tooling uses (the scripts
+# honour XDG_DATA_HOME, the Makefile does not).
+IS_PROD_DATA=0
+for d in "${XDG_DATA_HOME:-$HOME/.local/share}/wisp" "$HOME/.local/share/wisp"; do
+  [ "$DATA" = "$(realpath -m "$d")" ] && IS_PROD_DATA=1
+done
+if [ "$BIN" = sandboxd ]; then
+  [ "$NAME_SET" = 1 ] && [ "$NAME" != wisp ] \
+    || refuse "--bin sandboxd needs an explicit --name other than wisp (wisp.service is the main wispd)"
+  [ "$DATA_SET" = 1 ] && [ "$IS_PROD_DATA" = 0 ] \
+    || refuse "--bin sandboxd needs an explicit --data other than wisp's data directory ($DATA is not allowed or was not given)"
+fi
+if [ "$FORCE_PAIR" = 0 ]; then
+  [ "$NAME" = wisp ] || [ "$IS_PROD_DATA" = 0 ] \
+    || refuse "--name $NAME on wisp's data directory $DATA would run a second daemon on the main install's sprites; pass --data, or --force-pair if you mean it"
+  [ "$NAME" != wisp ] || [ "$IS_PROD_DATA" = 1 ] \
+    || refuse "--name wisp is the main install, but --data is $DATA; pass another --name, or --force-pair if you mean to move it"
+fi
+FLAGS_VAR=WISPD_FLAGS
+[ "$BIN" = wispd ] || FLAGS_VAR=SANDBOXD_FLAGS
+# Never silently repoint an existing service at another binary or data directory.
+if [ -e "$UNIT" ]; then
+  EXEC=$(sed -n 's/^ExecStart=//p' "$UNIT" | head -n1)
+  read -r OLD_BIN _ <<<"$EXEC" || true
+  OLD_DATA=$(grep -oE -- '--data [^ ]+' <<<"$EXEC" | head -n1 | cut -d' ' -f2 || true)
+  if [ "$OLD_BIN" != "$LIB/$BIN" ] || [ "$OLD_DATA" != "$DATA" ]; then
+    refuse "$UNIT exists and runs '${OLD_BIN:-?}' on '${OLD_DATA:-?}', not $LIB/$BIN on $DATA; uninstall it first (--name $NAME --uninstall) if you mean to replace it"
+  fi
+fi
+if [ "$BIN" = sandboxd ]; then
+  # sandboxd's listener defaults are other daemons' ports (7788 is wispd's).
+  if [ "$HAVE_FLAGS" = 1 ]; then NEW_FLAGS="${FLAGS[*]}"; else NEW_FLAGS="$(sed -n "s/^$FLAGS_VAR=//p" "$ENV_FILE" 2>/dev/null || true)"; fi
+  grep -qE -- '(^|[[:space:]])--?listen[= ]' <<<"$NEW_FLAGS" \
+    || refuse "sandboxd needs an explicit --listen in its flags (the default, 127.0.0.1:7788, is wispd's); add it after --"
+fi
+[ "$ACTION" != check ] || { echo "ok: $NAME.service may be installed ($BIN on $DATA)"; exit 0; }
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+[ -x "$REPO/bin/$BIN" ] || { echo "no $REPO/bin/$BIN: run make build (or make install-service)" >&2; exit 1; }
+[ -x "$REPO/bin/wispd" ] || { echo "no $REPO/bin/wispd: run make build (or make install-service)" >&2; exit 1; }
 for need in bin/firecracker kernel/vmlinux images/base.ext4 initrd.cpio; do
   [ -e "$DATA/$need" ] || { echo "missing $DATA/$need: run make deps image initrd first" >&2; exit 1; }
 done
@@ -108,27 +175,31 @@ done
 # fight over every sprite. (It suspends its sprites on ^C, and they resume here.)
 if ! systemctl --user is-active -q "$NAME.service" \
    && "$REPO/bin/wispd" status --data "$DATA" --json 2>/dev/null | grep -q '"daemon": {'; then
-  echo "a wispd that is not $NAME.service is running on $DATA; stop it (^C suspends its sprites) and run this again" >&2
+  echo "a daemon that is not $NAME.service is running on $DATA; stop it (^C suspends its sprites) and run this again" >&2
   exit 1
 fi
 
 mkdir -p "$UNIT_DIR" "$LIB" "$(dirname "$ENV_FILE")"
 if [ "$HAVE_FLAGS" = 1 ] || [ ! -e "$ENV_FILE" ]; then
-  { echo "# wispd flags for $NAME.service; edit, then: systemctl --user restart $NAME"
-    echo "WISPD_FLAGS=${FLAGS[*]}"; } > "$ENV_FILE"
+  { echo "# $BIN flags for $NAME.service; edit, then: systemctl --user restart $NAME"
+    echo "$FLAGS_VAR=${FLAGS[*]}"; } > "$ENV_FILE"
 fi
-CUR_FLAGS="$(sed -n 's/^WISPD_FLAGS=//p' "$ENV_FILE")"
+CUR_FLAGS="$(sed -n "s/^$FLAGS_VAR=//p" "$ENV_FILE")"
 
-# The unit must not depend on a git checkout staying where it is.
-install -m 0755 "$REPO/bin/wispd" "$LIB/wispd.new"
-mv -f "$LIB/wispd.new" "$LIB/wispd"
+# The unit must not depend on a git checkout staying where it is. wispd always
+# goes in too: it is the operator CLI (status, keys, ...) for either daemon.
+for b in $(printf '%s\n' wispd "$BIN" | sort -u); do
+  install -m 0755 "$REPO/bin/$b" "$LIB/$b.new"
+  mv -f "$LIB/$b.new" "$LIB/$b"
+done
 
 # A user unit cannot be ordered after system units, so wait for what the boot
 # units provide. Starting early would be worse than starting late: without the
 # volume mounted wispd would see an empty sprite directory, and without the
 # bridge it would cold-boot every sprite with no NIC.
 WAIT=""
-if grep -qs -- " $DATA/vm\$" /etc/systemd/system/wisp-storage.service; then
+SYSUNITS="${WISP_SYSTEM_UNIT_DIR:-/etc/systemd/system}" # overridable for scripts/test-install-service.sh
+if grep -qs -- " $DATA/vm\$" "$SYSUNITS/wisp-storage.service"; then
   WAIT+="mountpoint -q '$DATA/vm' && "
 fi
 # The network pool (wispd --net-pool) names the bridge and its boot unit: pool 0 is
@@ -136,7 +207,7 @@ fi
 # Go's flag package takes -net-pool as well as --net-pool, and the last one wins.
 POOL=$(grep -oE -- '(^|[[:space:]])--?net-pool[= ]+[0-9]+' <<<"$CUR_FLAGS" | tail -n1 | grep -oE '[0-9]+$' || true)
 POOL=${POOL:-0}
-if [ -e "/etc/systemd/system/wisp-net$([ "$POOL" = 0 ] || echo "$POOL").service" ] && ! grep -q -- '--net=false' <<<"$CUR_FLAGS"; then
+if [ -e "$SYSUNITS/wisp-net$([ "$POOL" = 0 ] || echo "$POOL").service" ] && ! grep -q -- '--net=false' <<<"$CUR_FLAGS"; then
   WAIT+="[ -e /sys/class/net/msbr$POOL ] && "
 fi
 cat > "$LIB/wait-host.sh" <<EOF
@@ -151,16 +222,23 @@ exit 1
 EOF
 chmod 0755 "$LIB/wait-host.sh"
 
+# Any other stack starts after the main one, so after a reboot wisp's sprites
+# come back before a second daemon's cold boots compete with them.
+ORDER=""
+if [ "$NAME" != wisp ] && [ -e "$UNIT_DIR/wisp.service" ]; then
+  ORDER="After=wisp.service
+"
+fi
 cat > "$UNIT" <<EOF
 # Generated by wisp scripts/install-service.sh; re-run it rather than editing.
 [Unit]
-Description=wisp API daemon (wispd, data in $DATA)
-
+Description=wisp API daemon ($BIN, data in $DATA)
+${ORDER}
 [Service]
 Type=exec
 EnvironmentFile=$ENV_FILE
 ExecStartPre=$LIB/wait-host.sh
-ExecStart=$LIB/wispd --data $DATA \$WISPD_FLAGS
+ExecStart=$LIB/$BIN --data $DATA \$$FLAGS_VAR
 # SIGTERM goes to wispd alone, which suspends every running sprite to disk
 # before it exits. The default (signal the whole cgroup) would kill the VMs
 # under it first and lose their memory.
@@ -192,7 +270,7 @@ if ! systemctl --user is-active -q "$NAME.service"; then
   exit 1
 fi
 
-echo "ok: $NAME.service is running and enabled (wispd --data $DATA ${CUR_FLAGS})"
+echo "ok: $NAME.service is running and enabled ($BIN --data $DATA ${CUR_FLAGS})"
 echo "    status:  $LIB/wispd status --data $DATA"
 echo "    logs:    journalctl --user -u $NAME -f        (add -b for this boot, -p warning for trouble only)"
 echo "    flags:   $ENV_FILE, then systemctl --user restart $NAME"
