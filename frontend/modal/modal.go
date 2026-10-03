@@ -37,6 +37,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +84,10 @@ type Options struct {
 	MaxTimeout time.Duration
 	// CPUs and MemMiB size every sandbox's VM; 0 is the engine's default.
 	CPUs, MemMiB int
+	// MaxCPUs and MaxMemMiB bound what a client's cpu= and memory= may ask
+	// for (0: the host's CPUs, and engine.MaxMemoryLimitMiB). More is
+	// INVALID_ARGUMENT.
+	MaxCPUs, MaxMemMiB int
 	// MaxSandboxes is how many sandboxes, of every API, may exist on this
 	// host (--max-sprites); 0 is no limit.
 	MaxSandboxes int
@@ -110,10 +115,17 @@ type Frontend struct {
 	run     runner
 }
 
-// New attaches the Modal front end to life.
+// New attaches the Modal front end to life: it registers an OnDelete hook, so
+// call it once per engine, before anything is served.
 func New(opts Options, st *store.Store, life *engine.Engine, log *slog.Logger) (*Frontend, error) {
 	if opts.MaxTimeout <= 0 {
 		opts.MaxTimeout = 24 * time.Hour
+	}
+	if opts.MaxCPUs <= 0 {
+		opts.MaxCPUs = runtime.NumCPU()
+	}
+	if opts.MaxMemMiB <= 0 {
+		opts.MaxMemMiB = engine.MaxMemoryLimitMiB()
 	}
 	s, err := openState(opts.StateFile)
 	if err != nil {
@@ -124,6 +136,7 @@ func New(opts Options, st *store.Store, life *engine.Engine, log *slog.Logger) (
 	f := &Frontend{opts: opts, store: st, life: life, log: log.With("api", API), state: s, key: key,
 		running: map[string]map[*execution]struct{}{}, acquire: life.Acquire}
 	f.run = f.agentExec
+	life.OnDelete(f.deleted)
 	if _, err := os.Stat(opts.Disk); err != nil {
 		f.log.Warn("no Modal guest image: creating a Modal sandbox will fail until it is built (scripts/build-image.sh modal)", "disk", opts.Disk)
 	}

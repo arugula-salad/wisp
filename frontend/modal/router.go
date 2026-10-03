@@ -2,6 +2,7 @@ package modal
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -31,7 +32,7 @@ type execution struct {
 	out     [2][]byte     // stdout, stderr
 	pipe    [2]bool       // whether each is kept at all (PIPE, not DEVNULL)
 	changed chan struct{} // closed and replaced on every append, and at the end
-	dropped bool
+	dropped [2]bool       // a stream past maxKept: everything after is discarded
 
 	done chan struct{} // closed at the end, after code and err are set
 	code int32
@@ -52,11 +53,13 @@ const (
 func (x *execution) write(fd int, b []byte) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	if !x.pipe[fd] {
+	if !x.pipe[fd] || x.dropped[fd] {
 		return
 	}
 	if len(x.out[fd])+len(b) > maxKept {
-		x.dropped = true
+		// Truncated from here on: a later, smaller write must not land after
+		// the gap as if nothing were missing.
+		x.dropped[fd] = true
 		return
 	}
 	x.out[fd] = append(x.out[fd], b...)
@@ -84,14 +87,20 @@ type execSpec struct {
 	stdout, stderr, mergeStderr bool
 }
 
+// errSandboxEnded is a command started in a sandbox that has already ended.
+var errSandboxEnded = errors.New("the sandbox has finished")
+
 // startExec runs a command in a sandbox until it exits, its timeout passes,
 // or the sandbox ends. execID "" is the entrypoint, whose output is not kept.
-func (f *Frontend) startExec(rec store.Record, m meta, spec execSpec, execID string) *execution {
+// An exec ID already in use is not run again: the execution that has it is
+// returned, with started false. A sandbox that has ended (whose result is
+// recorded, which always comes before stopExecs) gets errSandboxEnded.
+func (f *Frontend) startExec(rec store.Record, m meta, spec execSpec, execID string) (x *execution, started bool, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	if spec.timeout > 0 {
 		ctx, cancel = context.WithTimeout(context.Background(), spec.timeout)
 	}
-	x := &execution{sandbox: rec.ID, cancel: cancel, changed: make(chan struct{}), done: make(chan struct{}),
+	x = &execution{sandbox: rec.ID, cancel: cancel, changed: make(chan struct{}), done: make(chan struct{}),
 		pipe: [2]bool{spec.stdout, spec.stderr && !spec.mergeStderr}}
 	env := map[string]string{}
 	for k, v := range m.Env {
@@ -104,15 +113,29 @@ func (f *Frontend) startExec(rec store.Record, m meta, spec execSpec, execID str
 	if spec.workdir == "" {
 		spec.workdir = m.Workdir
 	}
+	// Under runMu, against stopExecs: either this sees the sandbox's result
+	// and refuses, or stopExecs (which runs after the result is recorded)
+	// sees this execution and stops it.
 	f.runMu.Lock()
+	ended := false
+	f.state.view(func(d *stateData) { sb := d.Sandboxes[rec.ID]; ended = sb == nil || sb.Result != nil })
+	if ended {
+		f.runMu.Unlock()
+		cancel()
+		return nil, false, errSandboxEnded
+	}
+	if execID != "" {
+		if prev, loaded := f.execs.LoadOrStore(execKey{m.TaskID, execID}, x); loaded {
+			f.runMu.Unlock()
+			cancel()
+			return prev.(*execution), false, nil
+		}
+	}
 	if f.running[rec.ID] == nil {
 		f.running[rec.ID] = map[*execution]struct{}{}
 	}
 	f.running[rec.ID][x] = struct{}{}
 	f.runMu.Unlock()
-	if execID != "" {
-		f.execs.Store(execKey{m.TaskID, execID}, x)
-	}
 	go func() {
 		defer cancel()
 		code, err := f.run(ctx, rec, spec, func(fd int, b []byte) {
@@ -127,25 +150,25 @@ func (f *Frontend) startExec(rec store.Record, m meta, spec execSpec, execID str
 		}
 		x.finish(code, err)
 	}()
-	return x
+	return x, true, nil
 }
 
 // stopExecs ends every command in a sandbox that has ended, and forgets them.
 func (f *Frontend) stopExecs(sandbox string) {
+	task := taskOf(sandbox)
 	f.runMu.Lock()
 	xs := f.running[sandbox]
 	delete(f.running, sandbox)
-	f.runMu.Unlock()
-	for x := range xs {
-		x.cancel()
-	}
-	task := taskOf(sandbox)
 	f.execs.Range(func(k, _ any) bool {
 		if k.(execKey).task == task {
 			f.execs.Delete(k)
 		}
 		return true
 	})
+	f.runMu.Unlock()
+	for x := range xs {
+		x.cancel()
+	}
 }
 
 // forTask checks that the caller's token is for the task asked about, and
@@ -197,9 +220,6 @@ func (r *router) TaskExecStart(ctx context.Context, req *modalpb.TaskExecStartRe
 	case req.ContainerId != "":
 		return nil, unsupported("sandbox containers")
 	}
-	if _, ok := r.f.execs.Load(execKey{req.TaskId, req.ExecId}); ok {
-		return &modalpb.TaskExecStartResponse{}, nil
-	}
 	spec := execSpec{argv: req.CommandArgs, env: req.Env, workdir: req.GetWorkdir(),
 		stdout:      req.StdoutConfig == modalpb.TaskExecStdoutConfig_TASK_EXEC_STDOUT_CONFIG_PIPE,
 		stderr:      req.StderrConfig != modalpb.TaskExecStderrConfig_TASK_EXEC_STDERR_CONFIG_DEVNULL,
@@ -207,7 +227,9 @@ func (r *router) TaskExecStart(ctx context.Context, req *modalpb.TaskExecStartRe
 	if req.TimeoutSecs != nil && *req.TimeoutSecs > 0 {
 		spec.timeout = time.Duration(*req.TimeoutSecs) * time.Second
 	}
-	r.f.startExec(v.rec, v.m, spec, req.ExecId)
+	if _, _, err := r.f.startExec(v.rec, v.m, spec, req.ExecId); err != nil {
+		return nil, status.Errorf(codes.NotFound, "task %s has finished", req.TaskId)
+	}
 	return &modalpb.TaskExecStartResponse{}, nil
 }
 

@@ -3,6 +3,7 @@ package modal
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -57,10 +58,12 @@ type fixture struct {
 	control modalpb.ModalClientClient
 	conn    *grpc.ClientConn
 	dir     string
+	base    string
 
 	mu   sync.Mutex
 	ran  [][]string
 	gate chan struct{} // "wait" commands block on it
+	drop chan struct{} // "drop" commands fail (a lost connection) when it closes
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -73,27 +76,32 @@ func newFixture(t *testing.T) *fixture {
 			t.Fatal(err)
 		}
 	}
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	life := engine.New(engine.Options{DataDir: dir, BaseImage: base, NoNetwork: true}, st, quiet)
-	life.StartReaping()
-	t.Cleanup(life.Shutdown)
-	fx := &fixture{t: t, life: life, st: st, dir: dir, gate: make(chan struct{})}
+	fx := &fixture{t: t, dir: dir, base: base, gate: make(chan struct{}), drop: make(chan struct{})}
 	fx.start(disk)
 	return fx
 }
 
-// start (re)makes the front end, as a daemon restart does.
+// start (re)makes the store, the engine and the front end, as a daemon
+// (re)start does: the front end hooks the engine, once per engine.
 func (fx *fixture) start(disk string) {
 	t := fx.t
+	if fx.life != nil {
+		fx.life.Shutdown()
+	}
+	st, err := store.Open(fx.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	life := engine.New(engine.Options{DataDir: fx.dir, BaseImage: fx.base, NoNetwork: true}, st, quiet)
+	life.StartReaping()
+	t.Cleanup(life.Shutdown)
+	fx.st, fx.life = st, life
 	srv := httptest.NewUnstartedServer(nil)
 	srv.Config.Protocols = new(http.Protocols)
 	srv.Config.Protocols.SetUnencryptedHTTP2(true)
 	srv.Start()
 	t.Cleanup(srv.Close)
-	f, err := New(Options{Disk: disk, StateFile: filepath.Join(fx.dir, "modal", "state.json"), RouterURL: srv.URL,
+	f, err := New(Options{MaxCPUs: 4, MaxMemMiB: 8192, Disk: disk, StateFile: filepath.Join(fx.dir, "modal", "state.json"), RouterURL: srv.URL,
 		CheckKey: func(k string) (bool, bool) {
 			switch k {
 			case adminKey:
@@ -102,7 +110,7 @@ func (fx *fixture) start(disk string) {
 				return false, true
 			}
 			return false, false
-		}}, fx.st, fx.life, quiet)
+		}}, st, life, quiet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +159,15 @@ func (fx *fixture) fakeRun(ctx context.Context, rec store.Record, spec execSpec,
 	case "sleep":
 		<-ctx.Done()
 		return 0, ctx.Err()
+	case "broken": // never starts: the VM would not boot, or the agent refused it
+		return 0, errors.New("wisp-agent refused the command: 500")
+	case "drop":
+		select {
+		case <-fx.drop:
+			return 0, errors.New("the command's output ended before its exit")
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
 	default:
 		return 127, nil
 	}
@@ -548,5 +565,177 @@ func TestCommand(t *testing.T) {
 	}
 	if got := command(execSpec{argv: []string{"pwd"}, workdir: "/tmp"}); got[6] != "/tmp" {
 		t.Fatalf("workdir: %q", got)
+	}
+}
+
+// stateOf is a sandbox's entry in the front end's state, read directly (not
+// through lookup, which would settle it).
+func (fx *fixture) stateOf(id string) sandboxState {
+	var sb sandboxState
+	fx.f.state.view(func(d *stateData) {
+		if s := d.Sandboxes[id]; s != nil {
+			sb = *s
+		}
+	})
+	return sb
+}
+
+// noExecs checks that nothing is kept for a sandbox's commands.
+func (fx *fixture) noExecs(id string) {
+	fx.t.Helper()
+	fx.f.runMu.Lock()
+	n := len(fx.f.running[id])
+	fx.f.runMu.Unlock()
+	task := taskOf(id)
+	fx.f.execs.Range(func(k, _ any) bool {
+		if k.(execKey).task == task {
+			n++
+		}
+		return true
+	})
+	if n != 0 {
+		fx.t.Fatalf("%d commands still kept for %s", n, id)
+	}
+}
+
+// Review fix 1: a sandbox deleted by the engine (at its deadline) or by
+// anything else gets a result, so its state can be pruned, and its commands'
+// output is dropped.
+func TestDeletedElsewhere(t *testing.T) {
+	fx := newFixture(t)
+	sb := fx.create(&modalpb.Sandbox{EntrypointArgs: []string{"sleep"}})
+	sb.exec(t, "e", "big", "100000")
+	sb.exec(t, "s", "sleep")
+	rec, _ := fx.st.GetRecord(sb.id)
+	if err := fx.life.Delete(rec); err != nil { // an operator, another API
+		t.Fatal(err)
+	}
+	if r := fx.stateOf(sb.id).Result; r == nil || r.Status != modalpb.GenericResult_GENERIC_STATUS_TERMINATED {
+		t.Fatalf("result after an outside delete: %+v", r)
+	}
+	fx.noExecs(sb.id)
+
+	sb = fx.create(&modalpb.Sandbox{EntrypointArgs: []string{"sleep"}, TimeoutSecs: 1})
+	sb.exec(t, "s", "sleep")
+	time.Sleep(1100 * time.Millisecond)
+	rec, _ = fx.st.GetRecord(sb.id)
+	if err := fx.life.Delete(rec); err != nil { // what the engine's deadline rule does
+		t.Fatal(err)
+	}
+	if r := fx.stateOf(sb.id).Result; r == nil || r.Status != modalpb.GenericResult_GENERIC_STATUS_TIMEOUT {
+		t.Fatalf("result after the deadline's delete: %+v", r)
+	}
+	fx.noExecs(sb.id)
+}
+
+// Review fix 1: a command started after the sandbox's result is recorded
+// (TaskExecStart racing SandboxTerminate) is refused, not kept forever.
+func TestNoExecAfterEnd(t *testing.T) {
+	fx := newFixture(t)
+	sb := fx.create(&modalpb.Sandbox{})
+	rec, _ := fx.st.GetRecord(sb.id)
+	m, _ := metaOf(rec)
+	fx.f.state.finish(sb.id, result{Status: modalpb.GenericResult_GENERIC_STATUS_TERMINATED})
+	fx.f.stopExecs(sb.id)
+	if _, _, err := fx.f.startExec(rec, m, execSpec{argv: []string{"sleep"}}, "late"); err != errSandboxEnded {
+		t.Fatalf("got %v, want errSandboxEnded", err)
+	}
+	fx.noExecs(sb.id)
+}
+
+// Review fix 2: an entrypoint that never starts, or whose connection drops,
+// ends the sandbox with a failure, so wait answers at once.
+func TestEntrypointLost(t *testing.T) {
+	fx := newFixture(t)
+	for _, cmd := range []string{"broken", "drop"} {
+		sb := fx.create(&modalpb.Sandbox{EntrypointArgs: []string{cmd}})
+		if cmd == "drop" {
+			close(fx.drop)
+		}
+		t0 := time.Now()
+		w, err := fx.control.SandboxWaitV2(admin(), &modalpb.SandboxWaitRequest{SandboxId: sb.id, Timeout: 10})
+		if err != nil || w.Result.Status != modalpb.GenericResult_GENERIC_STATUS_INIT_FAILURE || time.Since(t0) > 3*time.Second {
+			t.Fatalf("%s: %v %v after %s", cmd, w, err, time.Since(t0))
+		}
+		if !strings.Contains(w.Result.Exception, "did not run to an exit") {
+			t.Fatalf("%s: exception %q", cmd, w.Result.Exception)
+		}
+		if _, err := fx.st.GetRecord(sb.id); err == nil {
+			t.Fatalf("%s: the record outlived its failed entrypoint", cmd)
+		}
+	}
+}
+
+// The daemon stopping cuts the entrypoint off; the sandbox runs on.
+func TestEntrypointCutByShutdown(t *testing.T) {
+	fx := newFixture(t)
+	sb := fx.create(&modalpb.Sandbox{EntrypointArgs: []string{"drop"}})
+	fx.life.Shutdown()
+	close(fx.drop)
+	time.Sleep(200 * time.Millisecond)
+	if r := fx.stateOf(sb.id).Result; r != nil {
+		t.Fatalf("a shutdown ended the sandbox: %+v", r)
+	}
+	if _, err := fx.st.GetRecord(sb.id); err != nil {
+		t.Fatal("a shutdown deleted the sandbox")
+	}
+}
+
+// Review fix 3: concurrent starts with one exec_id run the command once.
+func TestExecIDRunsOnce(t *testing.T) {
+	fx := newFixture(t)
+	sb := fx.create(&modalpb.Sandbox{})
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sb.router.TaskExecStart(sb.ctx(), &modalpb.TaskExecStartRequest{TaskId: sb.task, ExecId: "dup",
+				CommandArgs: []string{"echo", "once"}, StdoutConfig: modalpb.TaskExecStdoutConfig_TASK_EXEC_STDOUT_CONFIG_PIPE})
+		}()
+	}
+	wg.Wait()
+	if got, _ := sb.read(t, "dup", stdout, 0); got != "once\n" {
+		t.Fatalf("stdout %q", got)
+	}
+	fx.mu.Lock()
+	defer fx.mu.Unlock()
+	n := 0
+	for _, argv := range fx.ran {
+		if slices.Contains(argv, "once") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("ran %d times", n)
+	}
+}
+
+// Review fix 4: past maxKept, output is truncated: nothing after the gap.
+func TestOutputTruncated(t *testing.T) {
+	x := &execution{changed: make(chan struct{}), done: make(chan struct{}), pipe: [2]bool{true, true}}
+	x.write(fdStdout, make([]byte, maxKept-10))
+	x.write(fdStdout, make([]byte, 20)) // overflows
+	x.write(fdStdout, []byte("late"))   // fits, but comes after the gap
+	if n := len(x.out[fdStdout]); n != maxKept-10 || !x.dropped[fdStdout] {
+		t.Fatalf("kept %d bytes (dropped %v), want %d", n, x.dropped, maxKept-10)
+	}
+	x.write(fdStderr, []byte("err"))
+	if string(x.out[fdStderr]) != "err" {
+		t.Fatalf("stderr %q", x.out[fdStderr])
+	}
+}
+
+// Review fix 5: cpu= and memory= past the server's limits are refused.
+func TestResourceLimits(t *testing.T) {
+	fx := newFixture(t)
+	for _, r := range []*modalpb.Resources{{MilliCpu: 4001}, {MilliCpu: 1<<32 - 1}, {MemoryMb: 8193}, {MemoryMb: 1<<32 - 1}} {
+		_, err := fx.control.SandboxCreateV2(admin(), &modalpb.SandboxCreateV2Request{AppId: fx.app(),
+			Definition: &modalpb.Sandbox{ImageId: fx.image(), Resources: r}})
+		wantCode(t, err, codes.InvalidArgument)
+	}
+	sb := fx.create(&modalpb.Sandbox{Resources: &modalpb.Resources{MilliCpu: 4000, MemoryMb: 8192}})
+	if rec, _ := fx.st.GetRecord(sb.id); rec.Config.CPUs != 4 || rec.Config.RamMB != 8192 {
+		t.Fatalf("config %+v", rec.Config)
 	}
 }

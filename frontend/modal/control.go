@@ -267,11 +267,17 @@ func (f *Frontend) create(ctx context.Context, appID string, def *modalpb.Sandbo
 	cfg := store.Config{CPUs: f.opts.CPUs, RamMB: f.opts.MemMiB}
 	if r := def.Resources; r != nil {
 		if r.MilliCpu > 0 {
-			cfg.CPUs = int(r.MilliCpu+999) / 1000
+			cfg.CPUs = (int(r.MilliCpu) + 999) / 1000
 		}
 		if r.MemoryMb > 0 {
 			cfg.RamMB = int(r.MemoryMb)
 		}
+	}
+	if cfg.CPUs > f.opts.MaxCPUs {
+		return store.Record{}, meta{}, status.Errorf(codes.InvalidArgument, "cpu=%d is more than this server allows (%d)", cfg.CPUs, f.opts.MaxCPUs)
+	}
+	if cfg.RamMB > f.opts.MaxMemMiB {
+		return store.Record{}, meta{}, status.Errorf(codes.InvalidArgument, "memory=%d MiB is more than this server allows (%d MiB)", cfg.RamMB, f.opts.MaxMemMiB)
 	}
 	now := time.Now().UTC()
 	id := newSandboxID(v2)
@@ -325,11 +331,15 @@ func (f *Frontend) create(ctx context.Context, appID string, def *modalpb.Sandbo
 
 // startEntrypoint runs the sandbox's command; the sandbox ends with it.
 func (f *Frontend) startEntrypoint(rec store.Record, m meta) {
-	x := f.startExec(rec, m, execSpec{argv: m.Entrypoint, workdir: m.Workdir}, "")
+	x, _, err := f.startExec(rec, m, execSpec{argv: m.Entrypoint, workdir: m.Workdir}, "")
+	if err != nil {
+		return // ended already
+	}
 	go func() {
 		<-x.done
 		if x.err != nil {
-			return // the sandbox went first (terminate, timeout), and says how
+			f.entrypointLost(rec.ID, x.err)
+			return
 		}
 		r := result{Status: modalpb.GenericResult_GENERIC_STATUS_SUCCESS, ExitCode: x.code}
 		if x.code != 0 {
@@ -340,6 +350,72 @@ func (f *Frontend) startEntrypoint(rec store.Record, m meta) {
 			f.end(rec.ID)
 		}
 	}()
+}
+
+// entrypointLost settles a sandbox whose entrypoint did not run to an exit:
+// it never started (the VM would not boot, the agent refused it) or its
+// connection dropped. The sandbox ends then, as it would at the entrypoint's
+// exit, unless something else ended it first: a terminate or a deletion
+// (whose result is recorded, or soon will be by the OnDelete hook), its
+// timeout, or the daemon stopping, which cuts every command off but leaves
+// the sandbox to run on until its timeout.
+//
+// A deletion by another API races this: the VM is stopped (dropping the
+// connection) before the record goes and the hook runs. That one can end up
+// as INIT_FAILURE rather than TERMINATED.
+func (f *Frontend) entrypointLost(id string, cause error) {
+	if f.life.Quitting() {
+		return
+	}
+	var sb sandboxState
+	ok := false
+	f.state.view(func(d *stateData) {
+		if s := d.Sandboxes[id]; s != nil {
+			sb, ok = *s, true
+		}
+	})
+	if !ok || sb.Result != nil {
+		return
+	}
+	r := result{Status: modalpb.GenericResult_GENERIC_STATUS_INIT_FAILURE, ExitCode: -1,
+		Exception: "the sandbox's entrypoint did not run to an exit: " + cause.Error()}
+	if _, err := f.store.GetRecord(id); err != nil || !time.Now().Before(sb.Deadline) {
+		r = goneResult(sb.Deadline)
+	}
+	if f.state.finish(id, r) {
+		if r.Status == modalpb.GenericResult_GENERIC_STATUS_INIT_FAILURE {
+			f.log.Warn("sandbox entrypoint did not run to an exit", "id", id, "err", cause)
+		}
+		f.end(id)
+	}
+}
+
+// goneResult is how a sandbox whose VM went without a word from us ended:
+// at its timeout, or deleted some other way.
+func goneResult(deadline time.Time) result {
+	if !time.Now().Before(deadline) {
+		return result{Status: modalpb.GenericResult_GENERIC_STATUS_TIMEOUT, Exception: "Sandbox timed out"}
+	}
+	return result{Status: modalpb.GenericResult_GENERIC_STATUS_TERMINATED, Exception: "Sandbox was deleted"}
+}
+
+// deleted is the engine's OnDelete hook: a Modal sandbox deleted by anything
+// (the engine at its deadline, an operator, our own end) gets its result, if
+// it has none yet, and its commands and their output are dropped.
+func (f *Frontend) deleted(sp store.Sprite) {
+	if sp.API != API {
+		return
+	}
+	var deadline time.Time
+	f.state.view(func(d *stateData) {
+		if s := d.Sandboxes[sp.ID]; s != nil {
+			deadline = s.Deadline
+		}
+	})
+	if !deadline.IsZero() {
+		f.state.finish(sp.ID, goneResult(deadline))
+	}
+	f.stopExecs(sp.ID)
 }
 
 // sandboxView is a sandbox as Modal sees it.
@@ -370,17 +446,12 @@ func (f *Frontend) lookup(id string) (sandboxView, error) {
 	}
 	rec, err := f.store.GetRecord(id)
 	m, isModal := metaOf(rec)
-	switch now := time.Now(); {
-	case !now.Before(sb.Deadline):
-		f.state.finish(id, result{Status: modalpb.GenericResult_GENERIC_STATUS_TIMEOUT, Exception: "Sandbox timed out"})
-		f.end(id)
-	case err != nil || !isModal:
-		f.state.finish(id, result{Status: modalpb.GenericResult_GENERIC_STATUS_TERMINATED, Exception: "Sandbox was deleted"})
-		f.end(id)
-	default:
+	if time.Now().Before(sb.Deadline) && err == nil && isModal {
 		v.rec, v.m = rec, m
 		return v, nil
 	}
+	f.state.finish(id, goneResult(sb.Deadline))
+	f.end(id)
 	f.state.view(func(d *stateData) { v.result = d.Sandboxes[id].Result })
 	return v, nil
 }

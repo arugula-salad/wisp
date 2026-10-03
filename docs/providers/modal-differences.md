@@ -63,7 +63,7 @@ account. So:
   then 137.
 - Output is kept in memory, whole, per stream, for as long as the sandbox runs, so a reader can
   resume from any byte offset after a dropped stream, as the client does. Past 64 MiB on one
-  stream of one command, further output is dropped.
+  stream of one command, that stream is truncated: the rest of its output is dropped.
 - Exec IDs are idempotency keys, as hosted: a second `TaskExecStart` with the same ID is a no-op.
 
 **Sandboxes.**
@@ -71,16 +71,21 @@ account. So:
 - **The entrypoint is run** (as root, like an exec) and the sandbox ends when it exits:
   `SUCCESS` with its code if 0, otherwise `FAILURE` with its code, as hosted. Its output is
   discarded, since `sb.stdout` is not implemented. Without an entrypoint the sandbox runs
-  until its timeout.
+  until its timeout. An entrypoint that never starts, or whose connection to the guest drops,
+  ends the sandbox with `INIT_FAILURE` (returncode -1), and the result's exception says why.
+  A drop caused by the daemon stopping does not count: that sandbox runs on (below).
 - Timeouts (`timeout=`, default 300 s, at most 24 h) end the sandbox with `TIMEOUT` (returncode
   124); `terminate()` with `TERMINATED` (137). Both delete the VM and its disk. There is no
   `idle_timeout`, and sandboxes are never suspended for being idle.
 - A sandbox is a Firecracker VM, not a gVisor container. `cpu=` rounds up to whole vCPUs and
   `memory=` is the VM's RAM in MiB; with neither, the engine's defaults apply (`--vcpus`,
-  `--mem-mib`). The guest kernel, `/proc` and the rest are wisp's, and the hostname is `modal`.
+  `--mem-mib`). Asking for more CPUs than the host has, or more memory than the engine allows
+  a VM (host RAM less its headroom), fails with `InvalidError`. The guest kernel, `/proc` and the rest are wisp's, and the hostname is `modal`.
 - How a sandbox ended is kept for 7 days after it ends, in `<data>/modal/state.json`, so that
   `from_id`, `wait` and `poll` still answer. A sandbox deleted some other way (for example by an
-  operator) reads as `TERMINATED`.
+  operator) reads as `TERMINATED`. The front end hears of every deletion, including the
+  engine's own at the deadline, which comes within about 30 s of it, so every sandbox gets a
+  result and its commands' output is freed.
 - If the daemon restarts, running sandboxes' commands, the entrypoint included, are cut off
   (their VMs suspend with the daemon, as every sandbox's do); the sandbox itself carries on
   until its timeout.
