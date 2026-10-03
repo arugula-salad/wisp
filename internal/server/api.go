@@ -530,7 +530,7 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleted(store.Sprite) { s.syncDomains() }
 
 func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
-	if err := s.life.Delete(sp); err != nil {
+	if err := s.life.Delete(sp.Record); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

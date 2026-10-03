@@ -274,7 +274,7 @@ func TestARenewalThatLandsFirstBeatsTheReaper(t *testing.T) {
 	rt.mu.Lock() // a renewal (or any other transition) in flight
 	done := make(chan struct{})
 	go func() {
-		s.leases.reap(sp) // the reaper, holding the record it listed
+		s.leases.reap(sp.Record) // the reaper, holding the record it listed
 		close(done)
 	}()
 	select {

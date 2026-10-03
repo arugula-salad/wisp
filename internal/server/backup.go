@@ -279,7 +279,7 @@ func (m *backupManager) backupSprite(ctx context.Context, sp store.Sprite, reaso
 	if err != nil {
 		return nil, backup.Stats{}, err
 	}
-	c, err := m.life.captureDisk(ctx, sp)
+	c, err := m.life.captureDisk(ctx, sp.Record)
 	if err != nil {
 		return nil, backup.Stats{}, err
 	}
@@ -344,7 +344,7 @@ type capture struct {
 // point: a running sprite is deferred rather than paused for the length of an
 // upload, and a stopped one is read in place, by a caller that watches for it
 // starting.
-func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture, error) {
+func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Record) (*capture, error) {
 	dir := l.store.Dir(sp.ID)
 	live := filepath.Join(dir, vmm.DiskFile)
 	rt := l.rt(sp.ID)
@@ -372,7 +372,7 @@ func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture,
 			}
 			defer func() {
 				if rerr := rt.m.Resume(ctx); rerr != nil {
-					l.log.Error("resume after backup snapshot failed", "sprite", sp.Name, "err", rerr)
+					l.log.Error("resume after backup snapshot failed", "sprite", l.label(sp), "err", rerr)
 				}
 			}()
 			c.at = time.Now()
@@ -385,7 +385,9 @@ func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture,
 	}
 
 	// The record and the checkpoint list are read under the same lock a checkpoint
-	// is taken under, so the manifest's two halves agree.
+	// is taken under, so the manifest's two halves agree. The manifest keeps the
+	// whole stored record, the front end's metadata with the engine's, because
+	// a restore writes it back as it was.
 	var err error
 	if c.sprite, err = l.store.Get(sp.ID); err != nil {
 		c.cleanup()

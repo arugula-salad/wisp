@@ -255,8 +255,8 @@ func TestHoldCheckpointKeepsTheCheckpoint(t *testing.T) {
 	if _, _, _, err := s.life.HoldCheckpoint(sp.Record, ""); err != errNoCheckpoint {
 		t.Fatalf("hold with no checkpoints: %v, want errNoCheckpoint", err)
 	}
-	s.life.CreateCheckpoint(sp.Record, nil, "", quiet)          // v1
-	s.life.CreateCheckpoint(sp.Record, nil, "", quiet)          // v2
+	s.life.CreateCheckpoint(sp.Record, nil, "", quiet)   // v1
+	s.life.CreateCheckpoint(sp.Record, nil, "", quiet)   // v2
 	s.life.autoCheckpointLocked(rt, cpID, "", "", quiet) // auto-1, never the default
 	cur, id, release, err := s.life.HoldCheckpoint(sp.Record, "")
 	if err != nil || id != "v2" || len(cur.Checkpoints) != 3 {

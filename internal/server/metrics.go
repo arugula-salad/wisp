@@ -2,7 +2,6 @@ package server
 
 import (
 	"bufio"
-	"github.com/arugula-salad/wisp/internal/store"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // The web UI's history: a sampler keeps the last hour of host and per-sprite
