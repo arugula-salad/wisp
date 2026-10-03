@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -66,6 +67,10 @@ type Options struct {
 	// even under a URL domain (wisp.widgets.wtf with --url-domain widgets.wtf),
 	// and never the dashboard, which stays on the names the proxy does not serve.
 	APIHosts []string
+	// URLsProxied says sprite URLs reach the API listener from the public,
+	// through a reverse proxy (sandboxd's --sprites-public-url), so they are
+	// told no more than the internet-facing listener tells.
+	URLsProxied bool
 	// Webhooks receive every event (webhooks.go).
 	Webhooks WebhookOptions
 }
@@ -198,7 +203,7 @@ func (s *Server) Handler() http.Handler {
 		switch s.kindOf(r) {
 		case httpstats.KindSprite:
 			name, _ := s.spriteForHost(r.Host)
-			s.serveSpriteURL(w, r, name, false)
+			s.serveSpriteURL(w, r, name, s.opts.URLsProxied)
 			return
 		case httpstats.KindUI:
 			ui.ServeHTTP(w, r)
@@ -223,6 +228,14 @@ func (s *Server) BearerHandler() http.Handler {
 // serveAPI authenticates a request to the bearer API and routes it. cookie
 // says whether the dashboard's session cookie may stand in for a bearer token.
 func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, cookie bool) {
+	// The daemon's own liveness check for probes and uptime monitors, the same
+	// on every front end and needing no token. Sprite URLs never get here, so
+	// it can't shadow an app's /healthz.
+	if r.Method == http.MethodGet && r.URL.Path == "/healthz" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(w, "ok\n")
+		return
+	}
 	w.Header().Set("Sprite-Version", apiVersion)
 	p, ok := s.authenticate(bearer(r))
 	if !ok && cookie {

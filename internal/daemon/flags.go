@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -33,6 +34,10 @@ type Flags struct {
 
 	webhooks                    []string
 	webhookSecret, webhookTypes string
+
+	// proxied is the Sprites API's public URL behind a reverse proxy
+	// (BehindProxy); nil without one.
+	proxied *url.URL
 }
 
 // Bind registers the daemon's flags on fs; a daemon that has flags of its
@@ -118,6 +123,21 @@ func Bind(fs *flag.FlagSet) (finish func() (server.Options, *Flags)) {
 		o.Listen, o.APIHosts = f.listen, parseHosts(*apiHosts)
 		return o, f
 	}
+}
+
+// BehindProxy serves the Sprites API to the public through a reverse proxy
+// that terminates TLS for u's host and every name under it, and forwards them
+// to --listen with the Host intact (sandboxd's --sprites-public-url). u's host
+// becomes an --api-host, the bearer API alone, and the one URL domain: sprite
+// URLs are <scheme>://<name>.<u's host>, served on --listen and told no more
+// than --public-listen would tell. It replaces --url-domain and --public-listen,
+// which the caller must refuse beside it. u is http(s)://host[:port] and nothing
+// else.
+func (f *Flags) BehindProxy(opts *server.Options, u *url.URL) {
+	f.proxied = u
+	f.urlDomain = u.Hostname()
+	opts.APIHosts = append(opts.APIHosts, parseHosts(u.Hostname())...)
+	opts.URLsProxied = true
 }
 
 // Listen is the Sprites API's address, --listen.
