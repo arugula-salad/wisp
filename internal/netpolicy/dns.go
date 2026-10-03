@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"syscall"
 	"time"
 
 	"github.com/miekg/dns"
@@ -28,17 +29,35 @@ type DNS struct {
 	Timeout time.Duration // per upstream attempt; 0 means 2s
 }
 
+// listenUDPAndTCP binds UDP and TCP on the same address. The TCP listener takes
+// the port UDP got, so addr may use port 0 (in tests). The UDP and TCP port
+// spaces are separate, so the port the kernel picked for UDP can already be held
+// on the TCP side (another listener, or the local end of an outgoing or
+// TIME_WAIT connection); with port 0 we just pick again.
+func listenUDPAndTCP(addr string) (net.PacketConn, net.Listener, error) {
+	ap, perr := netip.ParseAddrPort(addr)
+	retry := perr == nil && ap.Port() == 0
+	for attempt := 0; ; attempt++ {
+		pc, err := net.ListenPacket("udp4", addr)
+		if err != nil {
+			return nil, nil, err
+		}
+		ln, err := net.Listen("tcp4", pc.LocalAddr().String())
+		if err == nil {
+			return pc, ln, nil
+		}
+		pc.Close()
+		if !retry || !errors.Is(err, syscall.EADDRINUSE) || attempt >= 20 {
+			return nil, nil, err
+		}
+	}
+}
+
 // Start serves on addr over both UDP and TCP until stop is called, and reports
 // the address it bound.
 func (d *DNS) Start(addr string) (bound string, stop func(), err error) {
-	pc, err := net.ListenPacket("udp4", addr)
+	pc, ln, err := listenUDPAndTCP(addr)
 	if err != nil {
-		return "", nil, err
-	}
-	// The TCP listener takes the port UDP got, so addr may use port 0 in tests.
-	ln, err := net.Listen("tcp4", pc.LocalAddr().String())
-	if err != nil {
-		pc.Close()
 		return "", nil, err
 	}
 	udp := &dns.Server{PacketConn: pc, Handler: d}
