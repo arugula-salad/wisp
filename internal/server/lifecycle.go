@@ -460,6 +460,15 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 	return rt.m, func() { once.Do(rt.end) }, nil
 }
 
+// BeginUse counts as activity on a sprite that may be running, without waking
+// one that is not: the idle watcher does not suspend it until end is called.
+// (Acquire is the same for a request that needs the VM up.)
+func (l *Lifecycle) BeginUse(id string) (end func()) {
+	rt := l.rt(id)
+	rt.begin()
+	return rt.end
+}
+
 func (l *Lifecycle) cleanupLocked(rt *runtime) {
 	rt.m = nil
 	rt.guest.close()
