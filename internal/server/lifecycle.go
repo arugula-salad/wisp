@@ -200,9 +200,12 @@ type Lifecycle struct {
 	// backups is the backup tier, nil when no bucket is configured. A nil manager's
 	// methods are no-ops, so the lifecycle needs no conditionals.
 	backups *backupManager
-	// leases reaps sprites whose workspace lease ran out (leases.go). The Server
-	// installs it, since deleting a sprite is the API's path; nil until then.
+	// leases reaps sprites whose workspace lease ran out (leases.go). nil only
+	// in a Lifecycle built by hand in tests; its methods are no-ops then.
 	leases *leases
+	// reapStarted is set by StartReaping: until then the janitor reaps nothing.
+	// Guarded by mu.
+	reapStarted bool
 	// onDelete is what the front end does when a sprite is deleted (OnDelete);
 	// guarded by mu.
 	onDelete []func(store.Sprite)
@@ -260,6 +263,7 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 			CredentialsFile: b.CredentialsFile, KeyFile: b.KeyFile, Parallel: b.Parallel, RateLimit: b.RateLimit, Log: log},
 			b, st, log, l, l.storage)
 	}
+	l.leases = newLeases(st, log, l, opts.LeaseWarning)
 	l.every(30*time.Second, l.janitor)
 	return l
 }

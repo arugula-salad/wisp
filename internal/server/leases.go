@@ -63,21 +63,25 @@ func newLeases(st *store.Store, log *slog.Logger, life *Lifecycle, warning time.
 		warned: map[string]time.Time{}, reaping: map[string]bool{}}
 }
 
-// setLeases hands the reaper to the janitor. The nil check on every method
-// below covers the window before this, and a Lifecycle built by hand in tests.
-func (l *Lifecycle) setLeases(ls *leases) {
+// StartReaping sweeps the leases once, now, and lets the janitor sweep them
+// from then on. The front end calls it once it is attached (its OnDelete hook,
+// the webhooks), so that what the reaper deletes, including what ran out while
+// the daemon was down, reaches it like any other deletion.
+func (l *Lifecycle) StartReaping() {
 	l.mu.Lock()
-	l.leases = ls
+	l.reapStarted = true
 	l.mu.Unlock()
+	l.leases.sweep()
 }
 
-// reapLeases is what the janitor calls. It reads the reaper under l.mu because
-// the Server installs it after the janitor is already running.
+// reapLeases is what the janitor calls.
 func (l *Lifecycle) reapLeases() {
 	l.mu.Lock()
-	ls := l.leases
+	on := l.reapStarted
 	l.mu.Unlock()
-	ls.sweep()
+	if on {
+		l.leases.sweep()
+	}
 }
 
 func (ls *leases) warning() time.Duration {
