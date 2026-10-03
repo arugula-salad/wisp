@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -566,16 +567,17 @@ func TestProxy(t *testing.T) {
 		}
 	})
 
-	w := fx.do("POST", "/process.Process/Start", "", nil, "E2b-Sandbox-Id", id, "E2b-Sandbox-Port", "49983", "X-Access-Token", "tok")
+	tok := fx.token(id)
+	w := fx.do("POST", "/process.Process/Start", "", nil, "E2b-Sandbox-Id", id, "E2b-Sandbox-Port", "49983", "X-Access-Token", tok)
 	want := append(envelope(0, `{"event":{"start":{"pid":7}}}`), envelope(2, `{}`)...)
 	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), want) {
 		t.Fatalf("stream: %d %q", w.Code, w.Body.Bytes())
 	}
-	if seen.Header.Get("X-Access-Token") != "tok" {
+	if seen.Header.Get("X-Access-Token") != tok {
 		t.Fatal("X-Access-Token was not passed through")
 	}
 
-	w = fx.do("POST", "/process.Process/Connect", "", nil, "E2b-Sandbox-Id", id)
+	w = fx.do("POST", "/process.Process/Connect", "", nil, "E2b-Sandbox-Id", id, "X-Access-Token", tok)
 	body := w.Body.Bytes()
 	first := envelope(0, `{"event":{"start":{"pid":7}}}`)
 	if !bytes.HasPrefix(body, first) {
@@ -604,6 +606,62 @@ func TestProxy(t *testing.T) {
 	w = fx.do("GET", "/", "", nil, "Host", "3000-"+id+".e2b.test")
 	if got := decode[map[string]any](t, w); w.Code != 502 || got["message"] != "The sandbox is running but port is not open" {
 		t.Fatalf("closed port: %d %v", w.Code, got)
+	}
+}
+
+// token is a sandbox's envd access token.
+func (fx *fixture) token(id string) string {
+	rec, _ := fx.st.GetRecord(id)
+	m, _ := metaOf(rec)
+	return m.AccessToken
+}
+
+// envd traffic without the sandbox's token (or a good signature) is refused
+// before the sandbox is woken; user ports need nothing.
+func TestEnvdAuthBeforeWake(t *testing.T) {
+	fx := newFixture(t)
+	id := fx.create(nil)
+	fx.guest = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") })
+	tok := fx.token(id)
+	future := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	past := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
+	files := func(path, user, op, token, exp string) string {
+		v := "/files?path=" + url.QueryEscape(path) + "&username=" + user + "&signature=" + url.QueryEscape(fileSignature(path, op, user, token, exp))
+		if exp != "" {
+			v += "&signature_expiration=" + exp
+		}
+		return v
+	}
+	envd := []string{"E2b-Sandbox-Id", id, "E2b-Sandbox-Port", "49983"}
+	cases := []struct {
+		name, method, path string
+		hdr                []string
+		ok                 bool
+	}{
+		{"no token", "POST", "/process.Process/Start", envd, false},
+		{"wrong token", "POST", "/process.Process/Start", append(envd, "X-Access-Token", "nope"), false},
+		{"token", "POST", "/process.Process/Start", append(envd, "X-Access-Token", tok), true},
+		{"no token, by host", "GET", "/health", []string{"Host", "49983-" + id + ".e2b.test"}, false},
+		{"token, by host", "GET", "/health", []string{"Host", "49983-" + id + ".e2b.test", "X-Access-Token", tok}, true},
+		{"signed read", "GET", files("/tmp/x", "user", "read", tok, future), envd, true},
+		{"signed read, no expiry", "GET", files("/tmp/x", "user", "read", tok, ""), envd, true},
+		{"signed write", "POST", files("/tmp/x", "user", "write", tok, future), envd, true},
+		{"expired signature", "GET", files("/tmp/x", "user", "read", tok, past), envd, false},
+		{"signature for another op", "POST", files("/tmp/x", "user", "read", tok, future), envd, false},
+		{"signature with another token", "GET", files("/tmp/x", "user", "read", "other", future), envd, false},
+		{"signature off /files", "GET", "/process.Process/List?signature=x", envd, false},
+		{"user port, no token", "GET", "/", []string{"Host", "8080-" + id + ".e2b.test"}, true},
+	}
+	for _, c := range cases {
+		boots := fx.boots
+		w := fx.do(c.method, c.path, "", nil, c.hdr...)
+		woke := fx.boots != boots
+		if c.ok && (w.Code != 200 || !woke) {
+			t.Errorf("%s: %d %s (woke %v), want it served", c.name, w.Code, w.Body, woke)
+		}
+		if !c.ok && (w.Code != 401 || woke) {
+			t.Errorf("%s: %d %s (woke %v), want 401 without waking it", c.name, w.Code, w.Body, woke)
+		}
 	}
 }
 
@@ -759,4 +817,17 @@ func TestCreateHonoursTheSandboxLimit(t *testing.T) {
 	fx.create(nil)
 	fx.f.opts.MaxSandboxes = 1
 	wantErr(t, fx.do("POST", "/v2/sandboxes", adminKey, map[string]any{"templateID": "base"}), 429, "maximum number of sandboxes")
+}
+
+func TestHealthz(t *testing.T) {
+	fx := newFixture(t)
+	if w := fx.do("GET", "/healthz", "", nil); w.Code != 200 || w.Body.String() != "ok\n" {
+		t.Fatalf("healthz: %d %q", w.Code, w.Body)
+	}
+	// On a sandbox's host it is the sandbox's own path.
+	id := fx.create(nil)
+	fx.guest = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "app") })
+	if w := fx.do("GET", "/healthz", "", nil, "Host", "8080-"+id+".e2b.test"); w.Body.String() != "app" {
+		t.Fatalf("healthz on a sandbox host: %d %q", w.Code, w.Body)
+	}
 }

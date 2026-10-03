@@ -209,6 +209,13 @@ NAME=somehost DATA=/data BIN=/usr/bin HOME="$H" make -s -n -C "$SRC" install-ser
   && pass "make install-service ignores NAME/DATA/BIN from the environment" || fail "make install-service tripped on environment NAME/DATA/BIN"
 mk initrd | grep -q "initrd: writing $H/.local/share/wisp/initrd.cpio" && pass "make initrd names its (default) data dir" || fail "make initrd output"
 WISP_DATA=/x make -s -n -C "$SRC" image | grep -q "image: writing /x/images/base.ext4" && pass "make image honours WISP_DATA and says so" || fail "make image output"
+mk images > "$T/out" && fail "make images without DATA" || { grep -q usage "$T/out" && pass "make images needs DATA" || fail "make images needs DATA: no usage message"; }
+WISP_DATA=/x make -s -n -C "$SRC" images > "$T/out" 2>&1 && fail "make images took DATA from WISP_DATA" || pass "make images needs DATA on the command line, not WISP_DATA"
+mk images DATA="$H/.local/share/wisp" > "$T/out" && fail "make images into wisp's data dir" || { grep -q "not wisp's" "$T/out" && pass "make images refuses wisp's data dir" || fail "make images into wisp's data dir: $(cat "$T/out")"; }
+out=$(mk images DATA=/x)
+grep -q '^WISP_DATA=/x ./scripts/fetch-deps.sh$' <<<"$out" && grep -q 'for v in base e2b vercel daytona; do' <<<"$out" && grep -q 'WISP_DATA=/x ./scripts/build-image.sh' <<<"$out" \
+  && pass "make images fetches deps and builds every variant into DATA" || { fail "make images recipe:"; echo "$out"; }
+mk images DATA=/x VARIANTS=e2b | grep -q 'for v in e2b; do' && pass "make images VARIANTS picks the disks" || fail "make images VARIANTS"
 
 echo
 [ "$fails" = 0 ] && echo "all install-service.sh checks passed" || { echo "$fails check(s) failed"; exit 1; }

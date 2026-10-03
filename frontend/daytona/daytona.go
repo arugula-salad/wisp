@@ -30,6 +30,7 @@ package daytona
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -179,6 +180,11 @@ func (f *Frontend) Handler() http.Handler {
 			return
 		}
 		switch {
+		case r.URL.Path == "/healthz" && r.Method == http.MethodGet:
+			// The daemon's own liveness check for probes and uptime monitors,
+			// the same on every front end. Preview hosts never get here.
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			io.WriteString(w, "ok\n")
 		case strings.HasPrefix(r.URL.Path, "/toolbox/"):
 			toolbox.ServeHTTP(w, r)
 		case r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/"):

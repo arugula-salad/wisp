@@ -941,3 +941,13 @@ func TestPreview(t *testing.T) {
 		t.Errorf("nothing listening: %d", r.code)
 	}
 }
+
+func TestHealthz(t *testing.T) {
+	fx := newFixture(t)
+	if r := fx.do("GET", "/healthz", "", nil); r.code != 200 || string(r.body) != "ok\n" {
+		t.Fatalf("healthz: %d %q", r.code, r.body)
+	}
+	if r := fx.do("POST", "/healthz", "", nil); r.code != 404 {
+		t.Fatalf("POST healthz: %d %q", r.code, r.body)
+	}
+}

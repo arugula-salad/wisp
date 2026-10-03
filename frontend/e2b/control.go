@@ -29,6 +29,13 @@ func (f *Frontend) controlPlane() http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.WriteString(w, "Health check successful")
 	})
+	// The daemon's own liveness check for probes and uptime monitors, the same
+	// on every front end. Sandbox hosts never get here, so it can't shadow an
+	// app's /healthz.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(w, "ok\n")
+	})
 	mux.HandleFunc("POST /v2/sandboxes", f.auth(true, func(w http.ResponseWriter, r *http.Request) { f.create(w, r, defaultTimeout) }))
 	mux.HandleFunc("POST /sandboxes", f.auth(true, func(w http.ResponseWriter, r *http.Request) { f.create(w, r, defaultTimeoutV1) }))
 	mux.HandleFunc("GET /v2/sandboxes", f.auth(false, f.list))

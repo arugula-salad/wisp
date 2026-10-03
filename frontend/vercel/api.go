@@ -23,6 +23,13 @@ import (
 
 func (f *Frontend) apiMux() http.Handler {
 	mux := http.NewServeMux()
+	// The daemon's own liveness check for probes and uptime monitors, the same
+	// on every front end. Route hosts never get here, so it can't shadow an
+	// app's /healthz.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(w, "ok\n")
+	})
 	// Sandboxes, by name.
 	mux.HandleFunc("POST /v3/sandboxes", f.auth(true, f.create))
 	mux.HandleFunc("POST /v2/sandboxes", f.auth(true, f.create))

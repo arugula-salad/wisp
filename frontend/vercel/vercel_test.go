@@ -961,3 +961,10 @@ func TestOrderedIsStrict(t *testing.T) {
 		}
 	}
 }
+
+func TestHealthz(t *testing.T) {
+	fx := newFixture(t)
+	if w := fx.do("GET", "/healthz", "", nil); w.Code != 200 || w.Body.String() != "ok\n" {
+		t.Fatalf("healthz: %d %q", w.Code, w.Body)
+	}
+}

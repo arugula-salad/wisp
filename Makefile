@@ -1,7 +1,7 @@
 GO ?= go
 export WISP_DATA ?= $(HOME)/.local/share/wisp
 
-.PHONY: all build netd deps image initrd run install-service install-sandboxd test test-scripts e2e
+.PHONY: all build netd deps image images initrd run install-service install-sandboxd test test-scripts e2e
 
 # The main install is NAME=wisp on the default data directory. A second daemon
 # (sandboxd) goes through install-sandboxd, which needs both spelled out; and
@@ -18,6 +18,17 @@ ifeq ($(and $(NAME),$(DATA)),)
 $(error usage: make install-sandboxd NAME=<unit name, not wisp> DATA=<data dir, not wisp's> [FLAGS='--listen 127.0.0.1:7790 ...'])
 endif
 endif
+# make images fills a second daemon's data directory: given on the command line,
+# never wisp's (whose images are make image and scripts/build-image.sh <variant>).
+ifneq ($(filter images,$(MAKECMDGOALS)),)
+ifneq ($(origin DATA),command line)
+$(error usage: make images DATA=<data dir, not wisp's> [VARIANTS='base e2b vercel daytona'])
+endif
+ifeq ($(abspath $(DATA)),$(abspath $(HOME)/.local/share/wisp))
+$(error make images is for a second daemon's data dir, not wisp's ($(DATA)); wisp's own are make image and scripts/build-image.sh <variant>)
+endif
+endif
+VARIANTS ?= base e2b vercel daytona
 all: build netd initrd
 
 build:
@@ -33,6 +44,10 @@ deps:            ## download firecracker + guest kernel
 image:           ## build the base sprite disk image (rootless podman) into $(WISP_DATA)
 	@echo "image: writing $(WISP_DATA)/images/base.ext4 (set WISP_DATA to build elsewhere)"
 	./scripts/build-image.sh
+
+images:          ## a second daemon's data dir: its own firecracker + kernel, then each of VARIANTS' disks; DATA=<dir> [VARIANTS='base e2b vercel daytona']
+	WISP_DATA=$(DATA) ./scripts/fetch-deps.sh
+	@set -e; for v in $(VARIANTS); do echo "images: writing $(DATA)/images/$$v.ext4"; WISP_DATA=$(DATA) ./scripts/build-image.sh $$v; done
 
 initrd:          ## pack the guest agent into $(WISP_DATA); takes effect on each sprite's next cold boot
 	@echo "initrd: writing $(WISP_DATA)/initrd.cpio (set WISP_DATA to build elsewhere)"

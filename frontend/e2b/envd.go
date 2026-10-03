@@ -128,6 +128,36 @@ func (f *Frontend) bySignature(r *http.Request) (string, bool) {
 	return "", false
 }
 
+// envdAuthorized reports whether r carries what envd will ask of it: the
+// sandbox's access token as X-Access-Token, or an unexpired /files signature
+// made with it. envd checks again itself, but only once the sandbox is awake;
+// checking here first means traffic without either can't wake a paused
+// sandbox, or keep a running one from pausing. User ports are not checked:
+// they are public, as on hosted E2B.
+func envdAuthorized(r *http.Request, m meta, now time.Time) bool {
+	if m.AccessToken == "" {
+		return true
+	}
+	if tok := r.Header.Get("X-Access-Token"); tok != "" {
+		return subtle.ConstantTimeCompare([]byte(tok), []byte(m.AccessToken)) == 1
+	}
+	q := r.URL.Query()
+	sig := q.Get("signature")
+	op := map[string]string{http.MethodGet: "read", http.MethodHead: "read", http.MethodPost: "write"}[r.Method]
+	if sig == "" || op == "" || r.URL.Path != "/files" {
+		return false
+	}
+	exp := q.Get("signature_expiration")
+	if exp != "" {
+		n, err := strconv.ParseInt(exp, 10, 64)
+		if err != nil || now.Unix() > n {
+			return false
+		}
+	}
+	want := fileSignature(q.Get("path"), op, q.Get("username"), m.AccessToken, exp)
+	return subtle.ConstantTimeCompare([]byte(want), []byte(sig)) == 1
+}
+
 // envdInternal are envd's endpoints for the orchestrator, never served through
 // E2B's public proxy. /init in particular is ours to call (initEnvd).
 var envdInternal = map[string]bool{"/init": true, "/freeze": true, "/unfreeze": true,
@@ -166,6 +196,10 @@ func (f *Frontend) serveSandbox(w http.ResponseWriter, r *http.Request, t target
 	}
 	if t.port == EnvdPort && envdInternal[r.URL.Path] {
 		writeErr(w, http.StatusNotFound, "not found: "+r.URL.Path+" is envd's internal API")
+		return
+	}
+	if t.port == EnvdPort && !envdAuthorized(r, m, time.Now()) {
+		writeErr(w, http.StatusUnauthorized, "unauthorized access, please provide a valid access token or method signing if supported")
 		return
 	}
 	mach, release, err := f.acquire(r.Context(), rec)
