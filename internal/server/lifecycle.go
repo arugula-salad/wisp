@@ -43,7 +43,10 @@ import (
 //     delete hooks), rt.useMu, the store's own lock, and the mutexes of the
 //     disk guard, admission, egress, backups and leases. None is ever held while
 //     waiting for rt.mu, so l.rt(id) may be called with or without a sprite
-//     locked, and the store may be read and written under rt.mu.
+//     locked, and the store may be read and written under rt.mu. Naming a
+//     record for an event or the log (describe) reads the store and then
+//     l.mu, one after the other, so it may be done under any lock but those
+//     two; nothing emits or logs a label holding either.
 //
 // Background passes that must never wait behind a transition (Status, peek,
 // autoscale, makeRoom) use TryLock and treat a held lock as "busy".
