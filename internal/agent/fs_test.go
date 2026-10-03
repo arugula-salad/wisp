@@ -90,3 +90,52 @@ func TestFilesystemAPI(t *testing.T) {
 		t.Fatalf("delete of / must be refused, got %d", code)
 	}
 }
+
+func TestFilesystemStatMkdir(t *testing.T) {
+	ts, _ := newTestServer(t)
+	root := t.TempDir()
+	post := func(body map[string]any) (int, []byte) {
+		body["workingDir"] = root
+		b, _ := json.Marshal(body)
+		return fsDo(t, "POST", ts.URL+"/fs/mkdir", bytes.NewReader(b))
+	}
+	if code, b := post(map[string]any{"path": "x/y"}); code != http.StatusNotFound {
+		t.Fatalf("mkdir without parents under a missing dir: %d %s", code, b)
+	}
+	if code, b := post(map[string]any{"path": "x/y", "parents": true, "mode": "0700"}); code != http.StatusOK {
+		t.Fatalf("mkdir -p: %d %s", code, b)
+	}
+	if st, err := os.Stat(filepath.Join(root, "x/y")); err != nil || !st.IsDir() || st.Mode().Perm() != 0o700 {
+		t.Fatalf("on disk: %v %v", st, err)
+	}
+	if code, _ := post(map[string]any{"path": "x/y", "parents": true}); code != http.StatusOK {
+		t.Fatalf("mkdir -p of an existing dir: %d, want 200", code)
+	}
+	if st, _ := os.Stat(filepath.Join(root, "x/y")); st.Mode().Perm() != 0o700 {
+		t.Fatalf("mkdir -p changed an existing dir's mode to %v", st.Mode())
+	}
+	if code, _ := post(map[string]any{"path": "x/y"}); code != http.StatusConflict {
+		t.Fatalf("mkdir of an existing dir: %d, want 409", code)
+	}
+	if code, b := post(map[string]any{"path": "x/z", "mode": "0751"}); code != http.StatusOK {
+		t.Fatalf("mkdir: %d %s", code, b)
+	}
+	if st, _ := os.Stat(filepath.Join(root, "x/z")); st.Mode().Perm() != 0o751 {
+		t.Fatalf("mode %v, want 0751 whatever the umask", st.Mode())
+	}
+	if code, _ := post(map[string]any{"path": "x/q", "mode": "rwx"}); code != http.StatusBadRequest {
+		t.Fatalf("bad mode: %d, want 400", code)
+	}
+
+	var e fsEntry
+	code, b := fsDo(t, "GET", ts.URL+"/fs/stat?"+url.Values{"path": {"x/y"}, "workingDir": {root}}.Encode(), nil)
+	if json.Unmarshal(b, &e); code != 200 || !e.IsDir || e.Type != "directory" || e.Name != "y" || e.Mode != "0700" {
+		t.Fatalf("stat of a directory: %d %s", code, b)
+	}
+	if e.UID != os.Getuid() || e.Owner == "" || e.Group == "" {
+		t.Fatalf("owner: %+v", e)
+	}
+	if code, _ := fsDo(t, "GET", ts.URL+"/fs/stat?"+url.Values{"path": {"x/none"}, "workingDir": {root}}.Encode(), nil); code != http.StatusNotFound {
+		t.Fatalf("stat of a missing path: %d, want 404", code)
+	}
+}

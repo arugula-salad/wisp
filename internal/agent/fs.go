@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -27,12 +28,20 @@ type fsEntry struct {
 	Mode    string    `json:"mode"` // octal permission bits, e.g. "0644"
 	ModTime time.Time `json:"modTime"`
 	IsDir   bool      `json:"isDir"`
+	// Owner and Group are the owning account's and group's names, or their
+	// numeric IDs where the guest has no name for them.
+	UID   int    `json:"uid"`
+	GID   int    `json:"gid"`
+	Owner string `json:"owner"`
+	Group string `json:"group"`
 }
 
 func (s *Server) registerFS(mux *http.ServeMux) {
 	mux.HandleFunc("GET /fs/read", s.fsRead)
 	mux.HandleFunc("PUT /fs/write", s.fsWrite)
 	mux.HandleFunc("GET /fs/list", s.fsList)
+	mux.HandleFunc("GET /fs/stat", s.fsStat)
+	mux.HandleFunc("POST /fs/mkdir", s.fsMkdir)
 	mux.HandleFunc("DELETE /fs/delete", s.fsDelete)
 	mux.HandleFunc("POST /fs/rename", s.fsRename)
 	mux.HandleFunc("POST /fs/copy", s.fsCopy)
@@ -113,8 +122,26 @@ func entryFor(path string, info fs.FileInfo) fsEntry {
 	case info.Mode()&fs.ModeSymlink != 0:
 		typ = "symlink"
 	}
-	return fsEntry{Name: info.Name(), Path: path, Type: typ, Size: info.Size(),
+	e := fsEntry{Name: info.Name(), Path: path, Type: typ, Size: info.Size(),
 		Mode: fmt.Sprintf("%04o", info.Mode().Perm()), ModTime: info.ModTime().UTC(), IsDir: info.IsDir()}
+	if sys, ok := info.Sys().(*syscall.Stat_t); ok {
+		e.UID, e.GID = int(sys.Uid), int(sys.Gid)
+		e.Owner, e.Group = ownerNames(e.UID, e.GID)
+	}
+	return e
+}
+
+// ownerNames names a uid and a gid as the guest's account database does,
+// falling back to the number for one it does not know.
+func ownerNames(uid, gid int) (owner, group string) {
+	owner, group = strconv.Itoa(uid), strconv.Itoa(gid)
+	if u, err := user.LookupId(owner); err == nil {
+		owner = u.Username
+	}
+	if g, err := user.LookupGroupId(group); err == nil {
+		group = g.Name
+	}
+	return owner, group
 }
 
 func (s *Server) fsRead(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +255,68 @@ func (s *Server) fsList(w http.ResponseWriter, r *http.Request) {
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": path, "entries": entries, "count": len(entries)})
+}
+
+// fsStat is one entry for path itself, file or directory, without following
+// a final symlink (as fs/list does for its entries).
+func (s *Server) fsStat(w http.ResponseWriter, r *http.Request) {
+	path, err := queryPath(r)
+	if err != nil {
+		fsFail(w, path, err)
+		return
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		fsFail(w, path, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, entryFor(path, info))
+}
+
+// fsMkdir creates a directory, owned by the sprite user, with mode (octal,
+// default 0755). With parents, missing parents are created too and an
+// existing directory is not an error (mkdir -p); without, the parent must
+// exist and the directory must not (409).
+func (s *Server) fsMkdir(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		fsPathsRequest
+		Parents bool `json:"parents"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		fsFail(w, "", fmt.Errorf("%w: invalid JSON body", errBadRequest))
+		return
+	}
+	path, err := resolvePath(req.Path, req.WorkingDir)
+	if err != nil {
+		fsFail(w, path, err)
+		return
+	}
+	perm := fs.FileMode(0o755)
+	if req.Mode != "" {
+		n, err := strconv.ParseUint(req.Mode, 8, 32)
+		if err != nil {
+			fsFail(w, path, fmt.Errorf("%w: invalid mode %q", errBadRequest, req.Mode))
+			return
+		}
+		perm = fs.FileMode(n).Perm()
+	}
+	_, statErr := os.Stat(path)
+	existed := statErr == nil
+	if req.Parents {
+		err = mkdirAllOwned(path, perm)
+	} else if err = os.Mkdir(path, perm); err == nil {
+		own(path)
+	}
+	if err == nil && !existed {
+		// Mkdir's mode is filtered by the umask; the caller asked for this one.
+		err = os.Chmod(path, perm)
+	}
+	if err != nil {
+		fsFail(w, path, err)
+		return
+	}
+	s.Sessions.touch()
+	writeJSON(w, http.StatusOK, map[string]any{"path": path, "mode": fmt.Sprintf("%04o", perm)})
 }
 
 func (s *Server) fsDelete(w http.ResponseWriter, r *http.Request) {
