@@ -106,6 +106,9 @@ type Record struct {
 	// Protected holds off that deletion without forgetting the deadline, for the
 	// sprite somebody turns out to still be using.
 	Protected bool `json:"protected,omitempty"`
+	// Lifecycle is the sandbox's own idle and deadline rules (policy.go); nil
+	// is the daemon's defaults, which are every sprite's.
+	Lifecycle *LifecyclePolicy `json:"lifecycle,omitempty"`
 
 	// Ext is where a front end other than Sprites keeps its own metadata, by
 	// front end. The engine never reads it.

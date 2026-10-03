@@ -9,7 +9,7 @@ import (
 // SpriteMeta interleaved, in the order of the single struct they were split
 // from, so a file decodes and encodes back to the same bytes and a wispd from
 // before the split reads what this one writes. The fields only a newer front
-// end sets (api, hostname, ext) come last and are left out when empty.
+// end sets (api, hostname, ext, lifecycle) come last and are left out when empty.
 // TestSpriteJSONFieldsMatch keeps it in step with the two halves.
 type spriteJSON struct {
 	ID             string                     `json:"id"`
@@ -42,6 +42,7 @@ type spriteJSON struct {
 	API            string                     `json:"api,omitempty"`
 	Hostname       string                     `json:"hostname,omitempty"`
 	Ext            map[string]json.RawMessage `json:"ext,omitempty"`
+	Lifecycle      *LifecyclePolicy           `json:"lifecycle,omitempty"`
 }
 
 // defaultHostname is the hostname a record gets when it names none: a
@@ -63,6 +64,7 @@ func (sp Sprite) MarshalJSON() ([]byte, error) {
 		NetworkRules: sp.NetworkRules, Privileges: sp.Privileges, Resources: sp.Resources,
 		URLDomain: sp.URLDomain, ParentID: sp.ParentID, Spawn: sp.Spawn, Domains: sp.Domains,
 		ExpiresAt: sp.ExpiresAt, Protected: sp.Protected, API: sp.API, Hostname: sp.Hostname, Ext: sp.Ext,
+		Lifecycle: sp.Lifecycle,
 	}
 	if j.Hostname == sp.defaultHostname() {
 		j.Hostname = ""
@@ -83,7 +85,7 @@ func (sp *Sprite) UnmarshalJSON(b []byte) error {
 			Checkpoints: j.Checkpoints, NextCheckpoint: j.NextCheckpoint, NextAuto: j.NextAuto,
 			Lineage: j.Lineage, Image: j.Image, Mounts: j.Mounts, NetworkRules: j.NetworkRules,
 			Privileges: j.Privileges, Resources: j.Resources, ExpiresAt: j.ExpiresAt,
-			Protected: j.Protected, Ext: j.Ext,
+			Protected: j.Protected, Ext: j.Ext, Lifecycle: j.Lifecycle,
 		},
 		SpriteMeta: SpriteMeta{
 			Name: j.Name, URLSettings: j.URLSettings, Labels: j.Labels, URLDomain: j.URLDomain,
