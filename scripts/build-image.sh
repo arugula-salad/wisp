@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
-# Builds the base sprite disk image from images/base/Containerfile. No root
-# needed: the ext4 image is populated inside podman's user namespace so file
-# ownership inside the guest comes out right.
+# Builds a sprite disk image from images/<variant>/Containerfile into
+# <data>/images/<variant>.ext4. No root needed: the ext4 image is populated
+# inside podman's user namespace so file ownership inside the guest comes out right.
+#
+#   ./scripts/build-image.sh        # base.ext4, the disk every sprite starts from
+#   ./scripts/build-image.sh e2b    # e2b.ext4, E2B's userland with envd (docs/images.md)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 DATA="${WISP_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/wisp}"
 DISK_GB="${SPRITE_DISK_GB:-20}"
-TAG=wisp-base
-OUT="$DATA/images/base.ext4"
+VARIANT="${1:-base}"
+case "$VARIANT" in
+  base) ;;
+  e2b) ./scripts/build-envd.sh ;; # the image COPYs the binary from its build context
+  *) echo "usage: build-image.sh [base|e2b]" >&2; exit 2 ;;
+esac
+TAG="wisp-$VARIANT"
+OUT="$DATA/images/$VARIANT.ext4"
 
 mkdir -p "$DATA/images"
-podman build -t "$TAG" images/base
+podman build -t "$TAG" "images/$VARIANT"
 
 rm -f "$OUT.tmp"
 truncate -s "${DISK_GB}G" "$OUT.tmp"
