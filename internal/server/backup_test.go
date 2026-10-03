@@ -80,7 +80,7 @@ func waitBackup(t *testing.T, s *Server, id string) *backupState {
 func TestBackupUploadsAndReportsItsState(t *testing.T) {
 	s, sp, srv := newBackupServer(t)
 
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	st := waitBackup(t, s, sp.ID)
 	if st.Phase != "idle" || st.Error != "" || st.LastAt == nil {
 		t.Fatalf("state after a successful backup: %+v", st)
@@ -124,7 +124,7 @@ func TestBackupUploadsAndReportsItsState(t *testing.T) {
 func TestNoBackupLabelOptsOut(t *testing.T) {
 	s, sp, srv := newBackupServer(t, NoBackupLabel)
 
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	// Nothing to wait for: the enqueue is refused outright.
 	time.Sleep(50 * time.Millisecond)
 	if st := s.backups.State(sp.ID); st.Phase != "idle" || st.LastAt != nil {
@@ -146,7 +146,7 @@ func TestBackupFailureIsVisibleAndNotFatal(t *testing.T) {
 		return 0
 	})
 
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	st := waitBackup(t, s, sp.ID)
 	if st.Phase != "error" || st.Error == "" || st.Failures != 1 {
 		t.Fatalf("a failed backup should be visible: %+v", st)
@@ -161,7 +161,7 @@ func TestBackupFailureIsVisibleAndNotFatal(t *testing.T) {
 
 	// It recovers: the bucket comes back and the next attempt clears the error.
 	srv.SetFail(nil)
-	s.backups.Enqueue(sp, "periodic")
+	s.backups.Enqueue(sp.ID, "periodic")
 	if st := waitBackup(t, s, sp.ID); st.Phase != "idle" || st.Error != "" || st.Failures != 0 || st.LastAt == nil {
 		t.Fatalf("state after recovery: %+v", st)
 	}
@@ -177,7 +177,7 @@ func TestBackupDefersWhenTheSpriteIsRunning(t *testing.T) {
 	rt.mu.Lock()
 	rt.m = &vmm.Machine{}
 	rt.mu.Unlock()
-	s.backups.Enqueue(sp, "periodic")
+	s.backups.Enqueue(sp.ID, "periodic")
 	st := waitBackup(t, s, sp.ID)
 
 	if st.Phase != "idle" || st.LastAt != nil {
@@ -196,7 +196,7 @@ func TestBackupDefersWhenTheSpriteIsRunning(t *testing.T) {
 	rt.mu.Lock()
 	rt.m = nil
 	rt.mu.Unlock()
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	if st := waitBackup(t, s, sp.ID); st.LastAt == nil {
 		t.Fatalf("backup after the sprite stopped: %+v", st)
 	}
@@ -217,7 +217,7 @@ func TestAWakeDuringAnInPlaceUploadLeavesNoManifest(t *testing.T) {
 		}
 		return 0
 	})
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	st := waitBackup(t, s, sp.ID)
 	if st.Phase != "idle" || st.Error != "" || st.LastAt != nil {
 		t.Fatalf("a backup overtaken by a wake is deferred, not failed and not claimed: %+v", st)
@@ -229,7 +229,7 @@ func TestAWakeDuringAnInPlaceUploadLeavesNoManifest(t *testing.T) {
 	}
 
 	srv.SetFail(nil)
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	if st := waitBackup(t, s, sp.ID); st.LastAt == nil {
 		t.Fatalf("backup after the next suspend: %+v", st)
 	}
@@ -259,7 +259,7 @@ func TestABucketThatIsDownAtStartupIsReportedAndRetried(t *testing.T) {
 	opts := Options{NoNetwork: true, Backup: BackupOptions{Endpoint: srv.URL, Bucket: "buck", Region: "home-cloud"}}
 	s := New(testURLs(opts, "org", "0"), st, NewLifecycle(opts, st, log), log, "tok")
 
-	s.backups.Enqueue(*sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	if got := waitBackup(t, s, sp.ID); got.Phase != "error" || !strings.Contains(got.Error, "Service Unavailable") || got.LastAt != nil {
 		t.Fatalf("state with the bucket down: %+v", got)
 	}
@@ -269,7 +269,7 @@ func TestABucketThatIsDownAtStartupIsReportedAndRetried(t *testing.T) {
 	}
 
 	srv.SetFail(nil)
-	s.backups.Enqueue(*sp, "catch-up")
+	s.backups.Enqueue(sp.ID, "catch-up")
 	if got := waitBackup(t, s, sp.ID); got.Phase != "idle" || got.Error != "" || got.LastAt == nil {
 		t.Fatalf("state once the bucket is back: %+v", got)
 	}
@@ -281,7 +281,7 @@ func TestABucketThatIsDownAtStartupIsReportedAndRetried(t *testing.T) {
 // A restart must not forget recovery points: they are in the bucket.
 func TestRecoveryPointsSurviveARestart(t *testing.T) {
 	s, sp, srv := newBackupServer(t)
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	first := waitBackup(t, s, sp.ID)
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -298,7 +298,7 @@ func TestRecoveryPointsSurviveARestart(t *testing.T) {
 
 func TestDeleteTombstonesInTheBucket(t *testing.T) {
 	s, sp, srv := newBackupServer(t)
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	waitBackup(t, s, sp.ID)
 
 	s.backups.MarkDeleted(sp)
@@ -327,7 +327,7 @@ func TestDeleteTombstonesInTheBucket(t *testing.T) {
 // lose the entire data directory, and rebuild it somewhere else.
 func TestRestoreRebuildsTheMachineDirectory(t *testing.T) {
 	s, sp, srv := newBackupServer(t)
-	s.backups.Enqueue(sp, "suspend")
+	s.backups.Enqueue(sp.ID, "suspend")
 	waitBackup(t, s, sp.ID)
 
 	original, err := os.ReadFile(filepath.Join(s.store.Dir(sp.ID), vmm.DiskFile))
@@ -385,7 +385,7 @@ func TestRenderOmitsBackupWhenNoBucketIsConfigured(t *testing.T) {
 		t.Errorf("backup state reported although backups are off: %+v", got.Backup)
 	}
 	// And the lifecycle's hook is a no-op rather than a panic.
-	s.life.backups.Enqueue(sp, "suspend")
+	s.life.backups.Enqueue(sp.ID, "suspend")
 }
 
 func TestCloneReflinkRefusesToFallBack(t *testing.T) {

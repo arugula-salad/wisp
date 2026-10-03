@@ -15,7 +15,7 @@ func TestApplyPolicyLeavesAStoppedSpriteAlone(t *testing.T) {
 	sp, _ := s.store.GetByName(store.Sprites, "cp")
 	rt.mu.Lock()
 	done := make(chan error, 1)
-	go func() { done <- s.life.ApplyPolicy(context.Background(), sp) }()
+	go func() { done <- s.life.ApplyPolicy(context.Background(), sp.Record) }()
 	select {
 	case <-done:
 		t.Fatal("ApplyPolicy did not wait for the sprite's lock")
@@ -25,7 +25,7 @@ func TestApplyPolicyLeavesAStoppedSpriteAlone(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("ApplyPolicy on a stopped sprite: %v", err)
 	}
-	if s.life.Status(sp) != "cold" {
-		t.Errorf("ApplyPolicy changed the sprite's state to %s", s.life.Status(sp))
+	if s.life.Status(sp.Record) != "cold" {
+		t.Errorf("ApplyPolicy changed the sprite's state to %s", s.life.Status(sp.Record))
 	}
 }

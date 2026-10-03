@@ -262,7 +262,7 @@ type spriteJSON struct {
 
 func (s *Server) render(sp store.Sprite) spriteJSON {
 	return spriteJSON{
-		ID: sp.ID, Name: sp.Name, Organization: s.org, Status: s.life.Status(sp),
+		ID: sp.ID, Name: sp.Name, Organization: s.org, Status: s.life.Status(sp.Record),
 		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name, s.urlDomainOf(sp)),
 		URLSettings: sp.URLSettings, URLDomain: s.urlDomainOf(sp), Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
 		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, ParentID: sp.ParentID,
@@ -565,7 +565,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 	if !ok {
 		return
 	}
-	m, release, err := s.life.Acquire(r.Context(), sp)
+	m, release, err := s.life.Acquire(r.Context(), sp.Record)
 	if err != nil {
 		s.writeWakeErr(w, sp.Name, err)
 		return

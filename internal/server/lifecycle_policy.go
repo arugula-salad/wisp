@@ -16,7 +16,7 @@ import (
 // ApplyPolicy hands sp's stored privileges and resources policy to the guest
 // if the sprite is running. A sleeping sprite is not woken: it gets the policy
 // on wake. (applyPolicy, below, is the cold-boot half.)
-func (l *Lifecycle) ApplyPolicy(ctx context.Context, sp store.Sprite) error {
+func (l *Lifecycle) ApplyPolicy(ctx context.Context, sp store.Record) error {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -33,7 +33,7 @@ type guestPolicy struct {
 	MemoryLimitMB int    `json:"memory_limit_mb,omitempty"`
 }
 
-func guestPolicyFor(sp store.Sprite) guestPolicy {
+func guestPolicyFor(sp store.Record) guestPolicy {
 	var p guestPolicy
 	if sp.Privileges != nil {
 		p.Profile, p.NoNewPrivs = sp.Privileges.Profile, sp.Privileges.NoNewPrivileges
@@ -47,7 +47,7 @@ func guestPolicyFor(sp store.Sprite) guestPolicy {
 // pushPolicy sends the stored policy to a running guest. It reads the store
 // rather than take a Sprite, because callers' copies can predate a policy change.
 func (l *Lifecycle) pushPolicy(ctx context.Context, m *vmm.Machine, id string) error {
-	sp, err := l.store.Get(id)
+	sp, err := l.store.GetRecord(id)
 	if err != nil {
 		return err
 	}
@@ -62,23 +62,23 @@ func (l *Lifecycle) pushPolicy(ctx context.Context, m *vmm.Machine, id string) e
 // and must be cold booted instead, at the cost of its memory state. A guest
 // that fails to take an empty policy is let through: that is a snapshot from
 // before agents knew about policies, and it has nothing to enforce.
-func (l *Lifecycle) policyResumed(ctx context.Context, m *vmm.Machine, sp store.Sprite) bool {
+func (l *Lifecycle) policyResumed(ctx context.Context, m *vmm.Machine, sp store.Record) bool {
 	err := l.pushPolicy(ctx, m, sp.ID)
 	if err == nil {
 		return true
 	}
-	if cur, gerr := l.store.Get(sp.ID); gerr == nil && guestPolicyFor(cur) == (guestPolicy{}) {
-		l.log.Warn("guest did not accept the (empty) policy", "sprite", sp.Name, "err", err)
+	if cur, gerr := l.store.GetRecord(sp.ID); gerr == nil && guestPolicyFor(cur) == (guestPolicy{}) {
+		l.log.Warn("guest did not accept the (empty) policy", "sprite", l.label(sp), "err", err)
 		return true
 	}
-	l.log.Warn("guest cannot enforce the policy; discarding warm state to boot a current agent", "sprite", sp.Name, "err", err)
+	l.log.Warn("guest cannot enforce the policy; discarding warm state to boot a current agent", "sprite", l.label(sp), "err", err)
 	return false
 }
 
 // applyPolicy shapes a cold boot: the policy rides the kernel command line so
 // it is in force before the guest starts its services, and a memory limit
 // sizes the VM, which is the one bound that root inside the guest cannot lift.
-func applyPolicy(cfg *vmm.Config, sp store.Sprite) {
+func applyPolicy(cfg *vmm.Config, sp store.Record) {
 	p := guestPolicyFor(sp)
 	if p.Profile != "" {
 		cfg.BootArgs = append(cfg.BootArgs, "sprite.profile="+p.Profile)
@@ -96,7 +96,7 @@ func applyPolicy(cfg *vmm.Config, sp store.Sprite) {
 // a running sprite, where upstream puts it. Best effort: the file is information
 // for tools in the guest, enforcement is entirely on the host, and the next wake
 // publishes again.
-func (l *Lifecycle) publishNetworkPolicy(ctx context.Context, m *vmm.Machine, sp store.Sprite) {
+func (l *Lifecycle) publishNetworkPolicy(ctx context.Context, m *vmm.Machine, sp store.Record) {
 	rules := sp.NetworkRules
 	if rules == nil {
 		rules = []store.NetworkRule{}
@@ -104,13 +104,13 @@ func (l *Lifecycle) publishNetworkPolicy(ctx context.Context, m *vmm.Machine, sp
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	if err := agentCall(ctx, m, http.MethodPost, "/internal/netpolicy", networkPolicyJSON{Rules: rules}, nil); err != nil {
-		l.log.Debug("could not publish the network policy file in the guest", "sprite", sp.Name, "err", err)
+		l.log.Debug("could not publish the network policy file in the guest", "sprite", l.label(sp), "err", err)
 	}
 }
 
 // RepublishNetworkPolicy is for a policy change on a sprite that may be running.
 func (l *Lifecycle) RepublishNetworkPolicy(id string) {
-	sp, err := l.store.Get(id)
+	sp, err := l.store.GetRecord(id)
 	if err != nil {
 		return
 	}

@@ -103,7 +103,7 @@ func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, policy stri
 		return
 	}
 	s.life.emit(sp.Record, "policy.changed", map[string]any{"policy": policy})
-	if err := s.life.ApplyPolicy(r.Context(), sp); err != nil {
+	if err := s.life.ApplyPolicy(r.Context(), sp.Record); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", "policy saved but not applied to the running sprite: "+err.Error())
 		return
 	}

@@ -22,7 +22,7 @@ func fromInside(t *testing.T, s *Server, sprite, method, path, body string) *htt
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	s.guestAPI(sp, &guestChan{}).ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+	s.guestAPI(sp.Record, &guestChan{}).ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
 	return rec.Result()
 }
 

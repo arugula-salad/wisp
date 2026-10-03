@@ -279,7 +279,7 @@ func TestGuestSeesOnlyItsChildrensEvents(t *testing.T) {
 		status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"`+name+`"}`), http.StatusCreated)
 	}
 	lobby, _ := s.store.GetByName(store.Sprites, "lobby")
-	guest := httptest.NewServer(s.guestAPI(lobby, &guestChan{}))
+	guest := httptest.NewServer(s.guestAPI(lobby.Record, &guestChan{}))
 	defer guest.Close()
 
 	// No spawn policy, no stream; and the refusal is itself an event.

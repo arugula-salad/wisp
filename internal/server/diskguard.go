@@ -217,7 +217,7 @@ func writeNoRoom(w http.ResponseWriter, err error) {
 // does not fit it turns warm sprites cold, longest-suspended first, which costs
 // them only memory state. It reports whether the snapshot now fits; if so the
 // space is claimed until the caller, done writing, calls release.
-func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) (release func(), fits bool) {
+func (l *Lifecycle) makeRoom(sp store.Record, need int64) (release func(), fits bool) {
 	g := l.disk
 	// Held throughout: whoever asks next must see this claim, or this refusal's demotions.
 	g.mu.Lock()
@@ -232,8 +232,8 @@ func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) (release func(), fits 
 		return claim()
 	}
 	go g.watch()
-	warm := []store.Sprite{}
-	for _, o := range l.store.All() {
+	warm := []store.Record{}
+	for _, o := range l.store.Records() {
 		if o.ID != sp.ID && o.LastWarmingAt != nil {
 			warm = append(warm, o)
 		}
@@ -261,8 +261,8 @@ func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) (release func(), fits 
 			got := vmm.SnapshotBytes(dir)
 			vmm.DiscardSnapshot(dir)
 			free += got
-			l.log.Warn("sprite turned cold to make room for another's memory snapshot", "sprite", o.Name, "for", sp.Name, "freed", mib(got))
-			l.emit(o.Record, "sprite.cold", map[string]any{"reason": "disk space", "for": sp.Name})
+			l.log.Warn("sprite turned cold to make room for another's memory snapshot", "sprite", l.label(o), "for", l.label(sp), "freed", mib(got))
+			l.emit(o, "sprite.cold", map[string]any{"reason": "disk space", "for": l.label(sp)})
 		}
 		rt.mu.Unlock()
 	}

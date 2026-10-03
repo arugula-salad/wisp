@@ -140,18 +140,22 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 	return repo, nil
 }
 
-// Enqueue asks for a backup of one sprite. It never blocks and never reports an
-// error: a suspend that cannot be backed up is still a good suspend.
-func (m *backupManager) Enqueue(sp store.Sprite, reason string) {
-	if m == nil || slices.Contains(sp.Labels, NoBackupLabel) {
+// Enqueue asks for a backup of one sprite, by ID. It never blocks and never
+// reports an error: a suspend that cannot be backed up is still a good suspend.
+// A sprite labelled NoBackupLabel, or one that is gone, is not queued.
+func (m *backupManager) Enqueue(id, reason string) {
+	if m == nil {
+		return
+	}
+	if sp, err := m.store.Get(id); err != nil || slices.Contains(sp.Labels, NoBackupLabel) {
 		return
 	}
 	m.mu.Lock()
-	if _, dup := m.pending[sp.ID]; !dup {
-		m.pending[sp.ID] = reason
-		m.order = append(m.order, sp.ID)
-		m.stateFor(sp.ID).Phase = "queued"
-		m.stateFor(sp.ID).Reason = reason
+	if _, dup := m.pending[id]; !dup {
+		m.pending[id] = reason
+		m.order = append(m.order, id)
+		m.stateFor(id).Phase = "queued"
+		m.stateFor(id).Reason = reason
 	}
 	m.mu.Unlock()
 	select {
@@ -416,12 +420,12 @@ func (m *backupManager) periodic() {
 		}
 		// Without reflinks there is nothing consistent to read until it stops, and
 		// its suspend will ask for a backup itself.
-		running := m.life.Status(sp) == "running"
+		running := m.life.Status(sp.Record) == "running"
 		if running && !m.storage.reflink {
 			continue
 		}
 		if st.LastAt == nil {
-			m.Enqueue(sp, "first")
+			m.Enqueue(sp.ID, "first")
 			continue
 		}
 		// Only if something actually changed since that backup.
@@ -432,9 +436,9 @@ func (m *backupManager) periodic() {
 		if !running {
 			// A stopped sprite whose disk is newer than its recovery point is a
 			// backup that was missed, whatever the reason.
-			m.Enqueue(sp, "catch-up")
+			m.Enqueue(sp.ID, "catch-up")
 		} else if time.Since(*st.LastAt) >= every {
-			m.Enqueue(sp, "periodic")
+			m.Enqueue(sp.ID, "periodic")
 		}
 	}
 }

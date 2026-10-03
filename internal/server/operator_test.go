@@ -185,7 +185,7 @@ func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
 	me, _ := s.store.GetByName(store.Sprites, "suspending")
 
 	room := func(need int64) bool {
-		release, fits := s.life.makeRoom(me, need)
+		release, fits := s.life.makeRoom(me.Record, need)
 		release()
 		return fits
 	}
@@ -194,13 +194,13 @@ func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
 		t.Fatal("a snapshot that fits should cost nobody anything")
 	}
 	// Two suspends at once may not both be promised the same free bytes.
-	release, fits := s.life.makeRoom(me, 9*snap)
+	release, fits := s.life.makeRoom(me.Record, 9*snap)
 	if !fits || !warm("oldest") {
 		t.Fatal("9 of 10 free should fit")
 	}
 	vol.Store(10*snap + snap/2) // what a second suspend sees while the first still writes
 	other, _ := s.store.GetByName(store.Sprites, "newest")
-	if _, fits := s.life.makeRoom(other, 9*snap); fits {
+	if _, fits := s.life.makeRoom(other.Record, 9*snap); fits {
 		t.Fatal("the same space was promised twice")
 	}
 	release()

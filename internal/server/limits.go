@@ -95,7 +95,7 @@ type orgJSON struct {
 func (s *Server) orgInfo() orgJSON {
 	org := orgJSON{Name: s.org, RunningLimit: s.opts.MaxRunning}
 	for _, sp := range s.store.List(store.Sprites, "") {
-		switch s.life.Status(sp) {
+		switch s.life.Status(sp.Record) {
 		case "running":
 			org.Running++
 		case "warm":

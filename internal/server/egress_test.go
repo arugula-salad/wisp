@@ -178,7 +178,7 @@ func TestRestrictivePolicyFailsClosedWithoutHelper(t *testing.T) {
 	if sp, _ := st.GetByName(store.Sprites, "a"); len(sp.NetworkRules) != 0 {
 		t.Errorf("a rejected policy was stored: %v", sp.NetworkRules)
 	}
-	if err := s.life.egress.admit(a); err != nil {
+	if err := s.life.egress.admit(a.Record); err != nil {
 		t.Errorf("sprite with no policy should still get a NIC: %v", err)
 	}
 
@@ -265,13 +265,13 @@ func TestTapForFailsClosed(t *testing.T) {
 	call(s, "POST", "/v1/sprites/shut/policy/network", allowGithub)
 
 	helper.fail(errors.New("helper gone"))
-	if tap, err := l.tapFor(open); err != nil || tap != "mstap0" {
+	if tap, err := l.tapFor(open.Record); err != nil || tap != "mstap0" {
 		t.Fatalf("unrestricted sprite: tap %q err %v; the helper is none of its business", tap, err)
 	}
 	l.returnTap("mstap0")
 
 	// Deliberately the stale pre-policy copy: tapFor must go by the record.
-	tap, err := l.tapFor(shut)
+	tap, err := l.tapFor(shut.Record)
 	if err != nil || tap != "" {
 		t.Fatalf("restricted sprite, helper down, cold: tap %q err %v; want no NIC and no error", tap, err)
 	}
@@ -287,12 +287,12 @@ func TestTapForFailsClosed(t *testing.T) {
 	if !vmm.HasSnapshot(st.Dir(shut.ID)) {
 		t.Fatal("snapshot file names changed; update this test")
 	}
-	if tap, err := l.tapFor(shut); err == nil || !errors.Is(err, errUnenforceable) || tap != "" {
+	if tap, err := l.tapFor(shut.Record); err == nil || !errors.Is(err, errUnenforceable) || tap != "" {
 		t.Errorf("warm restricted sprite, helper down: tap %q err %v; want a refusal", tap, err)
 	}
 
 	helper.fail(nil)
-	if tap, err := l.tapFor(shut); err != nil || tap != "mstap0" {
+	if tap, err := l.tapFor(shut.Record); err != nil || tap != "mstap0" {
 		t.Errorf("helper back: tap %q err %v", tap, err)
 	}
 	if got := helper.last(); !reflect.DeepEqual(got, []string{"10.209.0.3"}) {

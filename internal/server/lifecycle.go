@@ -189,7 +189,7 @@ type Lifecycle struct {
 	gateway  net.IP // the bridge's address; sprites live in its /16. nil = no networking
 
 	// guestAPI builds the handler served on a VM's guest channel. Set by the Server.
-	guestAPI func(store.Sprite, *guestChan) http.Handler
+	guestAPI func(store.Record, *guestChan) http.Handler
 	egress   *egress
 	disk     *diskGuard
 	// storage is the sprite volume (storage.go). nil (a Lifecycle built by
@@ -257,13 +257,13 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	} else if !opts.NoNetwork {
 		log.Info("guest networking enabled", "taps", len(l.freeTaps), "bridge", pool.Bridge(), "gateway", l.gateway)
 	}
-	for _, sp := range st.All() {
+	for _, sp := range st.Records() {
 		vmm.ReapOrphan(st.Dir(sp.ID))
 	}
 	// Only now: a cgroup that still holds a live orphan cannot be removed, so
 	// sweeping before the reaping above would leave every stale leaf behind.
 	opts.Host.Confine.SweepStale()
-	l.egress = newEgress(opts, st, log, l.gateway, l.networkDenied)
+	l.egress = newEgress(opts, st, log, l.gateway, l.label, l.networkDenied)
 	if b := opts.Backup; b.Bucket != "" {
 		l.backups = newBackupManager(backup.Config{Endpoint: b.Endpoint, Bucket: b.Bucket, Region: b.Region,
 			CredentialsFile: b.CredentialsFile, KeyFile: b.KeyFile, Parallel: b.Parallel, RateLimit: b.RateLimit, Log: log},
@@ -327,7 +327,7 @@ func setupCommand(pool netd.Pool) string {
 }
 
 // spriteIP is the sprite's address within the bridge's /16.
-func (l *Lifecycle) spriteIP(sp store.Sprite) net.IP {
+func (l *Lifecycle) spriteIP(sp store.Record) net.IP {
 	if l.gateway == nil || sp.NetIndex == 0 {
 		return nil
 	}
@@ -416,7 +416,7 @@ func (l *Lifecycle) returnTap(t string) {
 }
 
 // Status is the API-visible state: running, warm (suspended in memory snapshot) or cold.
-func (l *Lifecycle) Status(sp store.Sprite) string {
+func (l *Lifecycle) Status(sp store.Record) string {
 	rt := l.rt(sp.ID)
 	// Don't block on rt.mu: a transition may be in flight. Reading m racily under useMu is not
 	// possible either, so peek with TryLock and call an in-progress transition "running".
@@ -433,9 +433,9 @@ func (l *Lifecycle) Status(sp store.Sprite) string {
 	return "cold"
 }
 
-func (l *Lifecycle) vmConfig(sp store.Sprite, tap string) vmm.Config {
+func (l *Lifecycle) vmConfig(sp store.Record, tap string) vmm.Config {
 	cfg := vmm.Config{
-		Dir: l.store.Dir(sp.ID), Hostname: sp.Name, AgentPort: agentPort,
+		Dir: l.store.Dir(sp.ID), Hostname: sp.Hostname, AgentPort: agentPort,
 		VCPUs: l.opts.DefaultVCPUs, MemMiB: l.opts.DefaultMemMiB,
 	}
 	if sp.Config.CPUs > 0 {
@@ -453,7 +453,7 @@ func (l *Lifecycle) vmConfig(sp store.Sprite, tap string) vmm.Config {
 }
 
 // Acquire makes sure the sprite is running and pins it awake until release is called.
-func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machine, release func(), err error) {
+func (l *Lifecycle) Acquire(ctx context.Context, sp store.Record) (m *vmm.Machine, release func(), err error) {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -472,9 +472,9 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 		if err := l.startLocked(ctx, sp, rt); err != nil {
 			var lim *LimitError
 			if errors.As(err, &lim) {
-				l.emit(sp.Record, "limit.refused", map[string]any{"limit": lim.Which, "max": lim.Limit, "current": lim.Current})
+				l.emit(sp, "limit.refused", map[string]any{"limit": lim.Which, "max": lim.Limit, "current": lim.Current})
 			} else {
-				l.emit(sp.Record, "sprite.wake_failed", map[string]any{"error": clipErr(err)})
+				l.emit(sp, "sprite.wake_failed", map[string]any{"error": clipErr(err)})
 			}
 			return nil, nil, err
 		}
@@ -506,7 +506,7 @@ func (l *Lifecycle) cleanupLocked(rt *runtime) {
 // startLocked boots or resumes the sprite, within the host's admission limits:
 // the MaxRunning count (limits.go), the running-memory budget and the
 // concurrent-boot cap (admission.go).
-func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
+func (l *Lifecycle) startLocked(ctx context.Context, sp store.Record, rt *runtime) error {
 	booted, err := l.admitStart(sp, rt)
 	if err != nil {
 		return err
@@ -519,7 +519,7 @@ func (l *Lifecycle) startLocked(ctx context.Context, sp store.Sprite, rt *runtim
 	return nil
 }
 
-func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime) error {
+func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Record, rt *runtime) error {
 	start := time.Now()
 	rt.gen.Add(1)
 	dir := l.store.Dir(sp.ID)
@@ -549,14 +549,14 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 		discarded = "network changed"
 		// The guest configured its address at boot; a snapshot from before the
 		// network changed (or appeared) would resume with the wrong one.
-		l.log.Info("network changed since boot; discarding warm state", "sprite", sp.Name, "was", sp.BootIP, "now", cfg.IPCIDR)
+		l.log.Info("network changed since boot; discarding warm state", "sprite", l.label(sp), "was", sp.BootIP, "now", cfg.IPCIDR)
 		vmm.DiscardSnapshot(dir)
 	}
 	if vmm.HasSnapshot(dir) {
 		mode = "warm"
 		if m, err = vmm.Restore(ctx, l.opts.Host, cfg); err != nil {
 			// A snapshot we can't load is just lost memory state; the disk is intact.
-			l.log.Warn("restore failed, falling back to cold boot", "sprite", sp.Name, "err", err)
+			l.log.Warn("restore failed, falling back to cold boot", "sprite", l.label(sp), "err", err)
 			vmm.DiscardSnapshot(dir)
 			mode, m, discarded = "cold", nil, "snapshot restore failed"
 		}
@@ -586,14 +586,14 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 	}
 	l.setBalloon(ctx, sp, rt, m, mode == "warm")
 	rt.m, rt.tap, rt.guest = m, tap, guest
-	if cur, err := l.store.Get(sp.ID); err == nil {
+	if cur, err := l.store.GetRecord(sp.ID); err == nil {
 		l.publishNetworkPolicy(ctx, m, cur) // it may have changed while the sprite slept
 	}
 	rt.useMu.Lock()
 	rt.lastUse = time.Now()
 	rt.useMu.Unlock()
 	now := time.Now()
-	l.store.Update(sp.ID, func(s *store.Sprite) {
+	l.store.UpdateRecord(sp.ID, func(s *store.Record) {
 		s.LastRunningAt = &now
 		if mode == "cold" {
 			s.BootIP = cfg.IPCIDR
@@ -601,12 +601,12 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 		}
 	})
 	took := time.Since(start)
-	l.log.Info("sprite running", "sprite", sp.Name, "wake", mode, "took", took.Round(time.Millisecond), "net", tap != "")
+	l.log.Info("sprite running", "sprite", l.label(sp), "wake", mode, "took", took.Round(time.Millisecond), "net", tap != "")
 	woke := map[string]any{"mode": mode, "ms": took.Milliseconds()}
 	if discarded != "" {
 		woke["warm_discarded"] = discarded
 	}
-	l.emit(sp.Record, "sprite.woke", woke)
+	l.emit(sp, "sprite.woke", woke)
 	go l.watch(sp, rt, m)
 	go l.autoscale(sp, rt, m)
 	return nil
@@ -691,7 +691,7 @@ func (l *Lifecycle) waitAgent(ctx context.Context, m *vmm.Machine, resumed bool)
 }
 
 // watch suspends the sprite once both the API and the guest have been idle for IdleTimeout.
-func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
+func (l *Lifecycle) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	held := false
@@ -701,8 +701,8 @@ func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 			rt.mu.Lock()
 			if rt.m == m {
 				l.cleanupLocked(rt)
-				l.log.Info("sprite VM exited", "sprite", sp.Name)
-				l.emit(sp.Record, "sprite.exited", nil)
+				l.log.Info("sprite VM exited", "sprite", l.label(sp))
+				l.emit(sp, "sprite.exited", nil)
 			}
 			rt.mu.Unlock()
 			return
@@ -739,13 +739,13 @@ func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 		if errors.Is(err, errGuestBusy) {
 			continue
 		}
-		l.log.Error("suspend failed; sprite left running", "sprite", sp.Name, "err", err)
+		l.log.Error("suspend failed; sprite left running", "sprite", l.label(sp), "err", err)
 	}
 }
 
 // suspendLocked snapshots the sprite to disk. idle marks a suspend the guest may
 // still veto with errGuestBusy; one the operator asked for goes ahead regardless.
-func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error {
+func (l *Lifecycle) suspendLocked(sp store.Record, rt *runtime, idle bool) error {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -769,14 +769,14 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	if !fits {
 		rt.m.Kill()
 		l.cleanupLocked(rt)
-		l.log.Warn("no room for a memory snapshot even with every other sprite cold; sprite stopped cold instead", "sprite", sp.Name, "needed", mib(need))
-		l.emit(sp.Record, "sprite.stopped", map[string]any{"reason": "no room for a memory snapshot"})
+		l.log.Warn("no room for a memory snapshot even with every other sprite cold; sprite stopped cold instead", "sprite", l.label(sp), "needed", mib(need))
+		l.emit(sp, "sprite.stopped", map[string]any{"reason": "no room for a memory snapshot"})
 		return nil
 	}
 	// Balloon the guest's free memory so that it is a hole in the snapshot, not
 	// zeros on disk. Best effort: an old VM may have no balloon.
 	if _, err := rt.m.Squeeze(ctx); err != nil && !errors.Is(err, vmm.ErrNoBalloon) {
-		l.log.Warn("could not squeeze free memory before suspend", "sprite", sp.Name, "err", err)
+		l.log.Warn("could not squeeze free memory before suspend", "sprite", l.label(sp), "err", err)
 	}
 	if err := rt.m.Suspend(ctx); err != nil {
 		select {
@@ -788,15 +788,15 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	}
 	l.cleanupLocked(rt)
 	now := time.Now()
-	l.store.Update(sp.ID, func(s *store.Sprite) { s.LastWarmingAt = &now })
+	l.store.UpdateRecord(sp.ID, func(s *store.Record) { s.LastWarmingAt = &now })
 	took := time.Since(start)
 	snap := vmm.SnapshotBytes(l.store.Dir(sp.ID))
-	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond), "snapshot", mib(snap))
-	l.emit(sp.Record, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap})
+	l.log.Info("sprite suspended", "sprite", l.label(sp), "took", took.Round(time.Millisecond), "snapshot", mib(snap))
+	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap})
 	// The disk is quiescent exactly here: the guest has synced and the VM is
 	// paused. Enqueueing is non-blocking and cannot fail, so a bucket that is
 	// unreachable never turns a good suspend into a bad one.
-	l.backups.Enqueue(sp, "suspend")
+	l.backups.Enqueue(sp.ID, "suspend")
 	return nil
 }
 
@@ -808,7 +808,7 @@ func (l *Lifecycle) diskGen(id string) uint64 { return l.rt(id).gen.Load() }
 
 // Stop halts a sprite. With keepWarm it is suspended so it can resume later;
 // otherwise the VM is killed and memory state discarded.
-func (l *Lifecycle) Stop(sp store.Sprite, keepWarm bool) error {
+func (l *Lifecycle) Stop(sp store.Record, keepWarm bool) error {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -824,13 +824,13 @@ func (l *Lifecycle) Stop(sp store.Sprite, keepWarm bool) error {
 	rt.m.Kill()
 	l.cleanupLocked(rt)
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
-	l.emit(sp.Record, "sprite.stopped", nil)
+	l.emit(sp, "sprite.stopped", nil)
 	return nil
 }
 
 // Cool drops a suspended sprite's memory snapshot, as the warm TTL would. It
 // reports false, and does nothing, when the sprite is not warm.
-func (l *Lifecycle) Cool(sp store.Sprite) bool {
+func (l *Lifecycle) Cool(sp store.Record) bool {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -838,7 +838,7 @@ func (l *Lifecycle) Cool(sp store.Sprite) bool {
 		return false
 	}
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
-	l.emit(sp.Record, "sprite.cold", map[string]any{"reason": "operator"})
+	l.emit(sp, "sprite.cold", map[string]any{"reason": "operator"})
 	return true
 }
 
@@ -877,12 +877,12 @@ func (l *Lifecycle) Shutdown() {
 	l.mu.Unlock()
 	l.loops.Wait()
 	var wg sync.WaitGroup
-	for _, sp := range l.store.All() {
+	for _, sp := range l.store.Records() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if err := l.Stop(sp, true); err != nil {
-				l.log.Error("suspend on shutdown failed", "sprite", sp.Name, "err", err)
+				l.log.Error("suspend on shutdown failed", "sprite", l.label(sp), "err", err)
 				l.Stop(sp, false)
 			}
 		}()
@@ -895,14 +895,14 @@ func (l *Lifecycle) Shutdown() {
 func (l *Lifecycle) janitor() {
 	l.disk.watch()
 	l.reapLeases() // before cooling: a sprite on its way out needs no snapshot work
-	for _, sp := range l.store.All() {
+	for _, sp := range l.store.Records() {
 		if l.warmExpired(sp) {
 			l.coolIfExpired(sp)
 		}
 	}
 }
 
-func (l *Lifecycle) warmExpired(sp store.Sprite) bool {
+func (l *Lifecycle) warmExpired(sp store.Record) bool {
 	return sp.LastWarmingAt != nil && time.Since(*sp.LastWarmingAt) >= l.opts.WarmTTL
 }
 
@@ -911,18 +911,18 @@ func (l *Lifecycle) warmExpired(sp store.Sprite) bool {
 // can outlast a suspend in flight, which renews LastWarmingAt, so the decision
 // is taken again on a fresh record. Deciding on the old one threw away snapshots
 // seconds old, every sprite's at once when a daemon stopped.
-func (l *Lifecycle) coolIfExpired(sp store.Sprite) {
+func (l *Lifecycle) coolIfExpired(sp store.Record) {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	cur, err := l.store.Get(sp.ID)
+	cur, err := l.store.GetRecord(sp.ID)
 	if err != nil || !l.warmExpired(cur) {
 		return
 	}
 	if rt.m == nil && vmm.HasSnapshot(l.store.Dir(sp.ID)) {
 		vmm.DiscardSnapshot(l.store.Dir(sp.ID))
-		l.log.Info("sprite went cold", "sprite", sp.Name)
-		l.emit(cur.Record, "sprite.cold", map[string]any{"reason": "warm ttl"})
+		l.log.Info("sprite went cold", "sprite", l.label(sp))
+		l.emit(cur, "sprite.cold", map[string]any{"reason": "warm ttl"})
 	}
 }
 

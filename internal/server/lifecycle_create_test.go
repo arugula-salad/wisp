@@ -37,7 +37,7 @@ func TestLeaseExpiryAndAPIDeleteAreTheSameDeletion(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Backed up, so the deletion has a tombstone to write.
-		s.backups.Enqueue(sp, "suspend")
+		s.backups.Enqueue(sp.ID, "suspend")
 		waitBackup(t, s, sp.ID)
 		// Leased and inside the warning window, so the reaper has a warning to forget.
 		soon := time.Now().Add(time.Minute).UTC()

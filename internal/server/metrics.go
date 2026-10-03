@@ -127,7 +127,7 @@ func (m *metrics) sample(now time.Time) {
 	states := map[string]string{}
 	sprites := m.s.store.List(store.Sprites, "")
 	for _, sp := range sprites {
-		state := l.Status(sp)
+		state := l.Status(sp.Record)
 		states[sp.Name] = state
 		switch state {
 		case "running":

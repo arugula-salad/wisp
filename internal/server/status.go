@@ -378,9 +378,9 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	out.Sprites = make([]SpriteStatus, len(sprites))
 	for i, sp := range sprites {
 		st := spriteBase(sp)
-		st.State = l.Status(sp)
-		st.PolicyRestricted = l.egress.compile(sp).Restrictive()
-		if ip := l.spriteIP(sp); ip != nil {
+		st.State = l.Status(sp.Record)
+		st.PolicyRestricted = l.egress.compile(sp.Record).Restrictive()
+		if ip := l.spriteIP(sp.Record); ip != nil {
 			st.IP = ip.String()
 		}
 		vm := l.peek(sp.ID)

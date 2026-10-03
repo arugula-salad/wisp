@@ -31,8 +31,8 @@ func TestJanitorCoolsSpritesWarmPastTheTTL(t *testing.T) {
 	old := warmSprite(t, s, "old", time.Now().Add(-2*time.Hour))
 	fresh := warmSprite(t, s, "fresh", time.Now().Add(-time.Minute))
 	for _, sp := range []store.Sprite{old, fresh} {
-		if s.life.warmExpired(sp) {
-			s.life.coolIfExpired(sp)
+		if s.life.warmExpired(sp.Record) {
+			s.life.coolIfExpired(sp.Record)
 		}
 	}
 	if vmm.HasSnapshot(s.store.Dir(old.ID)) {
@@ -50,7 +50,7 @@ func TestJanitorCoolsSpritesWarmPastTheTTL(t *testing.T) {
 func TestJanitorDoesNotCoolASpriteThatSuspendedWhileItWaited(t *testing.T) {
 	s, _ := newOperatorServer(t, Options{WarmTTL: time.Hour})
 	stale := warmSprite(t, s, "game", time.Now().Add(-2*time.Hour)) // warm long ago, then woke
-	if !s.life.warmExpired(stale) {
+	if !s.life.warmExpired(stale.Record) {
 		t.Fatal("setup: the stale record should look expired")
 	}
 
@@ -58,7 +58,7 @@ func TestJanitorDoesNotCoolASpriteThatSuspendedWhileItWaited(t *testing.T) {
 	rt.mu.Lock() // a suspend in flight
 	done := make(chan struct{})
 	go func() {
-		s.life.coolIfExpired(stale) // the janitor, holding the stale copy
+		s.life.coolIfExpired(stale.Record) // the janitor, holding the stale copy
 		close(done)
 	}()
 	select {
@@ -85,7 +85,7 @@ func TestJanitorLeavesADeletedSpriteAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	again := warmSprite(t, s, "gone", time.Now().Add(-2*time.Hour))
-	s.life.coolIfExpired(sp)
+	s.life.coolIfExpired(sp.Record)
 	if !vmm.HasSnapshot(s.store.Dir(again.ID)) {
 		t.Error("the janitor cooled a different sprite that took the old one's name")
 	}

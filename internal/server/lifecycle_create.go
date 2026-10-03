@@ -114,7 +114,7 @@ func cloneFile(ctx context.Context, src, dst string) error {
 // It takes and drops the sprite's lock to stop it, so the caller must not
 // hold it.
 func (l *Lifecycle) Delete(sp store.Sprite) error {
-	l.Stop(sp, false)
+	l.Stop(sp.Record, false)
 	// The record as it is just before it goes, to describe sprite.deleted by.
 	if cur, err := l.store.Get(sp.ID); err == nil {
 		defer l.holdUnstored(cur)()
@@ -123,7 +123,7 @@ func (l *Lifecycle) Delete(sp store.Sprite) error {
 		return err
 	}
 	l.Forget(sp.ID)
-	l.egress.forget(sp)
+	l.egress.forget(sp.Record)
 	l.mu.Lock()
 	hooks := l.onDelete
 	l.mu.Unlock()

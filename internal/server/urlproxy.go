@@ -256,7 +256,7 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 			return
 		}
 	}
-	m, release, err := s.life.Acquire(r.Context(), sp)
+	m, release, err := s.life.Acquire(r.Context(), sp.Record)
 	var lim *LimitError
 	if errors.As(err, &lim) {
 		httpstats.NoteErr(r.Context(), "at a limit")

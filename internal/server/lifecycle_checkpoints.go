@@ -260,7 +260,7 @@ func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, sid, id string, info pr
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
-			if _, release, err := l.Acquire(ctx, sp); err == nil {
+			if _, release, err := l.Acquire(ctx, sp.Record); err == nil {
 				release()
 			}
 		}()

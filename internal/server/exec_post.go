@@ -17,7 +17,7 @@ func (s *Server) execPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	m, release, err := s.life.Acquire(r.Context(), sp)
+	m, release, err := s.life.Acquire(r.Context(), sp.Record)
 	if err != nil {
 		s.writeWakeErr(w, sp.Name, err)
 		return
