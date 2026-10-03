@@ -37,6 +37,9 @@
 - **Filesystem**: read, write (atomic), list, delete, rename, copy, chmod, chown, and `watch`
   (recursive, including directories created later; bounded, and a slow reader is told how many
   events it missed rather than stalling the agent). New files belong to the `sprite` user.
+  Also ours: `GET fs/stat?path=` answers one entry for the path itself (a directory too, which
+  `fs/list` would list instead), `POST fs/mkdir` (`{"path", "mode", "parents"}`) makes a
+  directory, and every entry carries `uid`, `gid`, `owner` and `group`.
 - **Policies**:
   - `policy/network`: a domain allowlist with `{"include":"defaults"}` and `*.` wildcards.
     Empty rules mean unrestricted. Changes apply live. See [how network policy is enforced](security.md#how-network-policy-is-enforced).

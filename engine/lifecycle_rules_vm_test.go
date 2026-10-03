@@ -157,6 +157,25 @@ func TestIdleRulesOnRunningVMs(t *testing.T) {
 		t.Errorf("stays: Acquire after Suspend woke %v %v, want warm", ok, e.Detail)
 	}
 	release()
+	// Stopped on demand: cold, disk kept, booted afresh by the next Acquire.
+	if err := l.Stop(stops); err != nil {
+		t.Fatal(err)
+	}
+	held := wake(t, l, stops) // held, or its idle rule could stop it first
+	if err := l.Stop(stops); err != nil {
+		t.Fatal(err)
+	}
+	held()
+	// Status reads "running" while anything holds the sandbox's lock (a
+	// watcher's last tick, say), so this waits rather than looks once.
+	eventually(t, l, stops, "cold", 5*time.Second)
+	es = collect(sub)
+	if e, ok := eventFor(es, stops, "sprite.stopped"); !ok || e.Detail["reason"] != "operator" {
+		t.Errorf("stops: sprite.stopped on demand %v %v", ok, e.Detail)
+	}
+	if e, ok := eventFor(es, stops, "sprite.woke"); !ok || e.Detail["mode"] != "cold" {
+		t.Errorf("stops: Acquire after Stop woke %v %v, want cold", ok, e.Detail)
+	}
 	// Back to the default rule while it runs: the watcher it has now suspends it.
 	withPolicy(t, l, stays.ID, store.LifecyclePolicy{})
 	eventually(t, l, stays, "warm", 20*time.Second)

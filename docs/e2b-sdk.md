@@ -6,6 +6,7 @@ your machine: commands with streaming output, background processes, PTYs, files,
 upload and download URLs, ports, timeouts, pause and resume. Inside, a sandbox runs E2B's own
 in-guest daemon, envd, so what the SDK talks to is the real thing rather than a copy. What
 differs from hosted E2B is in [providers/e2b-differences.md](providers/e2b-differences.md).
+The same daemon serves the Daytona API too: [Using the Daytona SDKs](daytona-sdk.md).
 
 ## Run it
 

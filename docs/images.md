@@ -285,3 +285,29 @@ runs Modal's commands as root through it. The hostname is `modal`. The disk is 5
   the command's pipes instead of a pty.
 - No daemon of its own: there is nothing in `/etc/wisp/services.d`. The front end speaks
   Vercel's protocol on the host and drives the guest through wisp-agent.
+
+## The Daytona image
+
+`images/daytona/Containerfile` is the disk of a Daytona sandbox, for the Daytona-compatible
+front end ([daytona-sdk.md](daytona-sdk.md)). Unlike the E2B image it has no provider daemon
+in it: Daytona's in-sandbox daemon is AGPL-licensed, so its API (the toolbox) is served by
+`sandboxd` on the host, over wisp-agent's exec and filesystem API.
+
+```sh
+./scripts/build-image.sh daytona   # <data>/images/daytona.ext4
+```
+
+What it contains, after what the Daytona SDK's documentation describes its default sandbox as
+having:
+
+- Ubuntu 24.04 with the E2B image's package set (the same layer), and pip installs that work
+  without a venv.
+- Node.js 22 LTS from nodejs.org (checksum-verified) with npm and corepack, and TypeScript,
+  `tsx` and `ts-node` installed globally: `code_run` in a `typescript` sandbox runs `tsx`.
+- User **`daytona`**, uid 1000, home and working directory `/home/daytona`, `/bin/bash`, in
+  `sudo` with a NOPASSWD sudoers entry and no password. Hostname `daytona`.
+- `sprite` is the same account under a second name (uid 1000, home `/home/daytona`, listed after
+  `daytona` in `/etc/passwd`). wisp-agent runs commands, and owns the files it writes, as the
+  account named `sprite`; this way they are `daytona`'s, and `whoami`, `ls -l` and `sudo` say so.
+
+About 920 MB of blocks (20 GB apparent).

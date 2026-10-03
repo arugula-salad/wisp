@@ -11,6 +11,10 @@
 // and E2B_API_KEY set to the root token (<data>/token) or an API key (docs/e2b-sdk.md);
 // the Vercel SDKs at http://127.0.0.1:7824 with that token as VERCEL_TOKEN
 // (docs/vercel-sdk.md).
+// With --daytona-listen 127.0.0.1:7842 it also serves the Daytona API
+// (frontend/daytona): the Daytona SDKs reach it with
+// DAYTONA_API_URL=http://127.0.0.1:7842/api and DAYTONA_API_KEY set to the
+// root token or an API key (docs/daytona-sdk.md).
 // With --modal-listen it also serves the Modal API (frontend/modal, a spike):
 // the modal client reaches it with MODAL_SERVER_URL=http://127.0.0.1:<port>,
 // MODAL_TOKEN_SECRET set to the root token or an API key, and any MODAL_TOKEN_ID.
@@ -28,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/frontend/daytona"
 	"github.com/arugula-salad/wisp/frontend/e2b"
 	"github.com/arugula-salad/wisp/frontend/modal"
 	"github.com/arugula-salad/wisp/frontend/vercel"
@@ -61,11 +66,16 @@ func main() {
 	vercelImage := flag.String("vercel-image", "", "the guest disk every Vercel sandbox starts from (default <data>/images/vercel.ext4, built by scripts/build-image.sh vercel)")
 	vercelMaxTimeout := flag.Duration("vercel-max-timeout", 24*time.Hour, "the longest a Vercel sandbox session may run")
 	vercelMem := flag.Int("vercel-mem-per-vcpu-mib", 2048, "guest RAM (MiB) per vCPU of a Vercel sandbox, as hosted Vercel gives")
+	daytonaListen := flag.String("daytona-listen", "", "serve the Daytona API (control plane under /api, toolbox, preview URLs) on this address, e.g. 127.0.0.1:7842; empty leaves it off")
+	daytonaDomain := flag.String("daytona-domain", "daytona.localhost", "Daytona preview URLs are <port>-<id>.<domain>, with --daytona-listen's port appended unless it has one; the domain must resolve to this listener")
+	daytonaImage := flag.String("daytona-image", "", "the Daytona guest disk every Daytona sandbox starts from (default <data>/images/daytona.ext4, built by scripts/build-image.sh daytona)")
+	daytonaURL := flag.String("daytona-url", "", "how Daytona clients reach --daytona-listen (e.g. https://daytona.example.com), for the toolbox URL sandboxes report; default: the Host each request came to")
 	flag.Parse()
 	opts, f := finish()
 
 	daemon.Run("sandboxd", opts, f, modalFrontend(*modalListen, *modalImage, *modalRouter),
-		vercelFrontend(*vercelListen, *vercelDomain, *vercelImage, *vercelMaxTimeout, *vercelMem), daemon.Frontend{
+		vercelFrontend(*vercelListen, *vercelDomain, *vercelImage, *vercelMaxTimeout, *vercelMem),
+		daytonaFrontend(*daytonaListen, *daytonaDomain, *daytonaImage, *daytonaURL), daemon.Frontend{
 			Name:  "the E2B API",
 			Addr:  *e2bListen,
 			IDLen: 21, // "i" and 20 characters, as hosted E2B's
@@ -148,6 +158,28 @@ func vercelFrontend(listen, domain, image string, maxTimeout time.Duration, memP
 				}
 			}
 			return h, nil
+		},
+	}
+}
+
+// daytonaFrontend is the Daytona API's listener.
+func daytonaFrontend(listen, domain, image, baseURL string) daemon.Frontend {
+	return daemon.Frontend{
+		Name:  "the Daytona API",
+		Addr:  listen,
+		IDLen: 36, // a UUID, as hosted Daytona's
+		Setup: func(env daemon.Env) (http.Handler, error) {
+			if image == "" {
+				image = filepath.Join(env.DataDir, "images", "daytona.ext4")
+			}
+			if _, _, err := net.SplitHostPort(domain); err != nil {
+				if _, port, err := net.SplitHostPort(listen); err == nil {
+					domain = net.JoinHostPort(domain, port)
+				}
+			}
+			fe := daytona.New(daytona.Options{Disk: image, Domain: domain, BaseURL: baseURL, CheckKey: env.Sprites.CheckKey,
+				MaxSandboxes: env.Options.MaxSprites}, env.Store, env.Engine, env.Log)
+			return fe.Handler(), nil
 		},
 	}
 }

@@ -161,6 +161,19 @@ VERCEL_SANDBOX_URL=http://127.0.0.1:7824 node --import ./e2e/providers/vercel/ta
 
 More in [Using the Vercel Sandbox SDKs](docs/vercel-sdk.md).
 
+### With the Daytona SDKs
+
+The same daemon serves the [Daytona](https://daytona.io) API on a listener of its own, so the
+official Daytona SDKs work unmodified too:
+
+```sh
+./scripts/build-image.sh daytona && ./bin/sandboxd --daytona-listen 127.0.0.1:7842
+export DAYTONA_API_URL=http://127.0.0.1:7842/api DAYTONA_API_KEY=$(cat ~/.local/share/wisp/token)
+python3 -c 'from daytona import Daytona; print(Daytona().create().process.exec("uname -a").result)'
+```
+
+More in [Using the Daytona SDKs](docs/daytona-sdk.md).
+
 ### Sprite URLs
 
 Every sprite has a URL that wakes it and proxies to port 8080 inside it (or to the service you
@@ -198,4 +211,5 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 | [Using the E2B SDKs](docs/e2b-sdk.md) | `sandboxd`: the E2B API beside the Sprites API, for the official E2B SDKs, and [how it differs from hosted E2B](docs/providers/e2b-differences.md) |
 | [Using the Modal client](docs/modal-client.md) | A spike: `sandboxd --modal-listen` runs the unmodified `modal` client's sandboxes and exec, and [how it differs from hosted Modal](docs/providers/modal-differences.md) |
 | [Using the Vercel Sandbox SDKs](docs/vercel-sdk.md) | `sandboxd --vercel-listen`: the Vercel Sandbox API for the official Vercel SDKs, and [how it differs from hosted Vercel](docs/providers/vercel-differences.md) |
+| [Using the Daytona SDKs](docs/daytona-sdk.md) | `sandboxd`: the Daytona API, for the official Daytona SDKs, and [how it differs from hosted Daytona](docs/providers/daytona-differences.md) |
 | [Development](docs/development.md) | Tests, the e2e suite against the official SDKs, extra dev stacks |
