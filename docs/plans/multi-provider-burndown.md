@@ -50,7 +50,8 @@ belong to its socket forwarders. No phase of this plan restarts or redeploys it 
   `msbr1` (10.210.0.0/16), which `sudo WISP_POOL=1 scripts/setup-host.sh` created on 2026-10-02. A
   gate run is the full `go test -tags e2e ./e2e/` with `SPRITES_E2E_URL`/`TOKEN`/`IDLE_TIMEOUT`
   set, plus `scripts/probe-sdks.sh` with `SPRITES_API_URL`/`SPRITE_TOKEN`, both against :7802.
-  Rebuild the stack's initrd with `WISP_DATA=~/ws/1 ./scripts/build-initrd.sh`; plain
+  On this host `/tmp` is a quota-limited tmpfs shared with other sessions, so run tests that
+  write VM disks with `TMPDIR=~/ws/tmp`. Rebuild the stack's initrd with `WISP_DATA=~/ws/1 ./scripts/build-initrd.sh`; plain
   `make initrd` writes to production's data dir.
 - **Real-data test for slice 1.4:** reflink-copy production's sprite data on its XFS volume, copy
   the store JSON, and boot a `--net=false` stack on the copy. Production's own files are never
@@ -142,5 +143,10 @@ That decision shapes any neutral exec API, so designing one now would be a guess
 | Phase 0: Daytona + Modal surveys | Done: PR #32 merged. Daytona is about 1.5x E2B; Modal is a go for a time-boxed spike |
 | Slice 0: network pool | Done: PR #34 merged. Gate on pool 1: e2e 21 pass / 0 fail, SDK probes 0 failures |
 | Slice 1.1: lock encapsulation | Done: PR #36 merged. Gate on pool 1: 21 pass / 0 fail, probes 0 failures. Also fixed `make e2e`, which had hardcoded production's URL |
-| Slice 1.2: back-references, Lifecycle owns create/delete | Running (illogical pane 96, worktree `wisp-wt/engine-backrefs`) |
-| Slices 1.3–1.6 | Not started |
+| Slice 1.2: back-references, Lifecycle owns create/delete | Done: PR #39 |
+| Slices 1.3+1.4: engine Record, store keyed by ID, events by record | Done: PR #40. All 89 production records round-trip byte-identically; three real sprites boot unchanged; downgrade works |
+| Slice 1.6: per-sandbox lifecycle policy | Done: PR #41 (done before 1.5, so the move came last) |
+| Slice 1.5: `engine` package | Done: PR #44. `engine.Engine`; Sprites metadata reaches it only through hooks. **Phase 1 gate met** |
+| netpolicy test flakes | Fixed: PR #43 (dial-time RST in a test helper; a UDP/TCP port pick race) |
+| Phase 2a: envd in the guest | Done: PR #42. envd 0.9.0 pinned; `/etc/wisp/services.d` system services; `images/e2b` |
+| Phase 2b: E2B front-end + `cmd/sandboxd` | Running (illogical pane 124, worktree `wisp-wt/e2b-frontend`) |
