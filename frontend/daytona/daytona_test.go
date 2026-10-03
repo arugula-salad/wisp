@@ -47,8 +47,10 @@ type fixture struct {
 	mu    sync.Mutex
 	up    map[string]bool
 	boots int
-	// port serves every preview port.
-	port http.Handler
+	// port serves every preview port; dialed are the ports dialed, as the
+	// engine was asked for them.
+	port   http.Handler
+	dialed []string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -109,6 +111,9 @@ func newFixture(t *testing.T) *fixture {
 		}
 	}
 	fx.f.portDial = func(ctx context.Context, _ *vmm.Machine, port string) (net.Conn, error) {
+		fx.mu.Lock()
+		fx.dialed = append(fx.dialed, port)
+		fx.mu.Unlock()
 		if fx.port == nil {
 			return nil, &net.OpError{Op: "dial", Err: io.EOF}
 		}
@@ -346,7 +351,79 @@ func TestControlPlaneRefusals(t *testing.T) {
 	}
 }
 
-// An ephemeral sandbox (auto-delete 0) is deleted once it stops, however it stops.
+// An ephemeral sandbox (auto-delete 0) stopped through the API is deleted by
+// the stop itself, before it answers: the SDKs' stop then reads destroyed (or a
+// 404, which they take for it), with no window in which it is neither.
+func TestEphemeralDeletedByStop(t *testing.T) {
+	fx := newFixture(t)
+	sb := fx.create(map[string]any{"autoDeleteInterval": 0})
+	var st sandboxJSON
+	r := fx.do("POST", "/api/sandbox/"+sb.ID+"/stop", adminKey, nil)
+	r.json(t, &st)
+	if r.code != 200 || st.State != "destroyed" {
+		t.Fatalf("stop of an ephemeral sandbox: %d %s", r.code, r.body)
+	}
+	if r := fx.do("GET", "/api/sandbox/"+sb.ID, readKey, nil); r.code != 404 {
+		t.Fatalf("after its stop answered: %d", r.code)
+	}
+}
+
+// The daemon's sandbox limit (--max-sprites) counts every API's sandboxes,
+// and a create past it is 429, the SDKs' DaytonaRateLimitError.
+func TestSandboxLimit(t *testing.T) {
+	fx := newFixture(t)
+	fx.f.opts.MaxSandboxes = 2
+	// One that is not Daytona's counts too.
+	other := &store.Sprite{Record: store.Record{ID: store.NewID(), API: "e2b", CreatedAt: time.Now()}}
+	if err := fx.st.Create(other); err != nil {
+		t.Fatal(err)
+	}
+	fx.create(map[string]any{})
+	r := fx.do("POST", "/api/sandbox", adminKey, map[string]any{})
+	if r.code != http.StatusTooManyRequests || !strings.Contains(string(r.body), "maximum number of sandboxes (2)") {
+		t.Fatalf("create past the limit: %d %s", r.code, r.body)
+	}
+	if n := fx.st.Count(); n != 2 {
+		t.Fatalf("%d records after a refused create, want 2", n)
+	}
+	fx.f.opts.MaxSandboxes = 0
+	fx.create(map[string]any{})
+}
+
+// A preview Host's port is parsed and normalized before anything checks or
+// dials it, and the path is cleaned before it is proxied.
+func TestPreviewPortsAndPaths(t *testing.T) {
+	fx := newFixture(t)
+	fx.port = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, r.URL.Path) })
+	sb := fx.create(map[string]any{"public": true})
+	for _, port := range []string{"0", "65536", "99999999999999999999", "00000"} {
+		if r := fx.do("GET", "/", "", nil, "Host", port+"-"+sb.ID+".daytona.test"); r.code != http.StatusBadRequest {
+			t.Errorf("port %s: %d %s, want 400", port, r.code, r.body)
+		}
+	}
+	if len(fx.dialed) != 0 {
+		t.Fatalf("bad ports were dialed: %v", fx.dialed)
+	}
+	r := fx.do("GET", "/a/../b/./c", "", nil, "Host", "0008080-"+sb.ID+".daytona.test")
+	if r.code != 200 || string(r.body) != "/b/c" {
+		t.Errorf("leading zeros and an unclean path: %d %q", r.code, r.body)
+	}
+	if len(fx.dialed) != 1 || fx.dialed[0] != "8080" {
+		t.Errorf("dialed %v, want [8080]", fx.dialed)
+	}
+	for _, port := range []string{"0", "65536", "x", "08080x"} {
+		if r := fx.do("GET", "/api/sandbox/"+sb.ID+"/ports/"+port+"/preview-url", readKey, nil); r.code != http.StatusBadRequest {
+			t.Errorf("preview-url for port %q: %d", port, r.code)
+		}
+	}
+	var link map[string]string
+	fx.do("GET", "/api/sandbox/"+sb.ID+"/ports/0080/preview-url", readKey, nil).json(t, &link)
+	if link["url"] != "http://80-"+sb.ID+".daytona.test:7842" {
+		t.Errorf("preview-url normalizes the port: %v", link)
+	}
+}
+
+// An ephemeral sandbox (auto-delete 0) is deleted once its auto-stop stops it.
 func TestEphemeralDeletedOnStop(t *testing.T) {
 	fx := newFixture(t)
 	sb := fx.create(map[string]any{"autoDeleteInterval": 0})

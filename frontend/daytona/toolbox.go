@@ -110,18 +110,39 @@ func (f *Frontend) tb(write bool, h toolboxHandler) http.HandlerFunc {
 			notFound(w, r, id)
 			return
 		}
-		if st := f.state(rec, m); st != "started" {
-			writeErr(w, r, http.StatusConflict, "CONFLICT", fmt.Sprintf("Sandbox %s is %s: start it first", id, st))
-			return
-		}
-		mach, release, err := f.acquire(r.Context(), rec)
-		if err != nil {
-			f.bootFailed(w, r, err)
+		b, release, ok := f.enter(w, r, id)
+		if !ok {
 			return
 		}
 		defer release()
-		h(w, r, &box{rec: rec, m: m, mach: mach})
+		h(w, r, b)
 	}
+}
+
+// enter decides, on the sandbox's metadata as it is now, that it is
+// started, and holds its VM up until release; or answers why not. It holds
+// the sandbox's gate for reading meanwhile, so that a stop marking the
+// sandbox stopped cannot be overtaken by a request that saw it started.
+func (f *Frontend) enter(w http.ResponseWriter, r *http.Request, id string) (*box, func(), bool) {
+	g := f.gate(id)
+	g.RLock()
+	defer g.RUnlock()
+	rec, err := f.store.GetRecord(id)
+	m, ok := metaOf(rec)
+	if err != nil || !ok {
+		notFound(w, r, id)
+		return nil, nil, false
+	}
+	if st := f.state(rec, m); st != "started" {
+		writeErr(w, r, http.StatusConflict, "CONFLICT", fmt.Sprintf("Sandbox %s is %s: start it first", id, st))
+		return nil, nil, false
+	}
+	mach, release, err := f.acquire(r.Context(), rec)
+	if err != nil {
+		f.bootFailed(w, r, err)
+		return nil, nil, false
+	}
+	return &box{rec: rec, m: m, mach: mach}, release, true
 }
 
 func isWebSocket(r *http.Request) bool {

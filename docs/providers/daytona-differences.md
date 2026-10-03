@@ -53,7 +53,9 @@ against a trace of hosted Daytona.
   `GET /sandbox/{id}` for state changes, as they do when the stream is unavailable on hosted.
 - Preview URLs are `http://<port>-<id>.<--daytona-domain>:<port>` on the same listener, not
   `https://` on a proxy domain. The token is per sandbox, the same for every port, and does not
-  expire. `x-daytona-preview-token` is stripped before the request reaches the app.
+  expire. `x-daytona-preview-token` is stripped before the request reaches the app. The port
+  in the Host must be a number from 1 to 65535 (leading zeros are dropped; anything else is
+  400), and the path is cleaned before it is proxied.
 
 ## Auth
 
@@ -76,11 +78,13 @@ against a trace of hosted Daytona.
   guest, so **a session command still running keeps the sandbox up**, as does an open preview
   connection. Control-plane reads do not count as activity; `POST /sandbox/{id}/last-activity`
   does.
-- `autoDeleteInterval` 0 (`ephemeral`) is enforced: the sandbox is deleted once it stops, by
-  API or by auto-stop. Other auto-delete values and `autoArchiveInterval` are kept and reported,
+- `autoDeleteInterval` 0 (`ephemeral`) is enforced: an API stop deletes the sandbox before it
+  answers (with state `destroyed`), and an auto-stop deletes it just after. Other auto-delete values and `autoArchiveInterval` are kept and reported,
   not enforced. `autoPauseInterval` above 0 turns auto-stop off (pause is not built).
 - `networkBlockAll` and `networkAllowList` are kept and reported, not enforced (wisp's own
   network policy can do this; it is not wired up yet).
+- `--max-sprites` bounds how many sandboxes, of every API, exist on the host; a create past it
+  is `429` (`DaytonaRateLimitError`). Hosted's limits are per organization quotas.
 - Stop is a cold stop: the guest syncs its disk and the VM is killed; `force` makes no
   difference. Processes and sessions end; files stay. Start boots it afresh.
 - When `sandboxd` stops, running VMs are suspended; Daytona sandboxes read as `stopped` until a

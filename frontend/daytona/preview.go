@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"path"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -19,9 +21,15 @@ import (
 // parameter), or an API key as a bearer token; a public one wants nothing.
 
 // previewHost is the left-most label of a preview Host: <port>-<UUID>.
-var previewHost = regexp.MustCompile(`^([0-9]{1,5})-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
+var previewHost = regexp.MustCompile(`^([0-9]+)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
 
-type previewTo struct{ port, id string }
+// previewTo is a preview's sandbox and port. port is normalized (a number
+// from 1 to 65535, as strconv.Itoa writes it) before anything looks at it;
+// badPort is a Host whose port is not one.
+type previewTo struct {
+	port, id string
+	badPort  bool
+}
 
 // previewTarget reads a preview Host.
 func previewTarget(host string) (previewTo, bool) {
@@ -36,7 +44,11 @@ func previewTarget(host string) (previewTo, bool) {
 	if m == nil {
 		return previewTo{}, false
 	}
-	return previewTo{port: m[1], id: m[2]}, true
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n < 1 || n > 65535 {
+		return previewTo{id: m[2], badPort: true}, true
+	}
+	return previewTo{port: strconv.Itoa(n), id: m[2]}, true
 }
 
 // previewAllowed says whether r may reach a port of the sandbox.
@@ -54,6 +66,14 @@ func (f *Frontend) previewAllowed(r *http.Request, m meta) bool {
 }
 
 func (f *Frontend) servePreview(w http.ResponseWriter, r *http.Request, t previewTo) {
+	if t.badPort {
+		writeErr(w, r, http.StatusBadRequest, "BAD_REQUEST", "Invalid preview port: want a number from 1 to 65535")
+		return
+	}
+	// The app sees the path cleaned, as anything checking it here would.
+	if clean := path.Clean("/" + r.URL.Path); clean != r.URL.Path {
+		r.URL.Path, r.URL.RawPath = clean, ""
+	}
 	rec, err := f.store.GetRecord(t.id)
 	m, ok := metaOf(rec)
 	if err != nil || !ok {
@@ -64,16 +84,12 @@ func (f *Frontend) servePreview(w http.ResponseWriter, r *http.Request, t previe
 		writeErr(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "This sandbox is private: send its preview token as x-daytona-preview-token")
 		return
 	}
-	if st := f.state(rec, m); st != "started" {
-		writeErr(w, r, http.StatusConflict, "CONFLICT", "Sandbox "+t.id+" is "+st+": start it first")
-		return
-	}
-	mach, release, err := f.acquire(r.Context(), rec)
-	if err != nil {
-		f.bootFailed(w, r, err)
+	b, release, ok := f.enter(w, r, t.id)
+	if !ok {
 		return
 	}
 	defer release()
+	mach := b.mach
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host = "http", "sandbox"

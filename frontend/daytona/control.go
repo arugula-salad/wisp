@@ -340,6 +340,11 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request) {
 		Config: store.Config{CPUs: m.CPU, RamMB: m.MemGiB * 1024}, Lifecycle: &policy}}
 	setMeta(&sp.Record, m)
 	f.names.Lock()
+	if limit, n := f.opts.MaxSandboxes, f.store.Count(); limit > 0 && n >= limit {
+		f.names.Unlock()
+		writeErr(w, r, http.StatusTooManyRequests, "", fmt.Sprintf("You have reached the maximum number of sandboxes (%d) on this server", limit))
+		return
+	}
 	if _, _, taken := f.find(m.Name); taken {
 		f.names.Unlock()
 		writeErr(w, r, http.StatusConflict, "CONFLICT", fmt.Sprintf("Sandbox with name %s already exists", m.Name))
@@ -395,7 +400,7 @@ func (f *Frontend) del(w http.ResponseWriter, r *http.Request, rec store.Record,
 		writeErr(w, r, http.StatusInternalServerError, "", "Failed to delete sandbox: "+err.Error())
 		return
 	}
-	f.locks.Delete(rec.ID)
+	f.forget(rec.ID)
 	f.log.Info("sandbox deleted", "id", rec.ID)
 	writeJSON(w, http.StatusOK, f.dto(r, rec, m, "destroyed"))
 }
@@ -405,7 +410,7 @@ func (f *Frontend) del(w http.ResponseWriter, r *http.Request, rec store.Record,
 func (f *Frontend) start(w http.ResponseWriter, r *http.Request, rec store.Record, m meta) {
 	defer f.lock(rec.ID)()
 	cur, err := f.store.GetRecord(rec.ID)
-	if err != nil {
+	if _, ok := metaOf(cur); err != nil || !ok {
 		notFound(w, r, rec.ID)
 		return
 	}
@@ -426,12 +431,28 @@ func (f *Frontend) start(w http.ResponseWriter, r *http.Request, rec store.Recor
 
 // stopSandbox stops the VM cold, keeping its disk; its processes and
 // sessions end. Toolbox and preview traffic do not wake it: only a start does.
+// An ephemeral sandbox (auto-delete 0) is deleted here and then, and answered
+// as destroyed, which the SDKs' stop takes for stopped.
 func (f *Frontend) stopSandbox(w http.ResponseWriter, r *http.Request, rec store.Record, m meta) {
 	defer f.lock(rec.ID)()
-	// Stopped first, so that no toolbox request wakes it on its way down.
+	// Stopped first, under the gate, so that no toolbox or preview request can
+	// wake it on its way down; the metadata is re-read in the same write.
+	g := f.gate(rec.ID)
+	g.Lock()
 	cur, m, err := f.updateMeta(rec.ID, func(m *meta) { m.Stopped = true })
+	g.Unlock()
 	if err != nil {
 		notFound(w, r, rec.ID)
+		return
+	}
+	if m.AutoDelete == 0 {
+		if err := f.life.Delete(cur); err != nil && !errors.Is(err, store.ErrNotFound) {
+			writeErr(w, r, http.StatusInternalServerError, "", "Failed to delete ephemeral sandbox: "+err.Error())
+			return
+		}
+		f.forget(rec.ID)
+		f.log.Info("ephemeral sandbox deleted on stop", "id", rec.ID)
+		writeJSON(w, http.StatusOK, f.dto(r, cur, m, "destroyed"))
 		return
 	}
 	f.sessions.dropSandbox(rec.ID)
@@ -444,9 +465,9 @@ func (f *Frontend) stopSandbox(w http.ResponseWriter, r *http.Request, rec store
 	writeJSON(w, http.StatusOK, f.dto(r, cur, m, "stopped"))
 }
 
-// onEvent deletes an ephemeral sandbox (auto-delete interval 0) once it has
-// stopped, through the API or its auto-stop. Called with the bus locked, so
-// the deletion runs on its own.
+// onEvent deletes an ephemeral sandbox (auto-delete interval 0) once its
+// auto-stop has stopped it (an API stop deletes it itself). Called with the
+// bus locked, so the deletion runs on its own.
 func (f *Frontend) onEvent(e engine.Event) {
 	if e.Type != "sprite.stopped" || e.SpriteID == "" {
 		return
@@ -459,7 +480,7 @@ func (f *Frontend) onEvent(e engine.Event) {
 		}
 		defer f.lock(rec.ID)()
 		if err := f.life.Delete(rec); err == nil {
-			f.locks.Delete(rec.ID)
+			f.forget(rec.ID)
 			f.log.Info("ephemeral sandbox deleted on stop", "id", rec.ID)
 		}
 	}()

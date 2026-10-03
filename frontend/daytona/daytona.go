@@ -83,6 +83,10 @@ type Options struct {
 	CheckKey func(key string) (admin, ok bool)
 	// MaxCPU and MaxMemGiB bound what a create may ask for; 0 is no bound.
 	MaxCPU, MaxMemGiB int
+	// MaxSandboxes is how many sandboxes, of every API, may exist on this host
+	// (wispd's --max-sprites); creating another is refused with 429, which the
+	// SDKs report as DaytonaRateLimitError. 0 is no limit.
+	MaxSandboxes int
 }
 
 // Frontend is the Daytona API on an engine.
@@ -98,6 +102,11 @@ type Frontend struct {
 	// so that two cannot take the same name.
 	locks sync.Map // id -> *sync.Mutex
 	names sync.Mutex
+	// gates order a stop against the traffic that would wake the VM: toolbox
+	// and preview requests decide and Acquire holding a read lock, and a stop
+	// marks the sandbox stopped holding the write lock, so no request that saw
+	// it started can boot the VM again after the stop has marked it.
+	gates sync.Map // id -> *sync.RWMutex
 
 	sessions *sessions
 	// homeDir is the sandbox user's home in the guest, "" for the image's
@@ -145,6 +154,18 @@ func (f *Frontend) lock(id string) func() {
 	mu := v.(*sync.Mutex)
 	mu.Lock()
 	return mu.Unlock
+}
+
+// gate is the sandbox's stop/traffic gate (see gates).
+func (f *Frontend) gate(id string) *sync.RWMutex {
+	v, _ := f.gates.LoadOrStore(id, &sync.RWMutex{})
+	return v.(*sync.RWMutex)
+}
+
+// forget drops a deleted sandbox's locks.
+func (f *Frontend) forget(id string) {
+	f.locks.Delete(id)
+	f.gates.Delete(id)
 }
 
 // Handler serves the three planes: a preview Host goes to the sandbox's

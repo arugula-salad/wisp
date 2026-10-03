@@ -177,8 +177,8 @@ func daytonaFrontend(listen, domain, image, baseURL string) daemon.Frontend {
 					domain = net.JoinHostPort(domain, port)
 				}
 			}
-			fe := daytona.New(daytona.Options{Disk: image, Domain: domain, BaseURL: baseURL, CheckKey: env.Sprites.CheckKey},
-				env.Store, env.Engine, env.Log)
+			fe := daytona.New(daytona.Options{Disk: image, Domain: domain, BaseURL: baseURL, CheckKey: env.Sprites.CheckKey,
+				MaxSandboxes: env.Options.MaxSprites}, env.Store, env.Engine, env.Log)
 			return fe.Handler(), nil
 		},
 	}
