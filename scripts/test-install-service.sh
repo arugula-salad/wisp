@@ -173,6 +173,20 @@ refuses "repointing sb.service at wispd" "exists and runs" -- --name sb --data "
 sed -i 's|^ExecStart=[^ ]*|ExecStart=/opt/elsewhere/wispd|' "$H/.config/systemd/user/wisp.service"
 refuses "default install over a wisp.service running another binary" "exists and runs" --
 
+# ---- review fixes (PR #52) ----
+# Uninstall with an empty or path-like name must not remove every stack's lib directory.
+fresh; run "$T/repo" -- > /dev/null
+refuses "uninstall with an empty --name" "bad --name" -- --uninstall --name ''
+refuses "uninstall with --name .." "bad --name" -- --uninstall --name ..
+refuses "uninstall with --name a/b" "bad --name" -- --uninstall --name a/b
+# An env file left by the other binary's install is not silently reused.
+fresh; mkdata "$OTHER"
+run "$T/repo" -- --bin sandboxd --name sb --data "$OTHER" -- --listen :1 > /dev/null
+run "$T/repo" -- --uninstall --name sb > /dev/null
+refuses "reinstalling sb as wispd over sandboxd's env file" "has no WISPD_FLAGS= line" -- --name sb --data "$OTHER" --force-pair
+run "$T/repo" -- --name sb --data "$OTHER" --force-pair -- --listen 127.0.0.1:1 > /dev/null \
+  && grep -q '^WISPD_FLAGS=--listen 127.0.0.1:1$' "$H/.config/wisp/sb.env" && pass "flags after -- rewrite a stale env file" || fail "flags after -- did not rewrite the stale env file"
+
 # ---- the Makefile's guards (make -n: nothing is run) ----
 mk() { env -u NAME -u DATA -u BIN -u FLAGS -u WISP_DATA -u XDG_DATA_HOME HOME="$H" make -s -n -C "$SRC" "$@" 2>&1; }
 mk install-sandboxd NAME=sb > "$T/out" && fail "make install-sandboxd without DATA" || { grep -q usage "$T/out" && pass "make install-sandboxd needs DATA" || fail "make install-sandboxd needs DATA: no usage message"; }
@@ -184,6 +198,8 @@ initrd_line=$(grep -n 'WISP_DATA=/x ./scripts/build-initrd.sh' <<<"$out" | cut -
 [ -n "$check_line" ] && [ -n "$initrd_line" ] && [ "$check_line" -lt "$initrd_line" ] && grep -q -- '--bin sandboxd --name sb --data /x -- --listen :1$' <<<"$out" \
   && pass "make install-sandboxd checks before building the initrd into DATA" || { fail "make install-sandboxd recipe:"; echo "$out"; }
 mk install-service | grep -qx './scripts/install-service.sh' && pass "make install-service is unchanged for the main install" || fail "make install-service recipe"
+NAME=somehost DATA=/data BIN=/usr/bin HOME="$H" make -s -n -C "$SRC" install-service 2>&1 | grep -qx './scripts/install-service.sh' \
+  && pass "make install-service ignores NAME/DATA/BIN from the environment" || fail "make install-service tripped on environment NAME/DATA/BIN"
 mk initrd | grep -q "initrd: writing $H/.local/share/wisp/initrd.cpio" && pass "make initrd names its (default) data dir" || fail "make initrd output"
 WISP_DATA=/x make -s -n -C "$SRC" image | grep -q "image: writing /x/images/base.ext4" && pass "make image honours WISP_DATA and says so" || fail "make image output"
 

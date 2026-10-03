@@ -101,6 +101,11 @@ EOF
 fi
 
 [ "$(id -u)" != 0 ] || { echo "run this as yourself, not root: it installs a user service" >&2; exit 1; }
+# Before anything, uninstall included: an empty or path-like name would make
+# LIB below a parent of every stack's directory, and uninstall rm -rf's LIB.
+case "$NAME" in
+  ''|*/*|.*) echo "install-service.sh: refusing: bad --name '$NAME'" >&2; exit 1 ;;
+esac
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT="$UNIT_DIR/$NAME.service"
 ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/wisp/$NAME.env"
@@ -122,9 +127,6 @@ refuse() { echo "install-service.sh: refusing: $*" >&2; exit 1; }
 case "$BIN" in
   wispd|sandboxd) ;;
   *) refuse "--bin must be wispd or sandboxd, not '$BIN'" ;;
-esac
-case "$NAME" in
-  ''|*/*|.*) refuse "bad --name '$NAME'" ;;
 esac
 DATA="$(realpath -m "$DATA")"
 # wisp's data directory, under both spellings the tooling uses (the scripts
@@ -179,6 +181,12 @@ if ! systemctl --user is-active -q "$NAME.service" \
   exit 1
 fi
 
+# An env file kept from an install of the other binary under this name defines
+# the other variable: the unit would expand an unset one and start the daemon
+# on its defaults (wispd's 127.0.0.1:7788, the main install's port).
+if [ "$HAVE_FLAGS" != 1 ] && [ -e "$ENV_FILE" ] && ! grep -q "^$FLAGS_VAR=" "$ENV_FILE"; then
+  refuse "$ENV_FILE has no $FLAGS_VAR= line (left from another binary's install?); pass flags after -- to rewrite it"
+fi
 mkdir -p "$UNIT_DIR" "$LIB" "$(dirname "$ENV_FILE")"
 if [ "$HAVE_FLAGS" = 1 ] || [ ! -e "$ENV_FILE" ]; then
   { echo "# $BIN flags for $NAME.service; edit, then: systemctl --user restart $NAME"

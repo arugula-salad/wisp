@@ -7,7 +7,9 @@ export WISP_DATA ?= $(HOME)/.local/share/wisp
 # (sandboxd) goes through install-sandboxd, which needs both spelled out; and
 # install-service refuses them rather than quietly reinstalling the main one.
 ifneq ($(filter install-service,$(MAKECMDGOALS)),)
-ifneq ($(NAME)$(DATA)$(BIN),)
+# Only what was given on the command line counts: NAME, DATA and BIN are common
+# enough environment variables (WSL sets NAME) that a plain run must ignore them.
+ifneq ($(filter command line,$(origin NAME) $(origin DATA) $(origin BIN)),)
 $(error install-service is the main install (wisp.service, wispd, $(WISP_DATA)) and takes no NAME/DATA/BIN; for a second daemon use: make install-sandboxd NAME=<name> DATA=<dir> FLAGS='--listen ...')
 endif
 endif
