@@ -252,7 +252,7 @@ func TestNetworkPolicyInNamespaces(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	apply(`{"rules":[{"domain":"github.com","action":"allow"}]}`)
 	check("live connection to a newly denied domain is closed", <-held == nil, "still open 8s after the policy change")
-	check("...by the proxy, because of the change", strings.Contains(logs.String(), `msg="egress connection closed by policy change" sprite=shut domain=example.com`), "no such log line")
+	check("...by the proxy, because of the change", strings.Contains(logs.String(), `msg="egress connection closed by policy change" sprite=`+shut.ID+` domain=example.com`), "no such log line")
 	out, ok = in("shut", fmt.Sprintf(fetch, "github.com"))
 	check("replacement policy is live: newly allowed domain works", ok, out)
 	out, ok = in("shut", fmt.Sprintf(fetch, "example.com"))
