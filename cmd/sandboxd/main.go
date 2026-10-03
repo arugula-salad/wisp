@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,12 +70,34 @@ func main() {
 	daytonaListen := flag.String("daytona-listen", "", "serve the Daytona API (control plane under /api, toolbox, preview URLs) on this address, e.g. 127.0.0.1:7842; empty leaves it off")
 	daytonaDomain := flag.String("daytona-domain", "daytona.localhost", "Daytona preview URLs are <port>-<id>.<domain>, with --daytona-listen's port appended unless it has one; the domain must resolve to this listener")
 	daytonaImage := flag.String("daytona-image", "", "the Daytona guest disk every Daytona sandbox starts from (default <data>/images/daytona.ext4, built by scripts/build-image.sh daytona)")
-	daytonaURL := flag.String("daytona-url", "", "how Daytona clients reach --daytona-listen (e.g. https://daytona.example.com), for the toolbox URL sandboxes report; default: the Host each request came to")
+	daytonaURL := flag.String("daytona-url", "", "how Daytona clients reach --daytona-listen (e.g. https://daytona.example.com), for the toolbox URL sandboxes report; default: --daytona-public-url, else the Host each request came to")
+	e2bPublic := flag.String("e2b-public-url", "", "the public URL of --e2b-listen behind a proxy (e.g. https://e2b.example.com): sandboxes report its host as their domain, port and all, instead of --e2b-domain with the listen port")
+	vercelPublic := flag.String("vercel-public-url", "", "the public URL of --vercel-listen behind a proxy (e.g. https://vercel.example.com): routes are <scheme>://<subdomain>.<its host>, instead of http:// under --vercel-domain with the listen port")
+	daytonaPublic := flag.String("daytona-public-url", "", "the public URL of --daytona-listen behind a proxy (e.g. https://daytona.example.com): previews are <scheme>://<port>-<id>.<its host> and the toolbox is under it, instead of --daytona-domain with the listen port")
 	flag.Parse()
 	opts, f := finish()
+	var pub [3]*url.URL
+	for i, p := range []struct{ name, raw string }{{"e2b-public-url", *e2bPublic}, {"vercel-public-url", *vercelPublic}, {"daytona-public-url", *daytonaPublic}} {
+		u, err := publicURL(p.raw)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "--%s: %v\n", p.name, err)
+			os.Exit(2)
+		}
+		pub[i] = u
+	}
+	*e2bDomain = reportedDomain(*e2bDomain, *e2bListen, pub[0])
+	*vercelDomain = reportedDomain(*vercelDomain, *vercelListen, pub[1])
+	*daytonaDomain = reportedDomain(*daytonaDomain, *daytonaListen, pub[2])
+	vercelScheme := "http"
+	if pub[1] != nil {
+		vercelScheme = pub[1].Scheme
+	}
+	if *daytonaURL == "" && pub[2] != nil {
+		*daytonaURL = pub[2].String()
+	}
 
 	daemon.Run("sandboxd", opts, f, modalFrontend(*modalListen, *modalImage, *modalRouter),
-		vercelFrontend(*vercelListen, *vercelDomain, *vercelImage, *vercelMaxTimeout, *vercelMem),
+		vercelFrontend(*vercelListen, *vercelDomain, vercelScheme, *vercelImage, *vercelMaxTimeout, *vercelMem),
 		daytonaFrontend(*daytonaListen, *daytonaDomain, *daytonaImage, *daytonaURL), daemon.Frontend{
 			Name:  "the E2B API",
 			Addr:  *e2bListen,
@@ -84,13 +107,7 @@ func main() {
 				if disk == "" {
 					disk = filepath.Join(env.DataDir, "images", "e2b.ext4")
 				}
-				domain := *e2bDomain
-				if _, _, err := net.SplitHostPort(domain); err != nil {
-					if _, port, err := net.SplitHostPort(*e2bListen); err == nil {
-						domain = net.JoinHostPort(domain, port)
-					}
-				}
-				fe := e2b.New(e2b.Options{Disk: disk, Domain: domain, CheckKey: env.Sprites.CheckKey,
+				fe := e2b.New(e2b.Options{Disk: disk, Domain: *e2bDomain, CheckKey: env.Sprites.CheckKey,
 					MaxTimeout: *e2bMaxTimeout, CPUs: *e2bCPUs, MemMiB: *e2bMem,
 					DefaultCPUs: env.Options.DefaultVCPUs, DefaultMemMiB: env.Options.DefaultMemMiB,
 					MaxSandboxes: env.Options.MaxSprites},
@@ -98,6 +115,42 @@ func main() {
 				return fe.Handler(), nil
 			},
 		})
+}
+
+// publicURL parses a --*-public-url: http or https, a host, and nothing
+// else, since everything reported under it is built from its host. Empty is
+// nil: no proxy in front.
+func publicURL(raw string) (*url.URL, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
+		return nil, fmt.Errorf("want http(s)://host[:port], got %q", raw)
+	}
+	if u.User != nil || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("want only a scheme and a host[:port], got %q", raw)
+	}
+	u.Path = ""
+	return u, nil
+}
+
+// reportedDomain is the domain an API puts in the URLs it hands its SDK: the
+// public URL's host when there is one, port and all (none behind 443);
+// otherwise domain, with listen's port appended unless it has one.
+func reportedDomain(domain, listen string, public *url.URL) string {
+	if public != nil {
+		return public.Host
+	}
+	if _, _, err := net.SplitHostPort(domain); err != nil {
+		if _, port, err := net.SplitHostPort(listen); err == nil {
+			return net.JoinHostPort(domain, port)
+		}
+	}
+	return domain
 }
 
 // modalFrontend is the Modal API (frontend/modal) on addr.
@@ -132,7 +185,7 @@ func modalFrontend(addr, image, routerURL string) daemon.Frontend {
 }
 
 // vercelFrontend is the Vercel Sandbox API's listener.
-func vercelFrontend(listen, domain, image string, maxTimeout time.Duration, memPerVCPU int) daemon.Frontend {
+func vercelFrontend(listen, domain, scheme, image string, maxTimeout time.Duration, memPerVCPU int) daemon.Frontend {
 	return daemon.Frontend{
 		Name: "the Vercel Sandbox API",
 		Addr: listen,
@@ -141,11 +194,8 @@ func vercelFrontend(listen, domain, image string, maxTimeout time.Duration, memP
 				image = filepath.Join(env.DataDir, "images", "vercel.ext4")
 			}
 			host, port, _ := net.SplitHostPort(listen)
-			if _, _, err := net.SplitHostPort(domain); err != nil && port != "" {
-				domain = net.JoinHostPort(domain, port)
-			}
 			fe := vercel.New(vercel.Options{Disk: image, CheckKey: env.Sprites.CheckKey, MaxTimeout: maxTimeout,
-				MemPerVCPU: memPerVCPU, MaxSandboxes: env.Options.MaxSprites, RouteURL: func(sub string) string { return "http://" + sub + "." + domain }},
+				MemPerVCPU: memPerVCPU, MaxSandboxes: env.Options.MaxSprites, RouteURL: func(sub string) string { return scheme + "://" + sub + "." + domain }},
 				env.Store, env.Engine, env.Log)
 			h := fe.Handler()
 			// *.localhost resolves to ::1 where systemd-resolved answers it, so a
@@ -171,11 +221,6 @@ func daytonaFrontend(listen, domain, image, baseURL string) daemon.Frontend {
 		Setup: func(env daemon.Env) (http.Handler, error) {
 			if image == "" {
 				image = filepath.Join(env.DataDir, "images", "daytona.ext4")
-			}
-			if _, _, err := net.SplitHostPort(domain); err != nil {
-				if _, port, err := net.SplitHostPort(listen); err == nil {
-					domain = net.JoinHostPort(domain, port)
-				}
 			}
 			fe := daytona.New(daytona.Options{Disk: image, Domain: domain, BaseURL: baseURL, CheckKey: env.Sprites.CheckKey,
 				MaxSandboxes: env.Options.MaxSprites}, env.Store, env.Engine, env.Log)

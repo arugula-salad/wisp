@@ -150,6 +150,27 @@ eviction: remove what you no longer need with `wispd images rm`.
 - No pull progress through the API: a create simply blocks. `wispd images pull` streams it.
 - Image `HEALTHCHECK`, `STOPSIGNAL`, labels and the like are ignored.
 
+## A second daemon's data directory (`make images`)
+
+A sandboxd beside production wisp needs a data directory of its own, with its own copies of
+everything, so a wisp upgrade never swaps Firecracker, the kernel or a disk under it:
+
+```sh
+make images DATA=/bulk/sandboxd                  # firecracker, kernel, base e2b vercel daytona
+make images DATA=/bulk/sandboxd VARIANTS=e2b     # just one disk, e.g. after moving envd's pin
+make install-sandboxd NAME=sandboxd DATA=/bulk/sandboxd FLAGS='--listen 127.0.0.1:7790 ...'
+```
+
+`DATA` must be given on the command line (not through `WISP_DATA`) and must not be wisp's own
+data directory; the target refuses otherwise. It runs `scripts/fetch-deps.sh` and then
+`scripts/build-image.sh <variant>` for each of `VARIANTS`, all with `WISP_DATA=$(DATA)`.
+`install-sandboxd` then builds the initrd into the same place.
+
+What the host needs: rootless podman (each disk is a container build), `mkfs.ext4` from
+e2fsprogs, Go (for envd, built from source for the e2b disk), and network access to the
+container registries, GitHub (envd's source and Firecracker's release) and the kernel's URL.
+Each disk is 20 GB apparent and sparse (`SPRITE_DISK_GB`).
+
 ## The E2B image
 
 `images/e2b/Containerfile` is a second disk image, for the E2B-compatible front-end
