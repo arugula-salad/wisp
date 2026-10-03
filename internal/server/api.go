@@ -75,7 +75,8 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
 	}
 	s.backups = life.backups
-	s.leases = newLeases(st, log, life, opts.LeaseWarning, s.destroy)
+	life.OnDelete(s.deleted)
+	s.leases = newLeases(st, log, life, opts.LeaseWarning)
 	life.setLeases(s.leases)
 	// Once here, before anything is served: a lease that ran out while the
 	// daemon was down has still run out, and the sprite should not come back.
@@ -523,32 +524,16 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deleted is the front end's part of a deletion (Lifecycle.OnDelete), however
+// it came about: the sprite's custom domains go with it.
+func (s *Server) deleted(store.Sprite) { s.syncDomains() }
+
 func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
-	if err := s.destroy(sp); err != nil {
+	if err := s.life.Delete(sp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// destroy is the deletion itself, with no request behind it: an expiring lease
-// (leases.go) frees exactly what a DELETE frees — net index, tap, disk,
-// checkpoints, domains — because it is the same code and not a second copy of
-// the list.
-func (s *Server) destroy(sp store.Sprite) error {
-	s.life.Stop(sp, false)
-	if err := s.store.Delete(sp.Name); err != nil {
-		return err
-	}
-	s.life.Forget(sp.ID)
-	s.life.egress.forget(sp)
-	s.syncDomains() // its custom domains go with it
-	// Tombstone rather than delete: losing this machine and deleting a sprite must
-	// not look the same to the bucket. `wispd backups prune` retires it later.
-	s.backups.MarkDeleted(sp)
-	s.log.Info("sprite deleted", "sprite", sp.Name)
-	s.life.emit(sp, "sprite.deleted", nil)
-	return nil
 }
 
 // proxyAgent wakes the sprite and forwards the request (HTTP or WebSocket) to

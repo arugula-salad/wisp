@@ -44,8 +44,6 @@ type leases struct {
 	log     *slog.Logger
 	life    *Lifecycle
 	warnFor time.Duration // Options.LeaseWarning; 0 is defaultLeaseWarning
-	// destroy deletes a sprite whose lease ran out.
-	destroy func(store.Sprite) error
 
 	mu sync.Mutex
 	// warned is the deadline each sprite was already warned about, so a sweep
@@ -60,8 +58,8 @@ type leases struct {
 	reaping map[string]bool
 }
 
-func newLeases(st *store.Store, log *slog.Logger, life *Lifecycle, warning time.Duration, destroy func(store.Sprite) error) *leases {
-	return &leases{store: st, log: log, life: life, warnFor: warning, destroy: destroy,
+func newLeases(st *store.Store, log *slog.Logger, life *Lifecycle, warning time.Duration) *leases {
+	return &leases{store: st, log: log, life: life, warnFor: warning,
 		warned: map[string]time.Time{}, reaping: map[string]bool{}}
 }
 
@@ -163,11 +161,11 @@ func (ls *leases) reap(sp store.Sprite) {
 	// Before the delete, so a follower sees why the sprite.deleted that comes
 	// next was not somebody's DELETE.
 	ls.life.emit(cur, "sprite.expired", map[string]any{"expires_at": cur.ExpiresAt.UTC().Format(time.RFC3339)})
-	if err := ls.destroy(cur); err != nil {
+	// Lifecycle.Delete, the same deletion a DELETE is, so expiry frees exactly
+	// what a DELETE frees, and forgets the warning sent.
+	if err := ls.life.Delete(cur); err != nil {
 		ls.log.Error("deleting an expired sprite failed; it will be tried again", "sprite", cur.Name, "err", err)
-		return
 	}
-	ls.forget(cur.ID)
 }
 
 func (ls *leases) claim(id string) {

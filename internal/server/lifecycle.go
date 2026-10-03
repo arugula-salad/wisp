@@ -39,9 +39,9 @@ import (
 //     must wait for a second lock lets go of its own first (leases.reap
 //     before the delete).
 //  3. Everything else is a leaf, taken under rt.mu or alone and held only
-//     for bookkeeping: l.mu (the runtime table, the tap pool, the loops),
-//     rt.useMu, the store's own lock, and the mutexes of the disk guard,
-//     admission, egress, backups and leases. None of them is ever held while
+//     for bookkeeping: l.mu (the runtime table, the tap pool, the loops, the
+//     delete hooks), rt.useMu, the store's own lock, and the mutexes of the
+//     disk guard, admission, egress, backups and leases. None is ever held while
 //     waiting for rt.mu, so l.rt(id) may be called with or without a sprite
 //     locked, and the store may be read and written under rt.mu.
 //
@@ -203,6 +203,9 @@ type Lifecycle struct {
 	// leases reaps sprites whose workspace lease ran out (leases.go). The Server
 	// installs it, since deleting a sprite is the API's path; nil until then.
 	leases *leases
+	// onDelete is what the front end does when a sprite is deleted (OnDelete);
+	// guarded by mu.
+	onDelete []func(store.Sprite)
 	// events is where everything below reports what it did (events.go).
 	events *eventBus
 	// denials rate-limits policy.denied events for the network policy.

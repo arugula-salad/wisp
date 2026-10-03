@@ -98,3 +98,43 @@ func cloneFile(ctx context.Context, src, dst string) error {
 	}
 	return os.Rename(tmp, dst)
 }
+
+// Delete deletes a sprite whole: its VM and memory state, its record, disk
+// and checkpoints, its runtime, its network index and egress policy, and its
+// backup state, which becomes a tombstone in the bucket rather than a
+// deletion, so losing this machine and deleting a sprite do not look the same
+// to it. It is the only deletion there is: a DELETE from outside, a spawner's
+// DELETE of a child and an expired lease (leases.go) all come here. What the
+// front end keeps beside the record (custom domains) it hears about through
+// OnDelete, before sprite.deleted goes out.
+//
+// It takes and drops the sprite's lock to stop it, so the caller must not
+// hold it.
+func (l *Lifecycle) Delete(sp store.Sprite) error {
+	l.Stop(sp, false)
+	if err := l.store.Delete(sp.Name); err != nil {
+		return err
+	}
+	l.Forget(sp.ID)
+	l.egress.forget(sp)
+	l.mu.Lock()
+	hooks := l.onDelete
+	l.mu.Unlock()
+	for _, f := range hooks {
+		f(sp)
+	}
+	// `wispd backups prune` retires the tombstone later.
+	l.backups.MarkDeleted(sp)
+	l.leases.forget(sp.ID) // a warning already sent belongs to the sprite
+	l.log.Info("sprite deleted", "sprite", sp.Name)
+	l.emit(sp, "sprite.deleted", nil)
+	return nil
+}
+
+// OnDelete registers f to run for every sprite Delete deletes, once its
+// record is gone and before sprite.deleted is published.
+func (l *Lifecycle) OnDelete(f func(store.Sprite)) {
+	l.mu.Lock()
+	l.onDelete = append(l.onDelete, f)
+	l.mu.Unlock()
+}
