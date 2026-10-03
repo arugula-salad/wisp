@@ -18,7 +18,12 @@ type guestHandler func(http.ResponseWriter, *http.Request, store.Sprite, *engine
 // checkpoint routes with the /sprites/{name} part removed, the way upstream's
 // /.sprite/api.sock does. The /v1/sprites routes are for a sprite that may
 // create sprites of its own (spawn.go).
+// Another API's sandbox gets none of it: its channel answers 404, as a
+// channel with no API installed does.
 func (s *Server) guestAPI(rec store.Record, g *engine.GuestChan) http.Handler {
+	if rec.API != store.Sprites {
+		return http.NotFoundHandler()
+	}
 	// For its name: the VM is booting, so the record is there.
 	sp, _ := s.store.Get(rec.ID)
 	bind := func(h guestHandler) http.HandlerFunc {

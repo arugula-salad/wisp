@@ -222,6 +222,14 @@ func (s *Server) authenticate(tok string) (principal, bool) {
 	return s.keys.check(tok)
 }
 
+// CheckKey authenticates a key presented to another API this daemon serves
+// (the E2B front end's X-API-Key): the root token and the API keys work there
+// as they do here, with the same scopes. admin is false for a read key.
+func (s *Server) CheckKey(key string) (admin, ok bool) {
+	p, ok := s.authenticate(key)
+	return ok && p.admin(), ok
+}
+
 // principalByID is who a dashboard session belongs to, if that key still exists.
 func (s *Server) principalByID(id string) (principal, bool) {
 	if id == rootKeyID {
