@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strconv"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -817,4 +817,17 @@ func TestCreateHonoursTheSandboxLimit(t *testing.T) {
 	fx.create(nil)
 	fx.f.opts.MaxSandboxes = 1
 	wantErr(t, fx.do("POST", "/v2/sandboxes", adminKey, map[string]any{"templateID": "base"}), 429, "maximum number of sandboxes")
+}
+
+func TestHealthz(t *testing.T) {
+	fx := newFixture(t)
+	if w := fx.do("GET", "/healthz", "", nil); w.Code != 200 || w.Body.String() != "ok\n" {
+		t.Fatalf("healthz: %d %q", w.Code, w.Body)
+	}
+	// On a sandbox's host it is the sandbox's own path.
+	id := fx.create(nil)
+	fx.guest = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "app") })
+	if w := fx.do("GET", "/healthz", "", nil, "Host", "8080-"+id+".e2b.test"); w.Body.String() != "app" {
+		t.Fatalf("healthz on a sandbox host: %d %q", w.Code, w.Body)
+	}
 }
