@@ -230,7 +230,7 @@ func TestCreateGetListDelete(t *testing.T) {
 		"resources": map[string]any{"vcpus": 1}, "persistent": false, "tags": map[string]string{"k": "v"}})
 	sb := out["sandbox"].(map[string]any)
 	if sb["name"] != "box-a" || sb["status"] != "running" || sb["persistent"] != false || sb["vcpus"] != 1.0 ||
-		sb["memory"] != 2048.0 || sb["timeout"] != 240000.0 || sb["cwd"] != fx.home || sb["currentSessionId"] != sid {
+		sb["memory"] != 2048.0 || sb["timeout"] != 240000.0 || sb["cwd"] != fx.home || sb["currentSessionId"] != sid || sb["expiresAt"] != nil {
 		t.Fatalf("sandbox %v", sb)
 	}
 	if _, ok := sb["createdAt"].(float64); !ok {

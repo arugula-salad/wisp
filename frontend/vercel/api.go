@@ -188,8 +188,8 @@ type paginationJSON struct {
 
 func zero() *int64 { var z int64; return &z }
 
-// sandboxOf is a sandbox as listed and got; totals are reported (as zero, but
-// for the duration) the way hosted reports them outside create.
+// sandboxOf is a sandbox; with totals, as listed and got, which is when hosted
+// reports the totals (zero here, but for the duration) and expiresAt.
 func (f *Frontend) sandboxOf(m meta, totals bool) sandboxJSON {
 	cur := m.current()
 	s := sandboxJSON{Name: m.Name, CurrentSnapshotID: m.CurrentSnapshotID, CurrentSessionID: cur.ID,
@@ -200,7 +200,7 @@ func (f *Frontend) sandboxOf(m meta, totals bool) sandboxJSON {
 		d := m.TotalDurationMs
 		s.TotalEgressBytes, s.TotalIngressBytes, s.TotalActiveCPUDurationMs, s.TotalDurationMs = zero(), zero(), zero(), &d
 	}
-	if cur.Status == "running" {
+	if totals && cur.Status == "running" {
 		s.ExpiresAt = cur.StartedAt + cur.Timeout
 	}
 	return s

@@ -135,7 +135,7 @@ func (f *Frontend) stopSessionLocked(id string, stoppedAt int64, manual bool, ex
 				return cur, m, nil, err
 			}
 		} else {
-			s := snapshot{ID: newSnapshotID(), Checkpoint: cp.ID, SourceSessionID: c.ID, CreatedAt: now,
+			s := snapshot{ID: newSnapshotID(), Checkpoint: cp.ID, SourceSessionID: c.ID, CreatedAt: now, LastUsedAt: now,
 				SizeBytes: f.checkpointBytes(id, cp.ID), Method: method}
 			if expiration > 0 {
 				s.ExpiresAt = now + expiration
