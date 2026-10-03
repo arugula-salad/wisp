@@ -239,3 +239,30 @@ func TestProxiedSpritesAPIAndURLsShareOneName(t *testing.T) {
 		t.Errorf("a failed wake through the proxy: %d %q, want 503 and no detail", rec.Code, rec.Body.String())
 	}
 }
+
+// GET /healthz answers without a token on the API listener, under an API
+// host and on --api-listen, as on every other front end; a sprite URL's
+// /healthz is the sprite's.
+func TestHealthzNeedsNoToken(t *testing.T) {
+	s, h := newOperatorServer(t, Options{APIHosts: []string{"sprites.example.test"}})
+	s.urlDomains = []string{"sprites.example.test"}
+	for _, c := range []struct {
+		h    http.Handler
+		host string
+	}{{h, "127.0.0.1:7790"}, {h, "sprites.example.test"}, {s.BearerHandler(), "anything.example"}} {
+		req := httptest.NewRequest("GET", "/healthz", nil)
+		req.Host = c.host
+		rec := httptest.NewRecorder()
+		c.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "ok\n" {
+			t.Errorf("GET %s/healthz: %d %q", c.host, rec.Code, rec.Body.String())
+		}
+	}
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	req.Host = "nosuch.sprites.example.test"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /healthz on a sprite URL: %d, want the sprite's answer (404, no such sprite)", rec.Code)
+	}
+}

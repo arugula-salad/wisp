@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -227,6 +228,14 @@ func (s *Server) BearerHandler() http.Handler {
 // serveAPI authenticates a request to the bearer API and routes it. cookie
 // says whether the dashboard's session cookie may stand in for a bearer token.
 func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request, cookie bool) {
+	// The daemon's own liveness check for probes and uptime monitors, the same
+	// on every front end and needing no token. Sprite URLs never get here, so
+	// it can't shadow an app's /healthz.
+	if r.Method == http.MethodGet && r.URL.Path == "/healthz" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(w, "ok\n")
+		return
+	}
 	w.Header().Set("Sprite-Version", apiVersion)
 	p, ok := s.authenticate(bearer(r))
 	if !ok && cookie {
