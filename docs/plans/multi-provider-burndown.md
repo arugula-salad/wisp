@@ -134,6 +134,15 @@ That decision shapes any neutral exec API, so designing one now would be a guess
 
 ## Status
 
+**The brief is complete.** Every phase merged with its gate met. What remains is
+follow-on work, not part of this brief:
+- `metrics.go` and `wispd status` still list only Sprites.
+- `MaxSprites` should become an engine-level ceiling.
+- `engine` exposes `internal/` types, which a separate module would need moved first.
+- The E2B and Vercel port URLs are plain HTTP on `*.localhost`.
+- Unverified Daytona and Modal behaviours are listed in their differences docs.
+
+
 | Item | State |
 | --- | --- |
 | Plan doc | Done |
@@ -150,6 +159,7 @@ That decision shapes any neutral exec API, so designing one now would be a guess
 | netpolicy test flakes | Fixed: PR #43 (dial-time RST in a test helper; a UDP/TCP port pick race) |
 | Phase 2a: envd in the guest | Done: PR #42. envd 0.9.0 pinned; `/etc/wisp/services.d` system services; `images/e2b` |
 | Phase 2b: E2B front-end + `cmd/sandboxd` | Done: PR #46. **Phase 2 gate met**: the unmodified E2B SDKs (py and js 2.52.0) pass 26/26 against sandboxd, and the recording matches hosted apart from documented differences. The review found and fixed a port-injection hole |
-| Phase 3: Vercel front-end | Running (illogical pane 128, worktree `wisp-wt/vercel-frontend`) |
-| Phase 4: Daytona front-end | Running (illogical pane 129, worktree `wisp-wt/daytona-frontend`) |
-| Phase 5: Modal spike | Running (illogical pane 133+, worktree `wisp-wt/modal-spike`) |
+| Phase 3: Vercel front-end | Done: PR #49. The unmodified Vercel SDKs pass JS 16/16 and Python 11/11 against sandboxd (JS via the `target.mjs` preload). The recording matches hosted statuses and content types |
+| Phase 4: Daytona front-end | Done: PR #50. The unmodified Daytona SDKs (py + TS 0.220.0) pass 22/22 on the core v1 surface. No AGPL source read. The review fixed a read-key→exec escalation and a credential leak to guests |
+| **Final gate: every API on one daemon** | **Passed 2026-10-03**: one `sandboxd` serving Sprites, E2B, Vercel, Daytona and Modal at once, with every official-SDK suite run against it concurrently: E2B 26/26, Vercel 0 failures, Daytona 22/22, Modal 0 failures, Sprites e2e ok, Sprites SDK probes 0 failures, 0 errors in the daemon log (`~/ws/gate-all.sh`) |
+| Phase 5: Modal spike | Done: PR #48. The unmodified `modal` 1.6.0 client runs create/exec/terminate (V1+V2) plus 14 checks against sandboxd. Recommendation: keep it opt-in and extend on demand |
