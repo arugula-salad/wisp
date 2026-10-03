@@ -1,4 +1,5 @@
-// Package store persists sprite metadata as one JSON file per sprite under
+// Package store persists sandbox records (sprites, and the sandboxes of any
+// other API, which are Sprites with no SpriteMeta) as one JSON file each under
 // <data>/vm/<id>/sprite.json, next to that sprite's disk and snapshots.
 package store
 
@@ -49,14 +50,20 @@ type Checkpoint struct {
 	IsAuto  bool     `json:"is_auto,omitempty"`
 }
 
-// Sprite is the persisted record. Runtime status is not stored here.
-type Sprite struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
+// Record is what the engine needs to run and persist a sandbox, whichever API
+// created it. Runtime status is not stored here.
+type Record struct {
+	ID string `json:"id"`
+	// API is the front end the sandbox belongs to, which is also its name
+	// namespace. Empty is the Sprites API: every record from before there could
+	// be another.
+	API string `json:"api,omitempty"`
+	// Hostname is the guest's hostname, which the front end chooses at create.
+	// A Sprites record's is its name, and on disk it is left out when it is
+	// (see Sprite.MarshalJSON), so sprite.json has no such key.
+	Hostname      string            `json:"hostname,omitempty"`
 	Config        Config            `json:"config"`
 	Environment   map[string]string `json:"environment,omitempty"`
-	URLSettings   URLSettings       `json:"url_settings"`
-	Labels        []string          `json:"labels,omitempty"`
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 	LastRunningAt *time.Time        `json:"last_running_at,omitempty"`
@@ -90,6 +97,29 @@ type Sprite struct {
 	Privileges *PrivilegesPolicy `json:"privileges_policy,omitempty"`
 	Resources  *ResourcesPolicy  `json:"resources_policy,omitempty"`
 
+	// ExpiresAt is the workspace lease: when it passes, the sprite is deleted,
+	// disk and all. nil is the default and means the sprite lives until someone
+	// deletes it, because losing a workspace to an expiry nobody asked for would
+	// be worse than leaving a stale one on the volume. Persisted like the rest,
+	// so a lease outlives the daemon that granted it.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// Protected holds off that deletion without forgetting the deadline, for the
+	// sprite somebody turns out to still be using.
+	Protected bool `json:"protected,omitempty"`
+
+	// Ext is where a front end other than Sprites keeps its own metadata, by
+	// front end. The engine never reads it.
+	Ext map[string]json.RawMessage `json:"ext,omitempty"`
+}
+
+// SpriteMeta is what the Sprites API keeps about a sprite beside its Record.
+// The engine does not read it.
+type SpriteMeta struct {
+	// Name is unique within the Sprites namespace (API "").
+	Name        string      `json:"name"`
+	URLSettings URLSettings `json:"url_settings"`
+	Labels      []string    `json:"labels,omitempty"`
+
 	// URLDomain is the domain this sprite's URL is under (<name>.<URLDomain>),
 	// one of wispd's --url-domain list. Empty is the first of them, which is
 	// what every sprite made before there could be several has.
@@ -104,16 +134,14 @@ type Sprite struct {
 	// Domains are custom hostnames served as this sprite's URL (domains.go). A
 	// domain belongs to at most one sprite; clones do not inherit them.
 	Domains []string `json:"domains,omitempty"`
+}
 
-	// ExpiresAt is the workspace lease: when it passes, the sprite is deleted,
-	// disk and all. nil is the default and means the sprite lives until someone
-	// deletes it, because losing a workspace to an expiry nobody asked for would
-	// be worse than leaving a stale one on the volume. Persisted like the rest,
-	// so a lease outlives the daemon that granted it.
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	// Protected holds off that deletion without forgetting the deadline, for the
-	// sprite somebody turns out to still be using.
-	Protected bool `json:"protected,omitempty"`
+// Sprite is the persisted record: the engine's Record and the Sprites
+// metadata, as one sprite.json. A record of another API has an empty
+// SpriteMeta.
+type Sprite struct {
+	Record
+	SpriteMeta
 }
 
 type Store struct {

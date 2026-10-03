@@ -339,7 +339,8 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	}
 
 	now := time.Now().UTC()
-	sp := &store.Sprite{ID: store.NewID(), Name: req.Name, Environment: req.Environment, Labels: req.Labels,
+	// The guest is named after the sprite.
+	sp := &store.Sprite{ID: store.NewID(), Name: req.Name, Hostname: req.Name, Environment: req.Environment, Labels: req.Labels,
 		URLSettings: store.URLSettings{Auth: "sprite"}, CreatedAt: now, UpdatedAt: now}
 	if req.URLSettings != nil && req.URLSettings.Auth != "" {
 		sp.URLSettings = *req.URLSettings
