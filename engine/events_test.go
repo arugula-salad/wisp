@@ -12,7 +12,7 @@ func (b *Bus) subscribe(match func(Event) bool, after uint64, resume bool) (*Sub
 }
 
 func TestEventBusIDsRingAndResume(t *testing.T) {
-	b := NewBus()
+	b := newBus()
 	all := func(Event) bool { return true }
 	b.Publish(Event{Type: "a"})
 	first := b.ring[0].ID
@@ -58,7 +58,7 @@ func TestEventBusIDsRingAndResume(t *testing.T) {
 }
 
 func TestEventBusCutsASlowStreamWithoutWaiting(t *testing.T) {
-	b := NewBus()
+	b := newBus()
 	slow, _, _ := b.subscribe(func(Event) bool { return true }, 0, false)
 	other, _, _ := b.subscribe(func(e Event) bool { return e.Type == "rare" }, 0, false)
 	done := make(chan struct{})

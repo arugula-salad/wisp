@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/gorilla/websocket"
 )
 
@@ -59,7 +60,7 @@ func (s *Server) controlRelay(w http.ResponseWriter, r *http.Request) {
 	defer release()
 
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second, ReadBufferSize: 64 * 1024, WriteBufferSize: 64 * 1024,
-		NetDialContext: agentDial(m)}
+		NetDialContext: engine.AgentDial(m)}
 	backend, resp, err := dialer.DialContext(r.Context(), "ws://agent/control?"+withSpriteEnv(r.URL.Query(), sp).Encode(), nil)
 	if err != nil {
 		if resp != nil { // the agent refused the upgrade; its answer is the client's answer

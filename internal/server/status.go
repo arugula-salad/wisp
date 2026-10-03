@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/netd"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
@@ -45,8 +46,8 @@ type DaemonStatus struct {
 }
 
 type HostStatus struct {
-	DataDir string   `json:"data_dir"`
-	Volume  Headroom `json:"volume"`
+	DataDir string          `json:"data_dir"`
+	Volume  engine.Headroom `json:"volume"`
 	// Reflink says whether clones on the sprite volume are copy-on-write.
 	Reflink bool `json:"reflink"`
 	// DiskReserve is what creates and checkpoints must leave free (daemon only).
@@ -58,14 +59,14 @@ type HostStatus struct {
 	TapsTotal int    `json:"taps_total"`
 	TapsUsed  int    `json:"taps_used"`
 	// PolicyHelper is wisp-netd, without which restrictive network policies are refused.
-	PolicyHelper HelperStatus `json:"policy_helper"`
-	Running      int          `json:"running"`
-	Warm         int          `json:"warm"`
-	Cold         int          `json:"cold"`
+	PolicyHelper engine.HelperStatus `json:"policy_helper"`
+	Running      int                 `json:"running"`
+	Warm         int                 `json:"warm"`
+	Cold         int                 `json:"cold"`
 	// Limits of 0 mean none is configured.
 	MaxRunning int `json:"max_running"`
 	MaxSprites int `json:"max_sprites"`
-	// The host admission budget (admission.go), daemon only. ReservedMemoryMiB is
+	// The host admission budget (engine/admission.go), daemon only. ReservedMemoryMiB is
 	// the guest RAM running and starting VMs hold against MaxRunningMemoryMiB:
 	// their ceilings, not what they are touching, and reported even with no
 	// budget set so an operator can see what one would have to be.
@@ -73,7 +74,7 @@ type HostStatus struct {
 	ReservedMemoryMiB   int `json:"reserved_memory_mib"`
 	MaxConcurrentBoots  int `json:"max_concurrent_boots"`
 	BootsInFlight       int `json:"boots_in_flight"`
-	// Images is the cache of disks built from container images (images.go).
+	// Images is the cache of disks built from container images (engine/images.go).
 	Images ImageCacheStatus `json:"images"`
 }
 
@@ -85,7 +86,7 @@ type ImageCacheStatus struct {
 
 func imageCacheStatus(vmRoot string) ImageCacheStatus {
 	var st ImageCacheStatus
-	st.Count, st.Bytes = imageCacheUsage(vmRoot)
+	st.Count, st.Bytes = engine.ImageCacheUsage(vmRoot)
 	return st
 }
 
@@ -122,7 +123,7 @@ type SpriteStatus struct {
 	// Image is the container image the disk was made from, if any.
 	Image string `json:"image,omitempty"`
 	// ExpiresAt is the workspace lease: when this sprite is deleted, disk and
-	// all (leases.go). Absent on a sprite with no lease, which is the default.
+	// all (engine/leases.go). Absent on a sprite with no lease, which is the default.
 	// Protected holds the deletion off without clearing the deadline, so an
 	// operator can see both that the lease ran out and why the sprite is still here.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
@@ -242,13 +243,13 @@ func scanProcs(vmRoot string, self int) (orphans []VMProcess, others []OtherDaem
 	return orphans, others
 }
 
-// diskUsage fills in the disk figures of every sprite at once (measureDisks).
+// diskUsage fills in the disk figures of every sprite at once (engine.MeasureDisks).
 func diskUsage(st *store.Store, vmRoot string, sprites []SpriteStatus) {
 	ids := make([]string, len(sprites))
 	for i := range sprites {
 		ids[i] = sprites[i].ID
 	}
-	for i, u := range measureDisks(st, vmRoot, ids) {
+	for i, u := range engine.MeasureDisks(st, vmRoot, ids) {
 		sprites[i].DiskApparent, sprites[i].DiskUsed, sprites[i].DiskExclusive = u.Apparent, u.Used, u.Exclusive
 		sprites[i].SnapshotBytes = u.Snapshot
 	}
@@ -283,15 +284,15 @@ func OfflineStatus(dataDir, netdSocket string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	out := Status{Host: HostStatus{DataDir: dataDir, Reflink: probeReflink(vmRoot)}, Sprites: []SpriteStatus{}}
-	out.Host.Volume, _ = probeHeadroom(vmRoot)
+	out := Status{Host: HostStatus{DataDir: dataDir, Reflink: engine.ProbeReflink(vmRoot)}, Sprites: []SpriteStatus{}}
+	out.Host.Volume, _ = engine.ProbeHeadroom(vmRoot)
 	out.Host.Images = imageCacheStatus(vmRoot)
 	if netdSocket == "" {
 		netdSocket = netd.Pool(0).Socket()
 	}
 	// Connecting would make the helper log a refused request, so only look.
 	if fi, err := os.Stat(netdSocket); err == nil && fi.Mode()&os.ModeSocket != 0 {
-		out.Host.PolicyHelper = HelperStatus{Reachable: true, Detail: "socket present at " + netdSocket + "; not probed without a daemon"}
+		out.Host.PolicyHelper = engine.HelperStatus{Reachable: true, Detail: "socket present at " + netdSocket + "; not probed without a daemon"}
 	} else {
 		out.Host.PolicyHelper.Detail = "no socket at " + netdSocket
 	}
@@ -315,15 +316,15 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	l := s.life
 	vmRoot := filepath.Join(s.opts.DataDir, "vm")
 	out := Status{Daemon: &DaemonStatus{Pid: os.Getpid(), StartedAt: started, Listen: listen},
-		Host: HostStatus{DataDir: s.opts.DataDir, Reflink: s.storage.reflink, DiskReserve: s.opts.DiskReserve,
-			Networking: l.gateway != nil, Bridge: netd.Pool(s.opts.NetPool).Bridge(), PolicyHelper: l.egress.helperStatus(),
+		Host: HostStatus{DataDir: s.opts.DataDir, Reflink: l.Reflink(), DiskReserve: s.opts.DiskReserve,
+			Networking: l.Networking(), Bridge: netd.Pool(s.opts.NetPool).Bridge(), PolicyHelper: l.PolicyHelper(),
 			MaxRunning: s.opts.MaxRunning, MaxSprites: s.opts.MaxSprites,
 			MaxRunningMemoryMiB: s.opts.MaxRunningMemoryMiB, MaxConcurrentBoots: s.opts.MaxConcurrentBoots},
 		Sprites: []SpriteStatus{}}
-	out.Host.ReservedMemoryMiB, out.Host.BootsInFlight = l.admit.usage()
-	out.Host.Volume, _ = l.disk.probe()
+	out.Host.ReservedMemoryMiB, out.Host.BootsInFlight = l.AdmissionUsage()
+	out.Host.Volume, _ = l.Volume()
 	out.Host.Images = imageCacheStatus(vmRoot)
-	out.Host.TapsTotal, out.Host.TapsUsed = l.tapUsage()
+	out.Host.TapsTotal, out.Host.TapsUsed = l.TapUsage()
 
 	var wg sync.WaitGroup
 	sprites := s.store.List(store.Sprites, "")
@@ -331,18 +332,18 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	for i, sp := range sprites {
 		st := spriteBase(sp)
 		st.State = l.Status(sp.Record)
-		st.PolicyRestricted = l.egress.compile(sp.Record).Restrictive()
-		if ip := l.spriteIP(sp.Record); ip != nil {
+		st.PolicyRestricted = l.PolicyRestricted(sp.Record)
+		if ip := l.SandboxIP(sp.Record); ip != nil {
 			st.IP = ip.String()
 		}
-		vm := l.peek(sp.ID)
-		st.APIInflight = vm.inflight
-		st.Busy, st.Tap = vm.busy, vm.tap
+		vm := l.Peek(sp.ID)
+		st.APIInflight = vm.Inflight
+		st.Busy, st.Tap = vm.Busy, vm.Tap
 		out.Host.count(st.State)
 		out.Sprites[i] = st
-		if vm.running() {
-			out.Sprites[i].VMMPid = vm.pid
-			if p, ok := readProc(vm.pid); ok {
+		if vm.Running() {
+			out.Sprites[i].VMMPid = vm.Pid
+			if p, ok := readProc(vm.Pid); ok {
 				out.Sprites[i].VMMRSS = p.rss
 			}
 			wg.Add(1)
@@ -350,7 +351,7 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 				defer wg.Done()
 				cctx, cancel := context.WithTimeout(ctx, time.Second)
 				defer cancel()
-				if tasks, ok := vm.taskHolds(cctx); ok {
+				if tasks, ok := vm.TaskHolds(cctx); ok {
 					out.Sprites[i].TaskHolds = &tasks
 				}
 			}()

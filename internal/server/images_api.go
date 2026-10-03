@@ -9,27 +9,28 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/ociimage"
 )
 
-// The Sprites side of the image cache (images.go): resolving from.image for a
+// The Sprites side of the image cache (engine/images.go): resolving from.image for a
 // create, and the operator socket's routes.
 
 // imageSource resolves from.image for a create. From inside a sprite
 // (parent set) only a cached image is accepted.
-func (s *Server) imageSource(ctx context.Context, raw string, parent bool) (disk string, img CachedImage, ref ociimage.Ref, release func(), _ *createError) {
+func (s *Server) imageSource(ctx context.Context, raw string, parent bool) (disk string, img engine.CachedImage, ref ociimage.Ref, release func(), _ *createError) {
 	ref, err := ociimage.ParseRef(raw)
 	if err != nil {
 		return "", img, ref, nil, &createError{http.StatusBadRequest, "bad_request", "from.image: " + err.Error()}
 	}
-	disk, img, release, err = s.images.acquire(ctx, ref, !parent)
+	disk, img, release, err = s.images.Acquire(ctx, ref, !parent)
 	switch {
 	case err == nil:
 		return disk, img, ref, release, nil
-	case errors.Is(err, errImageNotCached):
+	case errors.Is(err, engine.ErrImageNotCached):
 		return "", img, ref, nil, &createError{http.StatusNotFound, "image_not_cached",
 			fmt.Sprintf("image %s is not in this host's image cache; from inside a sprite only cached images can be used (the operator adds them with `wispd images pull`)", ref)}
-	case errors.Is(err, errNoRoom):
+	case errors.Is(err, engine.ErrNoRoom):
 		return "", img, ref, nil, &createError{http.StatusInsufficientStorage, "insufficient_storage", err.Error()}
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return "", img, ref, nil, &createError{http.StatusGatewayTimeout, "image_pull_pending",
@@ -42,7 +43,7 @@ func (s *Server) imageSource(ctx context.Context, raw string, parent bool) (disk
 // whoever owns the data directory, never through the API token.
 func (s *Server) registerImageOps(mux *http.ServeMux) {
 	mux.HandleFunc("GET /images", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, s.images.list())
+		writeJSON(w, http.StatusOK, s.images.List())
 	})
 	// POST /images/pull?ref=... streams podman's progress as plain text, then a
 	// final line: "ok <json>" or "error <message>".
@@ -56,17 +57,17 @@ func (s *Server) registerImageOps(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusOK)
 		fw := &flushWriter{w: w}
 		defer fw.close() // the pull may outlive this request and keep writing
-		img, err := s.images.pull(r.Context(), ref, fw)
+		img, err := s.images.Pull(r.Context(), ref, fw)
 		if err != nil {
 			fmt.Fprintf(fw, "error %s\n", strings.ReplaceAll(err.Error(), "\n", " "))
 			return
 		}
-		b, _ := json.Marshal(withDiskFigures(s.images.dir, img))
+		b, _ := json.Marshal(s.images.DiskFigures(img))
 		fmt.Fprintf(fw, "ok %s\n", b)
 	})
 	mux.HandleFunc("DELETE /images", func(w http.ResponseWriter, r *http.Request) {
-		img, err := s.images.remove(r.URL.Query().Get("key"))
-		if errors.Is(err, errImageNotFound) {
+		img, err := s.images.Remove(r.URL.Query().Get("key"))
+		if errors.Is(err, engine.ErrImageNotFound) {
 			writeErr(w, http.StatusNotFound, "not_found", err.Error())
 			return
 		}

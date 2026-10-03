@@ -50,7 +50,7 @@ TAPS="${TAPS:-32}"
 UNIT="/etc/systemd/system/wisp-net$SFX.service"
 INSTALLED="/usr/local/sbin/wisp-net$SFX"
 # Where wispd's policy listeners are (egressDNSPort / egressProxyPort in
-# internal/server/egress.go). Keep the two files in step.
+# engine/egress.go). Keep the two files in step.
 POLICY_DNS_PORT=7853
 POLICY_PROXY_PORT=7880
 NETD_SRC="$(cd "$(dirname "$0")/.." && pwd)/bin/wisp-netd"

@@ -94,7 +94,7 @@ func (s *Server) registerGuestEvents(mux *http.ServeMux, sp store.Sprite) {
 			return
 		}
 		id := self.ID
-		serveEvents(s.life.events, w, r, func(e engine.Event) bool { return e.ParentID == id }, s.eventHeartbeat())
+		serveEvents(s.life.Events(), w, r, func(e engine.Event) bool { return e.ParentID == id }, s.eventHeartbeat())
 	})
 	mux.HandleFunc("POST /internal/service-event", func(w http.ResponseWriter, r *http.Request) {
 		self, ok := current(w)
@@ -114,7 +114,7 @@ func (s *Server) registerGuestEvents(mux *http.ServeMux, sp store.Sprite) {
 			writeErr(w, http.StatusTooManyRequests, "rate_limited", "too many events from this sprite")
 			return
 		}
-		s.life.events.Publish(e)
+		s.life.Events().Publish(e)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

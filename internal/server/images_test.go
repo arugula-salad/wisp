@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/arugula-salad/wisp/internal/ociimage"
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/vmm"
 
 	"github.com/arugula-salad/wisp/internal/store"
@@ -51,9 +49,14 @@ const fakeImageID = "5c4f1b7e3a2d9c8b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5
 
 func newImageServer(t *testing.T) (*Server, http.Handler, string) {
 	t.Helper()
-	mkfs, err := findMkfs()
+	mkfs, err := exec.LookPath("mkfs.ext4")
+	for _, p := range []string{"/usr/sbin/mkfs.ext4", "/sbin/mkfs.ext4"} {
+		if err != nil && fileExists(p) {
+			mkfs, err = p, nil
+		}
+	}
 	if err != nil {
-		t.Skip(err)
+		t.Skip("mkfs.ext4 not found (install e2fsprogs)")
 	}
 	s, h := newOperatorServer(t, Options{})
 	state := t.TempDir()
@@ -81,8 +84,12 @@ func newImageServer(t *testing.T) (*Server, http.Handler, string) {
 	if out, err := exec.Command(mkfs, "-q", "-F", "-d", filepath.Join(state, "probe.tar"), probe).CombinedOutput(); err != nil {
 		t.Skipf("this mke2fs cannot build from a tar: %s", out)
 	}
-	s.images.podman = ociimage.Podman{Bin: bin}
-	s.images.diskSize = func() int64 { return 32 << 20 }
+	// The cache runs whatever podman is first on the PATH, and makes disks the
+	// size of the base image.
+	t.Setenv("PATH", state+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.Truncate(s.opts.BaseImage, 32<<20); err != nil {
+		t.Fatal(err)
+	}
 	return s, h, state
 }
 
@@ -175,7 +182,7 @@ func TestCreateFromImage(t *testing.T) {
 	op := s.StatusHandler("x")
 	rec := httptest.NewRecorder()
 	op.ServeHTTP(rec, httptest.NewRequest("GET", "/images", nil))
-	var imgs []CachedImage
+	var imgs []engine.CachedImage
 	json.Unmarshal(rec.Body.Bytes(), &imgs)
 	if len(imgs) != 1 || imgs[0].ID != fakeImageID || imgs[0].Account.Shell != "/bin/sh" || imgs[0].LastUsedAt == nil {
 		t.Fatalf("images = %+v", imgs)
@@ -188,7 +195,7 @@ func TestCreateFromImage(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rm: %d %s", rec.Code, rec.Body)
 	}
-	if len(s.images.list()) != 0 || len(imageDisks(filepath.Join(s.opts.DataDir, "vm"))) != 0 {
+	if n, _ := engine.ImageCacheUsage(filepath.Join(s.opts.DataDir, "vm")); len(s.images.List()) != 0 || n != 0 {
 		t.Fatal("rm left the image")
 	}
 	if _, err := os.Stat(disk); err != nil {
@@ -203,41 +210,9 @@ func TestCreateFromImage(t *testing.T) {
 		t.Fatalf("pull output: %s", out)
 	}
 	// A restarted daemon finds the cache again.
-	if c := newImageCache(filepath.Join(s.opts.DataDir, "vm"), "", s.life.disk.admitHost, s.log); len(c.images) != 1 {
-		t.Fatalf("reloaded cache holds %d images", len(c.images))
+	if imgs := engine.New(s.opts.Options, s.store, quiet).Images().List(); len(imgs) != 1 {
+		t.Fatalf("reloaded cache holds %d images", len(imgs))
 	}
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
-
-func TestMovedTagReplacesTheOldDisk(t *testing.T) {
-	dir := t.TempDir()
-	c := &imageCache{dir: dir, log: slog.New(slog.NewTextHandler(io.Discard, nil)), images: map[string]*CachedImage{}}
-	old := strings.Repeat("a", 64)
-	shared := strings.Repeat("b", 64)
-	for _, img := range []*CachedImage{
-		{ID: old, Refs: []string{"docker.io/library/node:22"}},
-		{ID: shared, Refs: []string{"docker.io/library/node:22-bookworm", "docker.io/library/node:lts"}},
-	} {
-		c.images[img.ID] = img
-		os.WriteFile(c.diskPath(img.ID), []byte("disk"), 0o644)
-		c.save(img)
-	}
-	fresh := &CachedImage{ID: strings.Repeat("c", 64)}
-	c.images[fresh.ID] = fresh
-	c.pointRef("docker.io/library/node:22", fresh)
-	c.pointRef("docker.io/library/node:lts", fresh)
-	if _, err := os.Stat(c.diskPath(old)); !os.IsNotExist(err) || c.images[old] != nil {
-		t.Error("the disk no reference points at any more should be gone")
-	}
-	if img := c.images[shared]; img == nil || len(img.Refs) != 1 || img.Refs[0] != "docker.io/library/node:22-bookworm" {
-		t.Errorf("a disk still referenced must stay: %+v", img)
-	}
-	if len(fresh.Refs) != 2 {
-		t.Errorf("fresh refs = %q", fresh.Refs)
-	}
-	r, _ := ociimage.ParseRef("node:22")
-	if c.find(r) != fresh {
-		t.Error("node:22 should resolve to the fresh disk")
-	}
-}

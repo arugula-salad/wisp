@@ -1,14 +1,11 @@
 package server
 
 import (
-	"bufio"
 	"fmt"
 	"net/http"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -17,15 +14,10 @@ import (
 // processes it launches, and the memory limit also sizes the VM.
 //
 // Enforced: the capability profile, noNewPrivileges, memory.limit_mb, and
-// memory.autoscale (by the balloon; see autoscale.go). Stored and returned but
+// memory.autoscale (by the balloon; see engine/autoscale.go). Stored and returned but
 // not enforced: devices (there is no device cgroup filter in the guest).
 
-const (
-	// vmHeadroomMiB is guest RAM beyond the workload's limit, for the kernel and
-	// the agent, so that the workload hits its own limit before a global OOM.
-	vmHeadroomMiB = 128
-	maxDevices    = 64
-)
+const maxDevices = 64
 
 func (s *Server) registerPolicyLimits(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/sprites/{name}/policy/privileges", func(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +75,7 @@ func (s *Server) setResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m := p.Memory; m != nil {
-		if max := hostMemMiB() - vmHeadroomMiB; m.LimitMB < 1 || m.LimitMB > max {
+		if max := engine.MaxMemoryLimitMiB(); m.LimitMB < 1 || m.LimitMB > max {
 			writeErr(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("memory.limit_mb must be between 1 and %d on this host", max))
 			return
 		}
@@ -102,25 +94,10 @@ func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, policy stri
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return
 	}
-	s.life.emit(sp.Record, "policy.changed", map[string]any{"policy": policy})
+	s.life.Emit(sp.Record, "policy.changed", map[string]any{"policy": policy})
 	if err := s.life.ApplyPolicy(r.Context(), sp.Record); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", "policy saved but not applied to the running sprite: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func hostMemMiB() int {
-	f, err := os.Open("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	for sc := bufio.NewScanner(f); sc.Scan(); {
-		if fields := strings.Fields(sc.Text()); len(fields) >= 2 && fields[0] == "MemTotal:" {
-			kb, _ := strconv.Atoi(fields[1])
-			return kb / 1024
-		}
-	}
-	return 0
 }

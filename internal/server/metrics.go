@@ -140,11 +140,11 @@ func (m *metrics) sample(now time.Time) {
 		}
 		pt := SpritePoint{State: state}
 		p.Sprites[sp.Name] = pt
-		vm := l.peek(sp.ID)
-		if !vm.running() {
+		vm := l.Peek(sp.ID)
+		if !vm.Running() {
 			continue
 		}
-		pr, ok := readProc(vm.pid)
+		pr, ok := readProc(vm.Pid)
 		if !ok {
 			continue
 		}
@@ -159,7 +159,7 @@ func (m *metrics) sample(now time.Time) {
 	}
 	p.HostMemTotal, p.HostMemUsed = readMeminfo()
 	p.Load1 = readLoad1()
-	if h, err := l.disk.probe(); err == nil {
+	if h, err := l.Volume(); err == nil {
 		p.VolumeTotal, p.VolumeUsed = h.VolumeTotal, h.VolumeTotal-h.VolumeFree
 	}
 

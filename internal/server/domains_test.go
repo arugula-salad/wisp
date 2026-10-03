@@ -61,7 +61,7 @@ func domainTestServer(t *testing.T) (*Server, *store.Store) {
 	go srv.ActivateAndServe()
 	t.Cleanup(func() { srv.Shutdown() })
 
-	s, st := newTestServer(t, &fakeHelper{})
+	s, st := newTestServer(t)
 	s.urlDomains = []string{"widgets.test"}
 	for _, name := range []string{"game", "other"} {
 		if err := st.Create(&store.Sprite{ID: store.NewID(), Name: name, URLSettings: store.URLSettings{Auth: "sprite"}}); err != nil {
@@ -211,7 +211,7 @@ func TestDomainsAPI(t *testing.T) {
 }
 
 func TestDomainsDisabledWithoutPublicListener(t *testing.T) {
-	s, st := newTestServer(t, &fakeHelper{})
+	s, st := newTestServer(t)
 	s.urlDomains = []string{"widgets.test"}
 	addSprite(t, st, "game")
 	if w := call(s, "POST", "/v1/sprites/game/domains", `{"domain":"play.example.test"}`); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "--public-listen") {

@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"io"
 	"net/http"
+
+	"github.com/arugula-salad/wisp/engine"
 )
 
 // execPost serves upstream's HTTP exec: a body of type-prefixed frames with no
@@ -32,7 +34,7 @@ func (s *Server) execPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ContentLength = r.ContentLength
-	resp, err := agentTransport(m).RoundTrip(req)
+	resp, err := engine.AgentTransport(m).RoundTrip(req)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "agent_unreachable", err.Error())
 		return

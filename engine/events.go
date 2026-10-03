@@ -66,8 +66,8 @@ func (s *Subscription) Events() <-chan Event { return s.ch }
 // meaningful once Events is closed.
 func (s *Subscription) Why() string { return s.why }
 
-// NewBus returns an empty bus whose IDs start from the clock.
-func NewBus() *Bus {
+// newBus returns an empty bus whose IDs start from the clock.
+func newBus() *Bus {
 	return &Bus{now: time.Now, next: uint64(time.Now().UnixMilli()) * 1000, subs: map[*Subscription]struct{}{}}
 }
 

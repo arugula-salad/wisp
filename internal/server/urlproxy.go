@@ -65,7 +65,7 @@ func dialGuestTCP(ctx context.Context, m *vmm.Machine, port string) (net.Conn, e
 // ceiling, for the guest port to accept a connection.
 //
 // It is a wait, not a hold: it runs inside the request, under the keep-awake
-// hold Acquire already took for it (lifecycle.go), and adds nothing that
+// hold Acquire already took for it (engine/lifecycle.go), and adds nothing that
 // outlives the response. A visitor that gives up cancels the request context and
 // the gate stops with it, so nothing keeps polling an otherwise idle sprite.
 const (

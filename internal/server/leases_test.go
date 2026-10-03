@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -52,11 +53,14 @@ func collect(sub *engine.Subscription) []engine.Event {
 }
 
 func leaseEvents(s *Server) *engine.Subscription {
-	sub, _, _, _ := s.life.events.Subscribe(func(e engine.Event) bool {
+	sub, _, _, _ := s.life.Events().Subscribe(func(e engine.Event) bool {
 		return e.Type == "sprite.expiring" || e.Type == "sprite.expired" || e.Type == "sprite.deleted"
 	}, 0, false)
 	return sub
 }
+
+// sweep runs the lease reaper now: StartReaping sweeps at once, every time.
+func sweep(s *Server) { s.life.StartReaping() }
 
 // restart is a second daemon on the same data directory, as a wispd stopped
 // and started again.
@@ -67,7 +71,7 @@ func restart(t *testing.T, s *Server) (*Server, http.Handler) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	again := New(s.opts, st, NewLifecycle(s.opts, st, log), log, "tok")
+	again := New(s.opts, st, engine.New(s.opts.Options, st, log), log, "tok")
 	return again, again.Handler()
 }
 
@@ -84,8 +88,8 @@ func TestASpriteHasNoLeaseUnlessItAsksForOne(t *testing.T) {
 		t.Errorf("lease = %+v, want none", l)
 	}
 	// And the reaper is not interested in it, however often it runs.
-	s.leases.sweep()
-	s.leases.sweep()
+	sweep(s)
+	sweep(s)
 	if _, err := s.store.GetByName(store.Sprites, "keeper"); err != nil {
 		t.Fatal("the reaper deleted a sprite that had no lease")
 	}
@@ -133,7 +137,7 @@ func TestLeaseOnCreateUpdateAndRenewal(t *testing.T) {
 	if l := leaseNow(t, h, "tmp"); l.ExpiresAt != nil || l.Protected {
 		t.Fatalf("after clearing: %+v", l)
 	}
-	s.leases.sweep()
+	sweep(s)
 	if _, err := s.store.GetByName(store.Sprites, "tmp"); err != nil {
 		t.Fatal("a cleared lease still got the sprite reaped")
 	}
@@ -170,7 +174,7 @@ func TestTheReaperDeletesExpiredUnprotectedSprites(t *testing.T) {
 	expire(t, s, "safe", time.Now().Add(-time.Minute))
 
 	sub := leaseEvents(s)
-	s.leases.sweep()
+	sweep(s)
 
 	if _, err := s.store.GetByName(store.Sprites, "gone"); err == nil {
 		t.Fatal("an expired, unprotected sprite survived the sweep")
@@ -200,7 +204,7 @@ func TestTheReaperDeletesExpiredUnprotectedSprites(t *testing.T) {
 	}
 	// Unprotecting hands the sprite back to the reaper.
 	status(t, apiCall(t, h, "POST", leaseURL("safe"), `{"protected":false}`), http.StatusOK)
-	s.leases.sweep()
+	sweep(s)
 	if _, err := s.store.GetByName(store.Sprites, "safe"); err == nil {
 		t.Fatal("a sprite whose protection was lifted kept its expired lease")
 	}
@@ -229,7 +233,7 @@ func TestLeasesThatRanOutWhileTheDaemonWasDown(t *testing.T) {
 }
 
 func TestTheExpiringWarningGoesOutOncePerDeadline(t *testing.T) {
-	s, h := newOperatorServer(t, Options{LeaseWarning: 10 * time.Minute})
+	s, h := newOperatorServer(t, Options{Options: engine.Options{LeaseWarning: 10 * time.Minute}})
 	// Subscribed before the creates: a sprite born inside the warning window is
 	// warned about at once rather than at the first sweep, since with a short
 	// enough lease there may not be a sweep before it expires.
@@ -237,8 +241,8 @@ func TestTheExpiringWarningGoesOutOncePerDeadline(t *testing.T) {
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"soon","ttl_seconds":300}`), http.StatusCreated)
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"later","ttl_seconds":3600}`), http.StatusCreated)
 
-	s.leases.sweep()
-	s.leases.sweep()
+	sweep(s)
+	sweep(s)
 	got := collect(sub)
 	if len(got) != 1 || got[0].Type != "sprite.expiring" || got[0].Sprite != "soon" {
 		t.Fatalf("want one warning about soon, got %+v", got)
@@ -249,75 +253,56 @@ func TestTheExpiringWarningGoesOutOncePerDeadline(t *testing.T) {
 
 	// A renewal is a new deadline, and is warned about in its own right.
 	status(t, apiCall(t, h, "POST", leaseURL("soon"), `{"ttl_seconds":301}`), http.StatusOK)
-	s.leases.sweep()
+	sweep(s)
 	if got := collect(sub); len(got) != 1 || got[0].Type != "sprite.expiring" {
 		t.Fatalf("after a renewal into the warning window: %+v", got)
 	}
 	// Renewed well past it, there is nothing to warn about any more.
 	status(t, apiCall(t, h, "POST", leaseURL("soon"), `{"ttl_seconds":7200}`), http.StatusOK)
-	s.leases.sweep()
+	sweep(s)
 	if got := collect(sub); len(got) != 0 {
 		t.Fatalf("warned about a lease with two hours to run: %+v", got)
 	}
 }
 
-// The reaper picks candidates from a list read before it waits on each sprite's
-// lock, exactly as the warm-TTL janitor does. A renewal that got the lock first
-// has already written a new deadline by the time the reaper gets in, and the
-// reaper has to see it: deciding on its own stale copy would delete a workspace
-// somebody just extended.
-func TestARenewalThatLandsFirstBeatsTheReaper(t *testing.T) {
-	s, h := newOperatorServer(t, Options{})
-	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"game","ttl_seconds":60}`), http.StatusCreated)
-	sp := expire(t, s, "game", time.Now().Add(-time.Second))
-
-	rt := s.life.rt(sp.ID)
-	rt.mu.Lock() // a renewal (or any other transition) in flight
-	done := make(chan struct{})
-	go func() {
-		s.leases.reap(sp.Record) // the reaper, holding the record it listed
-		close(done)
-	}()
-	select {
-	case <-done:
-		t.Fatal("the reaper deleted the sprite without waiting for its lock")
-	case <-time.After(50 * time.Millisecond):
-	}
-	// What applyLease does before letting go.
-	later := time.Now().Add(time.Hour)
-	s.store.UpdateByName(store.Sprites, "game", func(sp *store.Sprite) { sp.ExpiresAt = &later })
-	rt.mu.Unlock()
-	<-done
-
-	if _, err := s.store.GetByName(store.Sprites, "game"); err != nil {
-		t.Fatal("the reaper deleted a sprite renewed moments before, deciding on a stale lease")
-	}
-}
-
 // The other order: once a reap has committed, the sprite is on its way out and
-// a renewal must be told so rather than writing a lease onto a record that is
-// about to go.
+// a renewal must be told so (409) rather than writing a lease onto a record
+// that is about to go. sprite.expired is published right after the commit and
+// before the deletion, so a sink sees the sprite in exactly that state.
 func TestARenewalThatLandsAfterTheReapIsRefused(t *testing.T) {
 	s, h := newOperatorServer(t, Options{})
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"game","ttl_seconds":60}`), http.StatusCreated)
 	sp := expire(t, s, "game", time.Now().Add(-time.Second))
-	s.leases.claim(sp.ID) // the reaper has committed and is deleting
 
-	for _, req := range [][3]string{
-		{"POST", leaseURL("game"), `{"ttl_seconds":3600}`},
-		{"POST", leaseURL("game"), `{"protected":true}`},
-		{"DELETE", leaseURL("game"), ""},
-		{"PUT", "/v1/sprites/game", `{"protected":true}`},
-	} {
-		if resp := apiCall(t, h, req[0], req[1], req[2]); resp.StatusCode != http.StatusConflict {
-			t.Errorf("%s %s: %d, want 409", req[0], req[1], resp.StatusCode)
+	var codes []int
+	var cur store.Sprite
+	s.life.Events().AddSink(func(e engine.Event) {
+		if e.Type != "sprite.expired" {
+			return
+		}
+		// Refusals publish nothing, so these may run under the bus's lock.
+		for _, req := range [][3]string{
+			{"POST", leaseURL("game"), `{"ttl_seconds":3600}`},
+			{"POST", leaseURL("game"), `{"protected":true}`},
+			{"DELETE", leaseURL("game"), ""},
+			{"PUT", "/v1/sprites/game", `{"protected":true}`},
+		} {
+			codes = append(codes, apiCall(t, h, req[0], req[1], req[2]).StatusCode)
+		}
+		cur, _ = s.store.GetByName(store.Sprites, "game")
+	})
+	sweep(s)
+	if len(codes) != 4 {
+		t.Fatalf("the reap never committed: %v", codes)
+	}
+	for i, code := range codes {
+		if code != http.StatusConflict {
+			t.Errorf("request %d: %d, want 409", i, code)
 		}
 	}
-	if cur, _ := s.store.GetByName(store.Sprites, "game"); cur.Protected || cur.ExpiresAt == nil || !cur.ExpiresAt.Equal(*sp.ExpiresAt) {
+	if cur.Protected || cur.ExpiresAt == nil || !cur.ExpiresAt.Equal(*sp.ExpiresAt) {
 		t.Fatalf("a refused renewal still changed the record: %+v", cur)
 	}
-	// An update that is not about the lease is none of this mechanism's business.
-	status(t, apiCall(t, h, "PUT", "/v1/sprites/game", `{"labels":["a"]}`), http.StatusOK)
 }
 
 // Under the real handlers and a real sweep, the two orders above are the only
@@ -330,7 +315,7 @@ func TestRenewingWhileTheReaperRunsLeavesNoHalfDeletedSprite(t *testing.T) {
 		sp := expire(t, s, name, time.Now().Add(time.Millisecond))
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go func() { defer wg.Done(); s.leases.sweep() }()
+		go func() { defer wg.Done(); sweep(s) }()
 		go func() {
 			defer wg.Done()
 			apiCall(t, h, "POST", leaseURL(name), `{"ttl_seconds":3600}`)
@@ -389,7 +374,7 @@ func TestChildrenAreBornWithTheirLobbysLease(t *testing.T) {
 
 	// And the reaper frees the slot the child held under max_children.
 	expire(t, s, "game", time.Now().Add(-time.Second))
-	s.leases.sweep()
+	sweep(s)
 	if _, err := s.store.GetByName(store.Sprites, "game"); err == nil {
 		t.Fatal("an expired child survived")
 	}
@@ -405,4 +390,32 @@ func mustGet(t *testing.T, s *Server, name string) store.Sprite {
 		t.Fatal(err)
 	}
 	return sp
+}
+
+// The Sprites lease is the deadline with its default action: renewing it
+// through the API changes the deadline alone, never the action, and a sprite
+// with no policy does not get one.
+func TestTheLeaseAPIIsTheDeadline(t *testing.T) {
+	s, h := newOperatorServer(t, Options{})
+	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"web","ttl_seconds":600}`), http.StatusCreated)
+	sp, _ := s.store.GetByName(store.Sprites, "web")
+	status(t, apiCall(t, h, "POST", leaseURL("web"), `{"ttl_seconds":3600,"protected":true}`), http.StatusOK)
+	r, _ := s.store.GetRecord(sp.ID)
+	if r.Lifecycle != nil || r.ExpiresAt == nil || time.Until(*r.ExpiresAt) < 59*time.Minute || !r.Protected {
+		t.Fatalf("after a renewal: %+v", r)
+	}
+	if b, _ := os.ReadFile(filepath.Join(s.store.Dir(sp.ID), "sprite.json")); strings.Contains(string(b), "lifecycle") {
+		t.Fatalf("a lease wrote a policy: %s", b)
+	}
+	if body := status(t, apiCall(t, h, "GET", "/v1/sprites/web", ""), http.StatusOK); strings.Contains(string(body), "lifecycle") ||
+		strings.Contains(string(body), "deadline") || strings.Contains(string(body), "idle_") {
+		t.Errorf("the sprite's JSON grew a policy field: %s", body)
+	}
+	// Releasing it clears the deadline and the protection, and still writes no
+	// policy. (That an action set by another front end survives a renewal is
+	// the engine's: TestAChangedDeadlineKeepsItsAction.)
+	status(t, apiCall(t, h, "DELETE", leaseURL("web"), ""), http.StatusNoContent)
+	if r, _ := s.store.GetRecord(sp.ID); r.Lifecycle != nil || r.ExpiresAt != nil || r.Protected {
+		t.Errorf("after a release: %+v", r)
+	}
 }

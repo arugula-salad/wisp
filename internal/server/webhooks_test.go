@@ -13,7 +13,20 @@ import (
 	"time"
 
 	"github.com/arugula-salad/wisp/engine"
+	"github.com/arugula-salad/wisp/internal/store"
 )
+
+// newBus is an engine's event bus, with nothing else of the engine running
+// that would publish to it.
+func newBus(t *testing.T) *engine.Bus {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return engine.New(engine.Options{DataDir: dir, NoNetwork: true}, st, quietLog()).Events()
+}
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
@@ -54,7 +67,7 @@ func TestWebhookSignsAndRetries(t *testing.T) {
 	}))
 	defer recv.Close()
 
-	bus := engine.NewBus()
+	bus := newBus(t)
 	hooks := startWebhooks(bus, WebhookOptions{URLs: []string{recv.URL}, Secret: "s3cret", Types: []string{"sprite."}}, quietLog())
 	hooks[0].backoff = time.Millisecond
 	bus.Publish(engine.Event{Type: "disk.low"}) // filtered out
@@ -81,7 +94,7 @@ func TestWebhookGivesUp(t *testing.T) {
 		http.Error(w, "down", http.StatusBadGateway)
 	}))
 	defer recv.Close()
-	bus := engine.NewBus()
+	bus := newBus(t)
 	hooks := startWebhooks(bus, WebhookOptions{URLs: []string{recv.URL + "/gone", recv.URL + "/down"}}, quietLog())
 	for _, h := range hooks {
 		h.backoff = time.Millisecond
@@ -99,7 +112,7 @@ func TestWebhookQueueDropsInsteadOfBlocking(t *testing.T) {
 	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
 	defer recv.Close()
 	defer close(release)
-	bus := engine.NewBus()
+	bus := newBus(t)
 	hooks := startWebhooks(bus, WebhookOptions{URLs: []string{recv.URL}}, quietLog())
 	done := make(chan struct{})
 	go func() {

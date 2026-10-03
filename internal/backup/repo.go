@@ -5,7 +5,7 @@
 //
 // It is a backup tier, not upstream's storage architecture: the recovery point is
 // the last completed upload, and a cold wake still reads from local disk. See
-// internal/server/backup.go for when uploads are triggered.
+// engine/backup.go for when uploads are triggered.
 package backup
 
 import (

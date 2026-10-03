@@ -176,7 +176,7 @@ func serveEvents(b *engine.Bus, w http.ResponseWriter, r *http.Request, scope fu
 
 // serveAPIEvents is GET eventsPath on the API: every event, for the operator.
 func (s *Server) serveAPIEvents(w http.ResponseWriter, r *http.Request) {
-	serveEvents(s.life.events, w, r, func(engine.Event) bool { return true }, s.eventHeartbeat())
+	serveEvents(s.life.Events(), w, r, func(engine.Event) bool { return true }, s.eventHeartbeat())
 }
 
 func (s *Server) eventHeartbeat() time.Duration {
@@ -187,4 +187,4 @@ func (s *Server) eventHeartbeat() time.Duration {
 }
 
 // CloseEvents ends every event stream; the daemon calls it as it shuts down.
-func (s *Server) CloseEvents() { s.life.events.Close() }
+func (s *Server) CloseEvents() { s.life.Events().Close() }

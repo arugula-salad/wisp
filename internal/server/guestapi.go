@@ -1,23 +1,24 @@
 package server
 
-// The Sprites API a guest reaches over its host channel (guestchan.go):
+// The Sprites API a guest reaches over its host channel (engine/guestchan.go):
 // the handler the Server installs on every VM's channel.
 
 import (
 	"net/http"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // guestHandler serves a request from inside the sprite it is given.
-type guestHandler func(http.ResponseWriter, *http.Request, store.Sprite, *guestChan)
+type guestHandler func(http.ResponseWriter, *http.Request, store.Sprite, *engine.GuestChan)
 
 // guestAPI is the handler behind one sprite's channel. It mirrors the public
 // checkpoint routes with the /sprites/{name} part removed, the way upstream's
 // /.sprite/api.sock does. The /v1/sprites routes are for a sprite that may
 // create sprites of its own (spawn.go).
-func (s *Server) guestAPI(rec store.Record, g *guestChan) http.Handler {
+func (s *Server) guestAPI(rec store.Record, g *engine.GuestChan) http.Handler {
 	// For its name: the VM is booting, so the record is there.
 	sp, _ := s.store.Get(rec.ID)
 	bind := func(h guestHandler) http.HandlerFunc {

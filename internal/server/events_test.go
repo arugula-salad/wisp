@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -197,7 +196,7 @@ func TestGuestSeesOnlyItsChildrensEvents(t *testing.T) {
 		status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"`+name+`"}`), http.StatusCreated)
 	}
 	lobby, _ := s.store.GetByName(store.Sprites, "lobby")
-	guest := httptest.NewServer(s.guestAPI(lobby.Record, &guestChan{}))
+	guest := httptest.NewServer(s.guestAPI(lobby.Record, &engine.GuestChan{}))
 	defer guest.Close()
 
 	// No spawn policy, no stream; and the refusal is itself an event.
@@ -242,7 +241,7 @@ func TestGuestSeesOnlyItsChildrensEvents(t *testing.T) {
 func TestGuestServiceReports(t *testing.T) {
 	s, h := newOperatorServer(t, Options{})
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"a"}`), http.StatusCreated)
-	sub, _, _, _ := s.life.events.Subscribe(func(e engine.Event) bool { return strings.HasPrefix(e.Type, "service.") }, 0, false)
+	sub, _, _, _ := s.life.Events().Subscribe(func(e engine.Event) bool { return strings.HasPrefix(e.Type, "service.") }, 0, false)
 
 	status(t, fromInside(t, s, "a", "POST", "/internal/service-event", `{"type":"crashed","service":"web","exit_code":1,"restart_count":2,"restart_in_ms":2000}`), http.StatusNoContent)
 	e := <-sub.Events()
@@ -264,54 +263,21 @@ func TestGuestServiceReports(t *testing.T) {
 	}
 }
 
-// The lifecycle publishes by record; the Server's Describer puts the name and
-// the parent back, so an event reads as it did when the lifecycle had the
-// sprite in hand -- including about a sprite the store no longer (or does not
-// yet) hold, while Delete (or Create) holds it.
-func TestEventsAreDescribedByTheFrontEnd(t *testing.T) {
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	l := &Lifecycle{store: st, runtimes: map[string]*runtime{}}
+// The Server's Describer names a sprite by its name and its parent, so an
+// event the engine publishes by ID reads as one about that sprite. Another
+// API's record is not the Server's to name. (The engine side, describing a
+// record it holds while the store does not: engine/describe_test.go.)
+func TestDescribeSprite(t *testing.T) {
 	child := store.Sprite{Record: store.Record{ID: store.NewID()}, SpriteMeta: store.SpriteMeta{Name: "child", ParentID: "p1"}}
-	other := store.Sprite{Record: store.Record{ID: store.NewID(), API: "e2b"}}
-	for _, sp := range []*store.Sprite{&child, &other} {
-		if err := st.Create(sp); err != nil {
-			t.Fatal(err)
-		}
+	if name, parent := describeSprite(child); name != "child" || parent != "p1" {
+		t.Fatalf("describeSprite = %q, %q", name, parent)
+	}
+	other := store.Sprite{Record: store.Record{ID: store.NewID(), API: "e2b"}, SpriteMeta: store.SpriteMeta{Name: "x", ParentID: "p"}}
+	if name, parent := describeSprite(other); name != "" || parent != "" {
+		t.Fatalf("another API's record: %q, %q", name, parent)
 	}
 	detail := map[string]any{"k": 1}
-	if e := l.event(child.Record, "sprite.woke", detail); e.Sprite != "" || e.SpriteID != child.ID {
-		t.Fatalf("undescribed: %+v", e)
-	}
-	l.SetDescriber(describeSprite)
-	if got, want := l.event(child.Record, "sprite.woke", detail), spriteEvent(child, "sprite.woke", detail); !reflect.DeepEqual(got, want) || got.Sprite != "child" || got.ParentID != "p1" {
-		t.Fatalf("event %+v, want %+v", got, want)
-	}
-	if e := l.event(other.Record, "sprite.woke", nil); e.Sprite != "" || e.ParentID != "" || e.SpriteID != other.ID {
-		t.Fatalf("another API's record: %+v", e)
-	}
-	if got := l.label(child.Record); got != "child" {
-		t.Fatalf("label %q", got)
-	}
-	if got := l.label(other.Record); got != other.ID {
-		t.Fatalf("label %q, want the ID", got)
-	}
-
-	// Gone from the store but held: still described, until released.
-	cur, _ := st.Get(child.ID)
-	release := l.holdUnstored(cur)
-	st.Delete(child.ID)
-	if e := l.event(child.Record, "sprite.deleted", nil); e.Sprite != "child" || e.ParentID != "p1" {
-		t.Fatalf("held: %+v", e)
-	}
-	release()
-	if e := l.event(child.Record, "sprite.deleted", nil); e.Sprite != "" || e.SpriteID != child.ID {
-		t.Fatalf("released: %+v", e)
-	}
-	// A host-wide event has no sprite at all.
-	if e := l.event(store.Record{}, "disk.refused", nil); e.Sprite != "" || e.SpriteID != "" || e.ParentID != "" {
-		t.Fatalf("host event: %+v", e)
+	if e := spriteEvent(child, "sprite.woke", detail); e.Sprite != "child" || e.SpriteID != child.ID || e.ParentID != "p1" || e.Type != "sprite.woke" || e.Detail["k"] != 1 {
+		t.Fatalf("spriteEvent = %+v", e)
 	}
 }

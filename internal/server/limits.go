@@ -12,7 +12,7 @@ import (
 // Operator ceilings (Options.MaxSprites, Options.MaxRunning) and the org block
 // of the list response. Errors use upstream's shape, which the SDKs parse into
 // their APIError: {error, message, limit, current_count, retry_after_seconds}.
-// The host memory budget and the concurrent-boot cap are in admission.go and
+// The host memory budget and the concurrent-boot cap are in engine/admission.go and
 // report themselves through the same engine.LimitError.
 
 const (
