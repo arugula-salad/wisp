@@ -81,6 +81,10 @@ type Options struct {
 	// what DefaultCPUs and DefaultMemMiB say, for GET /sandboxes/{id} to report.
 	CPUs, MemMiB               int
 	DefaultCPUs, DefaultMemMiB int
+	// MaxSandboxes is how many sandboxes, of every API, may exist on this host
+	// (wispd's --max-sprites); creating another is refused with 429, which the
+	// SDKs report as a RateLimitError. 0 is no limit.
+	MaxSandboxes int
 }
 
 // Frontend is the E2B API on an engine.

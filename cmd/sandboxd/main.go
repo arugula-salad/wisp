@@ -65,7 +65,8 @@ func main() {
 			}
 			fe := e2b.New(e2b.Options{Disk: disk, Domain: domain, CheckKey: env.Sprites.CheckKey,
 				MaxTimeout: *e2bMaxTimeout, CPUs: *e2bCPUs, MemMiB: *e2bMem,
-				DefaultCPUs: env.Options.DefaultVCPUs, DefaultMemMiB: env.Options.DefaultMemMiB},
+				DefaultCPUs: env.Options.DefaultVCPUs, DefaultMemMiB: env.Options.DefaultMemMiB,
+				MaxSandboxes: env.Options.MaxSprites},
 				env.Store, env.Engine, env.Log)
 			return fe.Handler(), nil
 		},

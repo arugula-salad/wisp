@@ -248,6 +248,10 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request, def time.Durat
 	if !ok {
 		return
 	}
+	if limit, n := f.opts.MaxSandboxes, f.store.Count(); limit > 0 && n >= limit {
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("You have reached the maximum number of sandboxes (%d)", limit))
+		return
+	}
 	now := time.Now().UTC()
 	m := meta{TemplateID: tmpl, Alias: alias, Metadata: req.Metadata, EnvVars: req.EnvVars,
 		AccessToken: newAccessToken(), StartedAt: now, EndAt: now.Add(timeout),
@@ -384,6 +388,14 @@ func (f *Frontend) refresh(w http.ResponseWriter, r *http.Request, rec store.Rec
 		return
 	}
 	defer f.lock(rec.ID)()
+	// Decide on the metadata as it is now: a pause that landed while this
+	// waited for the lock cleared the deadline, and must not get one back.
+	cur, err := f.store.GetRecord(rec.ID)
+	if err != nil {
+		notFound(w, rec.ID)
+		return
+	}
+	m, _ = metaOf(cur)
 	if end := time.Now().UTC().Add(d); !m.paused(time.Now()) && end.After(m.EndAt) {
 		if _, _, err := f.setDeadline(rec.ID, end, nil); err != nil {
 			deadlineErr(w, rec.ID, err)
@@ -420,20 +432,24 @@ func (f *Frontend) pause(w http.ResponseWriter, r *http.Request, rec store.Recor
 		deadlineErr(w, rec.ID, err)
 		return
 	}
+	// Then it is marked paused, before the VM is suspended: traffic that
+	// arrives in between must be refused, not wake the VM back up behind the
+	// pause (it would then run with no deadline and no idle rule, for good).
+	now := time.Now().UTC()
+	if _, _, err := f.updateMeta(rec.ID, func(m *meta) { m.Paused, m.EndAt = true, now }); err != nil {
+		notFound(w, rec.ID)
+		return
+	}
 	if err := f.life.Suspend(cur); err != nil {
 		f.log.Error("pause failed", "id", rec.ID, "err", err)
-		// Put the deadline back: the sandbox is still running.
+		// Undo both: the sandbox is still running, with its old timeout.
+		f.updateMeta(rec.ID, func(n *meta) { n.Paused, n.EndAt = false, m.EndAt })
 		f.life.SetDeadline(rec.ID, &m.EndAt, deadlineAction(m))
 		writeErr(w, http.StatusInternalServerError, "Error pausing sandbox: "+err.Error())
 		return
 	}
 	if req.Memory != nil && !*req.Memory {
 		f.life.Cool(cur)
-	}
-	now := time.Now().UTC()
-	if _, _, err := f.updateMeta(rec.ID, func(m *meta) { m.Paused, m.EndAt = true, now }); err != nil {
-		notFound(w, rec.ID)
-		return
 	}
 	f.log.Info("sandbox paused", "id", rec.ID)
 	w.WriteHeader(http.StatusNoContent)

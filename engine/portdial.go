@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/arugula-salad/wisp/internal/vmm"
@@ -25,6 +26,16 @@ func (c *bufferedConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 // else 8080). m is a VM Acquire returned, held for as long as the stream is
 // used; a boot hook (OnBoot) may dial the VM it is given.
 func DialPort(ctx context.Context, m *vmm.Machine, port string) (net.Conn, error) {
+	// Only a port number, or "http" (the agent's name for the sandbox's own HTTP
+	// service), goes into the agent's request: anything else would be spliced
+	// into its query string, where it could name another host to dial.
+	if port != "http" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return nil, fmt.Errorf("invalid port %q", port)
+		}
+		port = strconv.Itoa(n)
+	}
 	conn, err := m.Dial(ctx)
 	if err != nil {
 		return nil, err

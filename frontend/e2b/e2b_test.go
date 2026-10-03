@@ -713,3 +713,50 @@ func TestNewSandboxID(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// A sandbox port is a number from 1 to 65535, normalized, whichever way it is
+// named: anything else could slip past the internal-endpoint check (049983)
+// or be spliced into the guest dial (49983&host=...), so it is refused.
+func TestSandboxPortsAreNumbers(t *testing.T) {
+	fx := newFixture(t)
+	id := fx.create(nil)
+	for _, c := range []struct {
+		host, header, want string
+		bad                bool
+	}{
+		{host: "8080-" + id + ".e2b.test", want: "8080"},
+		{host: "049983-" + id + ".e2b.test", want: "49983"},
+		{host: "0-" + id + ".e2b.test", bad: true},
+		{host: "70000-" + id + ".e2b.test", bad: true},
+		{header: "49983&host=10.0.0.1", bad: true},
+		{header: "+80", want: "80"},
+		{header: "x", bad: true},
+		{header: "0049983", want: "49983"},
+	} {
+		r := httptest.NewRequest("GET", "/health", nil)
+		if c.host != "" {
+			r.Host = c.host
+		} else {
+			r.Header.Set("E2b-Sandbox-Id", id)
+			r.Header.Set("E2b-Sandbox-Port", c.header)
+		}
+		tg, ok := fx.f.route(r)
+		if !ok || tg.badPort != c.bad || (!c.bad && tg.port != c.want) {
+			t.Errorf("host %q header %q: got %+v, want port %q bad %v", c.host, c.header, tg, c.want, c.bad)
+		}
+	}
+	// A refused port answers 400 before anything is dialled, and envd's
+	// internal endpoints stay unreachable however the port or path is spelled.
+	wantErr(t, fx.do("POST", "/init", "", nil, "E2b-Sandbox-Id", id, "E2b-Sandbox-Port", "49983&x=1"), 400, "port")
+	wantErr(t, fx.do("POST", "/init", "", nil, "Host", "049983-"+id+".e2b.test"), 404, "internal")
+	wantErr(t, fx.do("POST", "//init", "", nil, "E2b-Sandbox-Id", id), 404, "internal")
+	wantErr(t, fx.do("POST", "/x/../init", "", nil, "E2b-Sandbox-Id", id), 404, "internal")
+}
+
+// --max-sprites counts every API's sandboxes, and an E2B create past it is a 429.
+func TestCreateHonoursTheSandboxLimit(t *testing.T) {
+	fx := newFixture(t)
+	fx.create(nil)
+	fx.f.opts.MaxSandboxes = 1
+	wantErr(t, fx.do("POST", "/v2/sandboxes", adminKey, map[string]any{"templateID": "base"}), 429, "maximum number of sandboxes")
+}

@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,6 +34,8 @@ type target struct {
 	id, port string
 	// unmatched is a signed file URL that matched no sandbox's token.
 	unmatched bool
+	// badPort is a port that is not a number from 1 to 65535.
+	badPort bool
 }
 
 // portHost is the left-most label of a sandbox port's Host, <port>-<id>, as
@@ -52,7 +55,7 @@ func (f *Frontend) route(r *http.Request) (target, bool) {
 	}
 	if label, _, ok := strings.Cut(strings.ToLower(host), "."); ok {
 		if m := portHost.FindStringSubmatch(label); m != nil {
-			return target{id: m[2], port: m[1]}, true
+			return withPort(m[2], m[1]), true
 		}
 	}
 	if id := r.Header.Get("E2b-Sandbox-Id"); id != "" {
@@ -60,7 +63,7 @@ func (f *Frontend) route(r *http.Request) (target, bool) {
 		if port == "" {
 			port = EnvdPort
 		}
-		return target{id: id, port: port}, true
+		return withPort(id, port), true
 	}
 	if r.URL.Path == "/files" && r.URL.Query().Has("signature") {
 		if id, ok := f.bySignature(r); ok {
@@ -69,6 +72,18 @@ func (f *Frontend) route(r *http.Request) (target, bool) {
 		return target{unmatched: true}, true
 	}
 	return target{}, false
+}
+
+// withPort is a target for port as a client wrote it, normalized: the dial and
+// the check for envd's internal endpoints must see the same canonical number,
+// or "049983" (or anything carrying more than digits) would slip past the check
+// and still reach envd, or ask the guest to dial somewhere else entirely.
+func withPort(id, port string) target {
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return target{id: id, badPort: true}
+	}
+	return target{id: id, port: strconv.Itoa(n)}
 }
 
 // fileSignature is envd's: v1_ and the unpadded base64 SHA-256 of
@@ -133,6 +148,15 @@ func (f *Frontend) serveSandbox(w http.ResponseWriter, r *http.Request, t target
 	if t.unmatched {
 		writeErr(w, http.StatusUnauthorized, "invalid signature: it matches no running sandbox's access token")
 		return
+	}
+	if t.badPort {
+		writeErr(w, http.StatusBadRequest, "invalid sandbox port")
+		return
+	}
+	// The internal-endpoint check below and envd's own router must agree on
+	// the path, so it is cleaned once here and forwarded as cleaned.
+	if clean := path.Clean("/" + r.URL.Path); clean != r.URL.Path {
+		r.URL.Path, r.URL.RawPath = clean, ""
 	}
 	rec, err := f.store.GetRecord(t.id)
 	m, ok := metaOf(rec)
