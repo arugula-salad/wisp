@@ -1,24 +1,31 @@
 # wisp
 
-A single-host implementation of the [Sprites](https://sprites.dev) API: persistent,
-hardware-isolated Linux environments on Firecracker microVMs that suspend when idle
-and wake on the next request. The official `sprite` CLI and SDKs work against it
-unmodified.
+A single-host sandbox server: persistent, hardware-isolated Linux environments on Firecracker
+microVMs that suspend when idle and wake on the next request. It speaks the
+[Sprites](https://sprites.dev) API, so the official `sprite` CLI and SDKs work against it
+unmodified, and, from the same engine, the [E2B](https://e2b.dev),
+[Vercel Sandbox](https://vercel.com/docs/sandbox) and [Daytona](https://daytona.io) APIs, so their
+official SDKs do too. A subset of [Modal](https://modal.com)'s API, enough for its sandboxes,
+is there as a spike.
 
-This is an independent, unofficial project. It is not affiliated with or endorsed by Fly.io;
-"Sprites" is their product, and this only implements a compatible API for running on your
-own machine.
+This is an independent, unofficial project. It is not affiliated with or endorsed by Fly.io,
+E2B, Vercel, Daytona or Modal. Their products are theirs; this only implements compatible APIs
+for running on your own machine.
 
 ```
-client (sprite CLI / SDK / curl)
-   │  REST + WebSocket, Bearer token              http://<name>.sprites.localhost:7788
-   ▼                                                        │
-wispd ── lifecycle engine: wake on request, suspend when idle, go cold after a TTL
+client (sprite CLI / SDK / curl)         E2B · Vercel · Daytona · Modal SDKs
+   │  Sprites API, :7788                     │  one listener per API (sandboxd only)
+   ▼                                         ▼
+wispd / sandboxd ── front ends over one engine: wake on request, suspend when idle,
+   │                go cold after a TTL; one store, one set of API keys, one dashboard
    │  vsock, both directions (no guest network needed)
    ▼
 Firecracker microVM ── wisp-agent as PID 1 (from an initramfs) ── your ext4 disk
                        └─ /.sprite/api.sock + sprite-env, for use from inside
 ```
+
+`wispd` serves the Sprites API alone. `sandboxd` is `wispd` with the other APIs added, and takes
+every `wispd` flag. Run one or the other on a data directory, not both.
 
 ## Install
 
@@ -133,46 +140,46 @@ sprite create dev
 sprite exec -s dev -- uname -a
 ```
 
-### With the E2B SDKs
+### With the E2B, Vercel, Daytona or Modal SDKs
 
-`sandboxd` is `wispd` plus the [E2B](https://e2b.dev) API on a second listener, over the same
-engine and keys, so the official E2B SDKs work unmodified:
+Run `sandboxd` in place of `wispd`. It serves the Sprites API on `--listen` exactly as `wispd`
+does, and each other API on a listener of its own. They share the data directory, the store and
+the API keys, and the dashboard shows every sandbox, but a sandbox belongs to the API that made
+it: E2B sandboxes are not in the Sprites API's lists, nor sprites in E2B's. `wispd status`,
+`wispd keys` and the other subcommands work against a `sandboxd`'s data directory too.
 
 ```sh
-./scripts/build-image.sh e2b && ./bin/sandboxd --e2b-listen 127.0.0.1:7820
+systemctl --user stop wisp                # if wispd is installed as a service: one daemon per data directory
+make build                                # bin/wispd and bin/sandboxd
+./scripts/build-image.sh e2b              # each API's guest disk, as <data>/images/<api>.ext4
+./scripts/build-image.sh vercel
+./scripts/build-image.sh daytona
+./bin/sandboxd --vercel-listen 127.0.0.1:7824 --daytona-listen 127.0.0.1:7842
+```
+
+| API | Listener | Point the SDK at it | Guide |
+|---|---|---|---|
+| [E2B](https://e2b.dev) | `--e2b-listen`, on by default at `127.0.0.1:7820` | `E2B_API_URL` and `E2B_SANDBOX_URL` = `http://127.0.0.1:7820`, `E2B_API_KEY` = the token | [Using the E2B SDKs](docs/e2b-sdk.md) |
+| [Vercel Sandbox](https://vercel.com/docs/sandbox) | `--vercel-listen`, off by default | `VERCEL_TOKEN` = the token, any `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID`; the JS SDK through a `fetch` preload | [Using the Vercel Sandbox SDKs](docs/vercel-sdk.md) |
+| [Daytona](https://daytona.io) | `--daytona-listen`, off by default | `DAYTONA_API_URL` = `http://127.0.0.1:7842/api`, `DAYTONA_API_KEY` = the token | [Using the Daytona SDKs](docs/daytona-sdk.md) |
+| [Modal](https://modal.com) (spike: sandboxes and exec only) | `--modal-listen`, off by default | `MODAL_SERVER_URL` = `http://127.0.0.1:7852`, `MODAL_TOKEN_SECRET` = the token, any `MODAL_TOKEN_ID` | [Using the Modal client](docs/modal-client.md) |
+
+"The token" is `~/.local/share/wisp/token` or a key from `wispd keys create`. Then the official
+SDKs work as they are:
+
+```sh
 export E2B_API_URL=http://127.0.0.1:7820 E2B_SANDBOX_URL=http://127.0.0.1:7820
 export E2B_API_KEY=$(cat ~/.local/share/wisp/token)
 python3 -c 'from e2b import Sandbox; print(Sandbox.create().commands.run("uname -a").stdout)'
-```
 
-More in [Using the E2B SDKs](docs/e2b-sdk.md).
+export DAYTONA_API_URL=http://127.0.0.1:7842/api DAYTONA_API_KEY=$(cat ~/.local/share/wisp/token)
+python3 -c 'from daytona import Daytona; print(Daytona().create().process.exec("uname -a").result)'
 
-### With the Vercel Sandbox SDKs
-
-The [Vercel Sandbox](https://vercel.com/docs/sandbox) API is a third listener on `sandboxd`, for
-the official `@vercel/sandbox` (JS, through a `fetch` preload) and `vercel-sandbox` (Python)
-SDKs, unmodified:
-
-```sh
-./scripts/build-image.sh vercel && ./bin/sandboxd --vercel-listen 127.0.0.1:7824
 export VERCEL_TOKEN=$(cat ~/.local/share/wisp/token) VERCEL_TEAM_ID=team_local VERCEL_PROJECT_ID=prj_local
 VERCEL_SANDBOX_URL=http://127.0.0.1:7824 node --import ./e2e/providers/vercel/target.mjs app.mjs
 ```
 
-More in [Using the Vercel Sandbox SDKs](docs/vercel-sdk.md).
-
-### With the Daytona SDKs
-
-The same daemon serves the [Daytona](https://daytona.io) API on a listener of its own, so the
-official Daytona SDKs work unmodified too:
-
-```sh
-./scripts/build-image.sh daytona && ./bin/sandboxd --daytona-listen 127.0.0.1:7842
-export DAYTONA_API_URL=http://127.0.0.1:7842/api DAYTONA_API_KEY=$(cat ~/.local/share/wisp/token)
-python3 -c 'from daytona import Daytona; print(Daytona().create().process.exec("uname -a").result)'
-```
-
-More in [Using the Daytona SDKs](docs/daytona-sdk.md).
+Each guide covers its flags and what works, and links to how it differs from the hosted product.
 
 ### Sprite URLs
 
@@ -208,8 +215,8 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 | [Backups](docs/backups.md) | Incremental, deduplicated backups to any S3-compatible bucket, and restoring onto a new host |
 | [Security](docs/security.md) | How network policy is enforced, how each Firecracker is confined, and what neither covers |
 | [Differences from the hosted product](docs/differences.md) | Deliberate ones, and the official Go SDK issues this server works around |
-| [Using the E2B SDKs](docs/e2b-sdk.md) | `sandboxd`: the E2B API beside the Sprites API, for the official E2B SDKs, and [how it differs from hosted E2B](docs/providers/e2b-differences.md) |
+| [Using the E2B SDKs](docs/e2b-sdk.md) | `sandboxd --e2b-listen`: the E2B API for the official E2B SDKs, with E2B's own envd in the guest, and [how it differs from hosted E2B](docs/providers/e2b-differences.md) |
 | [Using the Modal client](docs/modal-client.md) | A spike: `sandboxd --modal-listen` runs the unmodified `modal` client's sandboxes and exec, and [how it differs from hosted Modal](docs/providers/modal-differences.md) |
 | [Using the Vercel Sandbox SDKs](docs/vercel-sdk.md) | `sandboxd --vercel-listen`: the Vercel Sandbox API for the official Vercel SDKs, and [how it differs from hosted Vercel](docs/providers/vercel-differences.md) |
-| [Using the Daytona SDKs](docs/daytona-sdk.md) | `sandboxd`: the Daytona API, for the official Daytona SDKs, and [how it differs from hosted Daytona](docs/providers/daytona-differences.md) |
-| [Development](docs/development.md) | Tests, the e2e suite against the official SDKs, extra dev stacks |
+| [Using the Daytona SDKs](docs/daytona-sdk.md) | `sandboxd --daytona-listen`: the Daytona API, for the official Daytona SDKs, and [how it differs from hosted Daytona](docs/providers/daytona-differences.md) |
+| [Development](docs/development.md) | The code's layout (`engine/`, `frontend/`, the two daemons), tests, the e2e suites against the official SDKs, extra dev stacks |
