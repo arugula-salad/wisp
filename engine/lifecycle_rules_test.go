@@ -71,7 +71,7 @@ func eventTypes(es []Event) string {
 // withPolicy gives a stored sprite a lifecycle policy through the
 func withPolicy(t *testing.T, l *Engine, id string, p store.LifecyclePolicy) {
 	t.Helper()
-	if _, err := l.setPolicy(id, p); err != nil {
+	if _, err := l.SetPolicy(id, p); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -146,7 +146,7 @@ func TestDeadlineActionsOnASandboxThatIsNotRunning(t *testing.T) {
 			withPolicy(t, l, sp.ID, store.LifecyclePolicy{DeadlineAction: tc.action})
 			// Inside the warning window: a lease would be warned about now.
 			soon := time.Now().Add(time.Minute)
-			if _, err := l.setDeadline(sp.ID, &soon, ""); err != nil {
+			if _, err := l.SetDeadline(sp.ID, &soon, ""); err != nil {
 				t.Fatal(err)
 			}
 			sub := ruleEvents(l)
@@ -225,14 +225,14 @@ func TestExtendingADeadline(t *testing.T) {
 	l := newTestEngine(t, Options{})
 	sp := warmSprite(t, l, "sbx", time.Now())
 	soon := time.Now().Add(time.Second)
-	if _, err := l.setDeadline(sp.ID, &soon, store.DeadlineSuspend); err != nil {
+	if _, err := l.SetDeadline(sp.ID, &soon, store.DeadlineSuspend); err != nil {
 		t.Fatal(err)
 	}
 	if r := record(t, l, sp.ID); r.Lifecycle.OnDeadline() != store.DeadlineSuspend || r.ExpiresAt == nil {
 		t.Fatalf("after SetDeadline: %+v", r)
 	}
 	later := time.Now().Add(time.Hour)
-	if _, err := l.setDeadline(sp.ID, &later, ""); err != nil {
+	if _, err := l.SetDeadline(sp.ID, &later, ""); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Until(soon) + 10*time.Millisecond)
@@ -241,11 +241,11 @@ func TestExtendingADeadline(t *testing.T) {
 	if r.ExpiresAt == nil || !r.ExpiresAt.Equal(later) || r.Lifecycle.OnDeadline() != store.DeadlineSuspend {
 		t.Fatalf("after an extension and a sweep past the first deadline: %+v", r)
 	}
-	if _, err := l.setDeadline(sp.ID, &later, "explode"); !errors.Is(err, errBadPolicy) {
+	if _, err := l.SetDeadline(sp.ID, &later, "explode"); !errors.Is(err, errBadPolicy) {
 		t.Errorf("unknown action: %v", err)
 	}
 	// Clearing it leaves the action for the next one.
-	if _, err := l.setDeadline(sp.ID, nil, ""); err != nil {
+	if _, err := l.SetDeadline(sp.ID, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if r := record(t, l, sp.ID); r.ExpiresAt != nil || r.Lifecycle.OnDeadline() != store.DeadlineSuspend {
@@ -260,7 +260,7 @@ func TestSetPolicyStoresOnlyWhatDiffersFromTheDefaults(t *testing.T) {
 	sp := warmSprite(t, l, "sbx", time.Now())
 	file := filepath.Join(l.store.Dir(sp.ID), "sprite.json")
 	for _, p := range []store.LifecyclePolicy{{}, {IdleAction: store.IdleSuspend, DeadlineAction: store.DeadlineDelete}} {
-		if r, err := l.setPolicy(sp.ID, p); err != nil || r.Lifecycle != nil {
+		if r, err := l.SetPolicy(sp.ID, p); err != nil || r.Lifecycle != nil {
 			t.Fatalf("SetPolicy(%+v) = %+v, %v; want no policy", p, r.Lifecycle, err)
 		}
 		if b, _ := os.ReadFile(file); strings.Contains(string(b), "lifecycle") {
@@ -268,11 +268,11 @@ func TestSetPolicyStoresOnlyWhatDiffersFromTheDefaults(t *testing.T) {
 		}
 	}
 	for _, p := range []store.LifecyclePolicy{{IdleAction: "nap"}, {DeadlineAction: "pause"}, {IdleTimeout: -time.Second}} {
-		if _, err := l.setPolicy(sp.ID, p); !errors.Is(err, errBadPolicy) {
+		if _, err := l.SetPolicy(sp.ID, p); !errors.Is(err, errBadPolicy) {
 			t.Errorf("SetPolicy(%+v) = %v, want errBadPolicy", p, err)
 		}
 	}
-	if _, err := l.setPolicy("nosuch", store.LifecyclePolicy{}); !errors.Is(err, store.ErrNotFound) {
+	if _, err := l.SetPolicy("nosuch", store.LifecyclePolicy{}); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("SetPolicy on a missing sandbox: %v", err)
 	}
 	// And the policy survives a restart.
@@ -291,7 +291,7 @@ func TestOnlyADeleteDeadlineIsWarnedAbout(t *testing.T) {
 	withPolicy(t, l, sp.ID, store.LifecyclePolicy{DeadlineAction: store.DeadlineStop})
 	sub := leaseEvents(l)
 	soon := time.Now().Add(time.Minute)
-	l.setDeadline(sp.ID, &soon, "")
+	l.SetDeadline(sp.ID, &soon, "")
 	l.leases.sweep()
 	if got := collect(sub); len(got) != 0 {
 		t.Fatalf("a stop deadline was warned about: %s", eventTypes(got))
@@ -322,10 +322,10 @@ func TestAPolicyChangeRacesTheReaperLikeARenewal(t *testing.T) {
 
 	l.leases.claim(sp.ID)
 	defer l.leases.release(sp.ID)
-	if _, err := l.setPolicy(sp.ID, store.LifecyclePolicy{}); !errors.Is(err, ErrLeaseReaping) {
+	if _, err := l.SetPolicy(sp.ID, store.LifecyclePolicy{}); !errors.Is(err, ErrLeaseReaping) {
 		t.Errorf("SetPolicy during a committed reap: %v", err)
 	}
-	if _, err := l.setDeadline(sp.ID, nil, ""); !errors.Is(err, ErrLeaseReaping) {
+	if _, err := l.SetDeadline(sp.ID, nil, ""); !errors.Is(err, ErrLeaseReaping) {
 		t.Errorf("SetDeadline during a committed reap: %v", err)
 	}
 }

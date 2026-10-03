@@ -174,10 +174,10 @@ func TestDeadlineActionsOnRunningVMs(t *testing.T) {
 		defer wake(t, l, r)() // held awake throughout
 	}
 	soon := time.Now().Add(time.Second)
-	if _, err := l.setDeadline(suspends.ID, &soon, store.DeadlineSuspend); err != nil {
+	if _, err := l.SetDeadline(suspends.ID, &soon, store.DeadlineSuspend); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.setDeadline(stops.ID, &soon, store.DeadlineStop); err != nil {
+	if _, err := l.SetDeadline(stops.ID, &soon, store.DeadlineStop); err != nil {
 		t.Fatal(err)
 	}
 	l.leases.sweep()

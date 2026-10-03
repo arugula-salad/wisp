@@ -59,8 +59,8 @@ func TestADeadlineChangeAfterTheReapIsRefused(t *testing.T) {
 		"renew":     func() error { _, err := l.ChangeDeadline(sp.ID, func(d *Deadline) { d.At = &later }); return err },
 		"protect":   func() error { _, err := l.ChangeDeadline(sp.ID, func(d *Deadline) { d.Protected = true }); return err },
 		"clear":     func() error { _, err := l.ChangeDeadline(sp.ID, func(d *Deadline) { d.At = nil }); return err },
-		"deadline":  func() error { _, err := l.setDeadline(sp.ID, &later, store.DeadlineDelete); return err },
-		"lifecycle": func() error { _, err := l.setPolicy(sp.ID, store.LifecyclePolicy{}); return err },
+		"deadline":  func() error { _, err := l.SetDeadline(sp.ID, &later, store.DeadlineDelete); return err },
+		"lifecycle": func() error { _, err := l.SetPolicy(sp.ID, store.LifecyclePolicy{}); return err },
 	} {
 		if err := change(); !errors.Is(err, ErrLeaseReaping) {
 			t.Errorf("%s: %v, want ErrLeaseReaping", what, err)
