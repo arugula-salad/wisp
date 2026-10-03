@@ -2,9 +2,12 @@ package server
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"unsafe"
 
+	"github.com/arugula-salad/wisp/internal/store"
+	"github.com/arugula-salad/wisp/internal/vmm"
 	"golang.org/x/sys/unix"
 )
 
@@ -119,4 +122,54 @@ func exclusive(owners [][]span) []int64 {
 		}
 	}
 	return out
+}
+
+// diskFigures is what one sprite's files occupy on the volume.
+type diskFigures struct {
+	// Apparent is the size the guest sees. Used is what the sprite's disk and
+	// checkpoints occupy, each shared block counted once; Exclusive is the part
+	// nothing else on the volume shares, i.e. what deleting the sprite frees.
+	Apparent, Used, Exclusive int64
+	// Snapshot is the memory snapshot of a warm sprite.
+	Snapshot int64
+}
+
+// measureDisks reads the disk figures of the sprites with these IDs, all at
+// once, since what is exclusive to one depends on what the others hold.
+func measureDisks(st *store.Store, vmRoot string, ids []string) []diskFigures {
+	sprites := make([]diskFigures, len(ids))
+	owners := make([][]span, len(ids), len(ids)+1)
+	mapped := true
+	for i := range sprites {
+		dir := st.Dir(ids[i])
+		files, _ := filepath.Glob(filepath.Join(dir, "checkpoints", "*.ext4"))
+		files = append(files, filepath.Join(dir, vmm.DiskFile))
+		if fi, err := os.Stat(filepath.Join(dir, vmm.DiskFile)); err == nil {
+			sprites[i].Apparent = fi.Size()
+		}
+		var plain int64
+		for _, f := range files {
+			plain += allocated(f)
+			spans, ok := fileSpans(f)
+			mapped = mapped && ok
+			owners[i] = append(owners[i], spans...)
+		}
+		owners[i] = merge(owners[i])
+		sprites[i].Used, sprites[i].Exclusive = plain, plain
+		sprites[i].Snapshot = vmm.SnapshotBytes(dir)
+	}
+	if !mapped {
+		return sprites // no extent maps here, hence no sharing to account for either
+	}
+	// The base image's mirror shares blocks with every disk cloned from it, and
+	// a cached image disk with every sprite made from that image.
+	for _, f := range append([]string{filepath.Join(vmRoot, localBaseName)}, imageDisks(vmRoot)...) {
+		if spans, ok := fileSpans(f); ok {
+			owners = append(owners, merge(spans))
+		}
+	}
+	for i, own := range exclusive(owners)[:len(sprites)] {
+		sprites[i].Used, sprites[i].Exclusive = total(owners[i]), own
+	}
+	return sprites
 }

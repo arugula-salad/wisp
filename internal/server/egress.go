@@ -288,3 +288,25 @@ func (l *Lifecycle) tapFor(sp store.Record) (string, error) {
 	l.log.Warn("booting without a NIC", "sprite", l.label(sp), "reason", err)
 	return "", nil
 }
+
+// HelperStatus is how the network policy helper (wisp-netd) is doing, as
+// `wispd status` reports it.
+type HelperStatus struct {
+	Reachable bool   `json:"reachable"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+// helperStatus is the helper as the last push found it.
+func (e *egress) helperStatus() HelperStatus {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch {
+	case !e.gateway.IsValid():
+		return HelperStatus{Detail: "not used: " + e.down}
+	case e.down != "":
+		return HelperStatus{Detail: e.down}
+	case e.lastPush == "ok":
+		return HelperStatus{Reachable: true}
+	}
+	return HelperStatus{Detail: e.lastPush}
+}

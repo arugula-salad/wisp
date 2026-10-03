@@ -10,6 +10,14 @@ import (
 
 // The Sprites side of leases (leases.go has the reaper): the lease fields of a
 // create or an update, and the renewal endpoint.
+//
+// The endpoint lives outside /v1, like the event stream and the webhook status,
+// so it cannot collide with anything upstream has or adds; the fields on a
+// sprite ride along in upstream's shape, where an SDK that does not know them
+// ignores them.
+
+// leasePath is the renewal endpoint, ours, outside /v1.
+const leasePath = "/wisp/v1/sprites/{name}/lease"
 
 // leaseRequest is the lease in a create, an update or a renewal. There are two
 // ways to name the moment because callers differ: an operator has a date in

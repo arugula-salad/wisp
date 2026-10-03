@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 
@@ -22,10 +21,18 @@ import (
 // disk is a consistent point in time. Nothing here is allowed to make a suspend
 // fail or a wake wait; see snapshot below for how that is kept true.
 //
-// NoBackupLabel opts a sprite out. Everything else with a configured bucket is
-// backed up, because an opt-in default would leave most sprites with the
-// durability this issue exists to fix.
-const NoBackupLabel = "nobackup"
+// Every record is backed up when a bucket is configured, except those the front
+// end's filter opts out (SetBackupFilter).
+
+// SetBackupFilter installs f, which says whether a record is backed up at all.
+// Until then, and with no filter, every record is.
+func (l *Lifecycle) SetBackupFilter(f func(store.Sprite) bool) { l.backupFilter.Store(&f) }
+
+// backedUp is the filter's verdict on sp.
+func (l *Lifecycle) backedUp(sp store.Sprite) bool {
+	f := l.backupFilter.Load()
+	return f == nil || (*f)(sp)
+}
 
 // backupSnapshotFile is the reflink clone a backup reads from, inside the machine
 // directory (a reflink cannot cross filesystems). The leading dot keeps it out of
@@ -142,12 +149,12 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 
 // Enqueue asks for a backup of one sprite, by ID. It never blocks and never
 // reports an error: a suspend that cannot be backed up is still a good suspend.
-// A sprite labelled NoBackupLabel, or one that is gone, is not queued.
+// A sprite the backup filter opts out, or one that is gone, is not queued.
 func (m *backupManager) Enqueue(id, reason string) {
 	if m == nil {
 		return
 	}
-	if sp, err := m.store.Get(id); err != nil || slices.Contains(sp.Labels, NoBackupLabel) {
+	if sp, err := m.store.Get(id); err != nil || !m.life.backedUp(sp) {
 		return
 	}
 	m.mu.Lock()
@@ -253,11 +260,11 @@ func (m *backupManager) one(id, reason string) {
 	switch {
 	case errors.Is(err, errBackupDeferred), errors.Is(err, backup.ErrPruneRunning):
 		st.Phase, st.Error = "idle", ""
-		log.Info("backup deferred", "sprite", sp.Name, "why", err)
+		log.Info("backup deferred", "sprite", m.life.nameOf(sp), "why", err)
 	case err != nil:
 		st.Phase, st.Error = "error", err.Error()
 		st.Failures++
-		log.Warn("backup failed", "sprite", sp.Name, "err", err, "failures", st.Failures)
+		log.Warn("backup failed", "sprite", m.life.nameOf(sp), "err", err, "failures", st.Failures)
 	default:
 		// The recovery point is when the disk was captured, not when the upload
 		// finished; the periodic loop compares it with the disk's mtime.
@@ -265,7 +272,7 @@ func (m *backupManager) one(id, reason string) {
 		st.Phase, st.Error, st.Failures = "idle", "", 0
 		st.LastAt, st.LastTook = &at, stats.Took.Round(time.Millisecond).String()
 		st.LastBytes, st.LastSize = stats.Uploaded, manifest.Bytes()
-		log.Info("backup complete", "sprite", sp.Name, "reason", reason, "stats", stats.String())
+		log.Info("backup complete", "sprite", m.life.nameOf(sp), "reason", reason, "stats", stats.String())
 	}
 }
 
@@ -409,7 +416,7 @@ func (m *backupManager) periodic() {
 		return // State reports it; there is nothing to upload to
 	}
 	for _, sp := range m.store.All() {
-		if slices.Contains(sp.Labels, NoBackupLabel) {
+		if !m.life.backedUp(sp) {
 			continue
 		}
 		st := m.State(sp.ID)
@@ -470,11 +477,11 @@ func (m *backupManager) tombstone(sp store.Sprite) {
 		// A sprite that was never backed up has nothing in the bucket to mark.
 		var stamps []string
 		if stamps, err = repo.Stamps(ctx, sp.ID); err == nil && len(stamps) > 0 {
-			err = repo.MarkDeleted(ctx, sp.ID, sp.Name)
+			err = repo.MarkDeleted(ctx, sp.ID, m.life.nameOf(sp))
 		}
 	}
 	if err != nil {
 		m.log.Warn("could not record the deletion in the backup bucket",
-			"sprite", sp.Name, "err", err)
+			"sprite", m.life.nameOf(sp), "err", err)
 	}
 }

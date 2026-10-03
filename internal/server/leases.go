@@ -33,14 +33,6 @@ import (
 // the deadline rather than the sandbox. Everything delete-specific here, the
 // sprite.expiring warning, the reaping claim and sprite.expired, is the lease
 // alone.
-//
-// The endpoint lives outside /v1, like the event stream and the webhook status,
-// so it cannot collide with anything upstream has or adds; the fields on a
-// sprite ride along in upstream's shape, where an SDK that does not know them
-// ignores them.
-
-// leasePath is the renewal endpoint, ours, outside /v1.
-const leasePath = "/wisp/v1/sprites/{name}/lease"
 
 // defaultLeaseWarning is how long before expiry sprite.expiring goes out when
 // the operator has set no Options.LeaseWarning.

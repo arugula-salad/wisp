@@ -78,6 +78,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	}
 	s.backups = life.backups
 	life.SetDescriber(describeSprite)
+	life.SetBackupFilter(backedUp)
 	life.OnDelete(s.deleted)
 	s.leases = life.leases
 	// Once here, before anything is served: a lease that ran out while the
@@ -85,6 +86,14 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	life.StartReaping()
 	return s
 }
+
+// NoBackupLabel opts a sprite out of backups. Everything else with a configured
+// bucket is backed up, because an opt-in default would leave most sprites with
+// the durability this issue exists to fix.
+const NoBackupLabel = "nobackup"
+
+// backedUp is the Server's backup filter (Lifecycle.SetBackupFilter).
+func backedUp(sp store.Sprite) bool { return !slices.Contains(sp.Labels, NoBackupLabel) }
 
 // named adapts a handler that takes its sprite as an argument to the public
 // API, where the sprite comes from {name}. (The in-guest channel supplies it differently.)

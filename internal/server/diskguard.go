@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -208,10 +207,6 @@ func (l *Lifecycle) cloneCost(src string) int64 {
 		return 0
 	}
 	return allocated(src)
-}
-
-func writeNoRoom(w http.ResponseWriter, err error) {
-	writeErr(w, http.StatusInsufficientStorage, "insufficient_storage", err.Error())
 }
 
 // makeRoom is asked before a suspend writes need bytes of snapshot. When that

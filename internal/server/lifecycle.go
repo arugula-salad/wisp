@@ -219,7 +219,9 @@ type Lifecycle struct {
 	// the records Create and Delete hold while the store does not (guarded by
 	// mu), so that what they report about is described too.
 	describer atomic.Pointer[Describer]
-	unstored  map[string]store.Sprite
+	// backupFilter says which records the backup tier skips (SetBackupFilter).
+	backupFilter atomic.Pointer[func(store.Sprite) bool]
+	unstored     map[string]store.Sprite
 	// events is where everything below reports what it did (events.go).
 	events *engine.Bus
 	// denials rate-limits policy.denied events for the network policy.
@@ -760,6 +762,19 @@ func (l *Lifecycle) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 			continue
 		}
 		l.log.Error("suspend failed; sprite left running", "sprite", l.label(sp), "err", err)
+	}
+}
+
+// noteHold logs when a sprite starts and stops being held awake by tasks, so
+// "why is this VM still running" has an answer in the log.
+func (l *Lifecycle) noteHold(sp store.Record, held *bool, tasks int) {
+	if now := tasks > 0; now != *held {
+		*held = now
+		if now {
+			l.log.Info("sprite held awake by tasks", "sprite", l.label(sp), "tasks", tasks)
+		} else {
+			l.log.Info("sprite no longer held by tasks", "sprite", l.label(sp))
+		}
 	}
 }
 

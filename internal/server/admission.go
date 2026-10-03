@@ -198,3 +198,24 @@ func (l *Lifecycle) releaseStart(rt *runtime) {
 	l.admit.releaseMemory(rt)
 	l.releaseRun()
 }
+
+// reserveRun claims one of MaxRunning slots for a VM about to start. Counting
+// here, under one lock, is what keeps concurrent wakes from overshooting.
+func (l *Lifecycle) reserveRun() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if limit := l.opts.MaxRunning; limit > 0 && l.running >= limit {
+		// An idle sprite frees its slot after IdleTimeout, so that is when to look again.
+		retry := max(int(math.Ceil(l.opts.IdleTimeout.Seconds())), 1)
+		return &engine.LimitError{Which: "max_running", Limit: limit, Current: l.running, RetryAfter: retry,
+			Message: fmt.Sprintf("%d sprites are already running, the most this host allows (--max-running); one frees up when a sprite goes idle", l.running)}
+	}
+	l.running++
+	return nil
+}
+
+func (l *Lifecycle) releaseRun() {
+	l.mu.Lock()
+	l.running--
+	l.mu.Unlock()
+}

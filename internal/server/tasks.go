@@ -2,8 +2,6 @@ package server
 
 import (
 	"net/http"
-
-	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // Upstream's Tasks API (explicit keep-awake holds) is served inside the sprite,
@@ -34,17 +32,4 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.proxyAgent(w, r)
-}
-
-// noteHold logs when a sprite starts and stops being held awake by tasks, so
-// "why is this VM still running" has an answer in the log.
-func (l *Lifecycle) noteHold(sp store.Record, held *bool, tasks int) {
-	if now := tasks > 0; now != *held {
-		*held = now
-		if now {
-			l.log.Info("sprite held awake by tasks", "sprite", l.label(sp), "tasks", tasks)
-		} else {
-			l.log.Info("sprite no longer held by tasks", "sprite", l.label(sp))
-		}
-	}
 }

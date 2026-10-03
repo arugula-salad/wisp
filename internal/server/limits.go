@@ -2,8 +2,6 @@ package server
 
 import (
 	"errors"
-	"fmt"
-	"math"
 	"net/http"
 	"strconv"
 
@@ -44,6 +42,11 @@ func writeLimitErr(w http.ResponseWriter, e *engine.LimitError) {
 		"limit": e.Limit, "current_count": e.Current, "retry_after_seconds": e.RetryAfter})
 }
 
+// writeNoRoom answers a create, checkpoint or restore the disk guard refused.
+func writeNoRoom(w http.ResponseWriter, err error) {
+	writeErr(w, http.StatusInsufficientStorage, "insufficient_storage", err.Error())
+}
+
 // writeWakeErr answers a request whose sprite could not be made to run.
 func (s *Server) writeWakeErr(w http.ResponseWriter, sprite string, err error) {
 	var lim *engine.LimitError
@@ -54,27 +57,6 @@ func (s *Server) writeWakeErr(w http.ResponseWriter, sprite string, err error) {
 	}
 	s.log.Error("wake failed", "sprite", sprite, "err", err)
 	writeErr(w, http.StatusServiceUnavailable, "wake_failed", err.Error())
-}
-
-// reserveRun claims one of MaxRunning slots for a VM about to start. Counting
-// here, under one lock, is what keeps concurrent wakes from overshooting.
-func (l *Lifecycle) reserveRun() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if limit := l.opts.MaxRunning; limit > 0 && l.running >= limit {
-		// An idle sprite frees its slot after IdleTimeout, so that is when to look again.
-		retry := max(int(math.Ceil(l.opts.IdleTimeout.Seconds())), 1)
-		return &engine.LimitError{Which: "max_running", Limit: limit, Current: l.running, RetryAfter: retry,
-			Message: fmt.Sprintf("%d sprites are already running, the most this host allows (--max-running); one frees up when a sprite goes idle", l.running)}
-	}
-	l.running++
-	return nil
-}
-
-func (l *Lifecycle) releaseRun() {
-	l.mu.Lock()
-	l.running--
-	l.mu.Unlock()
 }
 
 type orgJSON struct {
