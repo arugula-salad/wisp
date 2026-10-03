@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arugula-salad/wisp/internal/backup"
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
@@ -70,13 +69,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	if s.keys.broken != nil {
 		log.Error("API keys unreadable: only the root token works until this is fixed", "err", s.keys.broken)
 	}
-	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
-	life.storage = s.storage
-	if s.storage.reflink {
-		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
-	} else {
-		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
-	}
+	s.storage = life.storage
 	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admitHost, log)
 	s.metrics = newMetrics(s)
 	s.httpStats = httpstats.New(func(name string) bool { _, err := st.Get(name); return err == nil })
@@ -85,13 +78,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
 	}
-	if opts.Backup.Bucket != "" {
-		s.backups = newBackupManager(s, backup.Config{Endpoint: opts.Backup.Endpoint,
-			Bucket: opts.Backup.Bucket, Region: opts.Backup.Region,
-			CredentialsFile: opts.Backup.CredentialsFile, KeyFile: opts.Backup.KeyFile,
-			Parallel: opts.Backup.Parallel, RateLimit: opts.Backup.RateLimit, Log: log})
-		life.backups = s.backups
-	}
+	s.backups = life.backups
 	s.leases = newLeases(s)
 	life.setLeases(s.leases)
 	// Once here, before anything is served: a lease that ran out while the

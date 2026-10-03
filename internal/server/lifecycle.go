@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/backup"
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/netd"
 	"github.com/arugula-salad/wisp/internal/store"
@@ -191,8 +192,8 @@ type Lifecycle struct {
 	guestAPI func(store.Sprite, *guestChan) http.Handler
 	egress   *egress
 	disk     *diskGuard
-	// storage is the sprite volume (storage.go). Set by the Server; nil means
-	// no reflinks.
+	// storage is the sprite volume (storage.go). nil (a Lifecycle built by
+	// hand in tests) means no reflinks.
 	storage *storage
 	// admit is the host memory budget and the concurrent-boot cap (admission.go).
 	admit *admission
@@ -218,6 +219,12 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log), events: newEventBus(),
 		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate), quit: make(chan struct{})}
 	l.disk.events = l.events
+	l.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
+	if l.storage.reflink {
+		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
+	} else {
+		log.Info("sprite volume has no reflink support: new sprites and checkpoints are full sparse copies (see scripts/setup-storage.sh)")
+	}
 	pool := netd.Pool(opts.NetPool)
 	if opts.NoNetwork {
 		log.Info("guest networking disabled by --net=false")
@@ -245,6 +252,11 @@ func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
 	// sweeping before the reaping above would leave every stale leaf behind.
 	opts.Host.Confine.SweepStale()
 	l.egress = newEgress(opts, st, log, l.gateway, l.networkDenied)
+	if b := opts.Backup; b.Bucket != "" {
+		l.backups = newBackupManager(backup.Config{Endpoint: b.Endpoint, Bucket: b.Bucket, Region: b.Region,
+			CredentialsFile: b.CredentialsFile, KeyFile: b.KeyFile, Parallel: b.Parallel, RateLimit: b.RateLimit, Log: log},
+			b, st, log, l, l.storage)
+	}
 	l.every(30*time.Second, l.janitor)
 	return l
 }
