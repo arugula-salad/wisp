@@ -1,0 +1,29 @@
+# Userland for Modal sandboxes (frontend/modal): what modal.Image.debian_slim()
+# builds, done ahead of time. The modal 1.6.0 client, on image builder 2025.06
+# and a local Python 3.14, asks for exactly
+#
+#   FROM python:3.14.2-slim-bookworm
+#   RUN apt-get update
+#   RUN apt-get install -y gcc gfortran build-essential
+#   RUN pip install --upgrade pip wheel uv
+#   RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+#
+# which is this, plus what wisp needs: the `sprite` account wisp-agent runs
+# exec sessions as, with sudo, through which the front end runs Modal's
+# commands as root (Modal's default user). debian_slim from another local
+# Python asks for another python:3.X tag; the front end serves it this image
+# all the same (docs/providers/modal-differences.md). As with the base image
+# there is no init system: wisp-agent (from the initramfs) is PID 1.
+# Build with `scripts/build-image.sh modal`.
+FROM docker.io/library/python:3.14.2-slim-bookworm
+
+RUN apt-get update \
+    && apt-get install -y gcc gfortran build-essential \
+    && apt-get install -y --no-install-recommends sudo procps iproute2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --upgrade pip wheel uv \
+    && echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+
+RUN useradd -m -u 1000 -s /bin/bash sprite \
+    && echo 'sprite ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sprite && chmod 0440 /etc/sudoers.d/sprite \
+    && echo modal > /etc/hostname
