@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -138,14 +139,17 @@ func (ls *leases) warn(sp store.Sprite, now time.Time) {
 // The lock is dropped before the delete, because the delete path stops the VM
 // and takes that same lock. What makes the gap safe is the mark, not the lock.
 func (ls *leases) reap(sp store.Sprite) {
-	rt := ls.s.life.rt(sp.ID)
-	rt.mu.Lock()
-	cur, err := ls.s.store.Get(sp.Name)
-	commit := err == nil && cur.ID == sp.ID && leaseExpired(cur, time.Now())
-	if commit {
-		ls.claim(cur.ID)
-	}
-	rt.mu.Unlock()
+	var cur store.Sprite
+	commit := false
+	ls.s.life.WithLocked(sp.ID, func() error {
+		var err error
+		cur, err = ls.s.store.Get(sp.Name)
+		commit = err == nil && cur.ID == sp.ID && leaseExpired(cur, time.Now())
+		if commit {
+			ls.claim(cur.ID)
+		}
+		return nil
+	})
 	if !commit {
 		return
 	}
@@ -315,32 +319,43 @@ func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseReq
 		writeErr(w, http.StatusBadRequest, "bad_request", msg)
 		return sp, false
 	}
-	rt := s.life.rt(sp.ID)
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	if s.leases.claimed(sp.ID) {
+	var cur store.Sprite
+	err := s.life.WithLocked(sp.ID, func() error {
+		if s.leases.claimed(sp.ID) {
+			return errLeaseReaping
+		}
+		var err error
+		cur, err = s.store.Update(sp.Name, func(sp *store.Sprite) {
+			if req.touchesExpiry() {
+				sp.ExpiresAt = exp
+			}
+			if req.Protected != nil {
+				sp.Protected = *req.Protected
+			}
+			sp.UpdatedAt = time.Now().UTC()
+		})
+		if err != nil {
+			return err
+		}
+		s.leases.forget(cur.ID)
+		s.log.Info("lease set", "sprite", cur.Name, "expires_at", cur.ExpiresAt, "protected", cur.Protected)
+		// forget cleared the mark for the old deadline; warn re-earns it for the new
+		// one straight away, because a lease set to less than --lease-warning (or to
+		// less than a janitor tick) would otherwise expire unannounced.
+		s.leases.warn(cur, time.Now())
+		return nil
+	})
+	switch {
+	case errors.Is(err, errLeaseReaping):
 		writeErr(w, http.StatusConflict, "expired",
 			"this sprite's lease ran out and it is being deleted; create a new sprite")
 		return sp, false
-	}
-	cur, err := s.store.Update(sp.Name, func(sp *store.Sprite) {
-		if req.touchesExpiry() {
-			sp.ExpiresAt = exp
-		}
-		if req.Protected != nil {
-			sp.Protected = *req.Protected
-		}
-		sp.UpdatedAt = time.Now().UTC()
-	})
-	if err != nil {
+	case err != nil:
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return sp, false
 	}
-	s.leases.forget(cur.ID)
-	s.log.Info("lease set", "sprite", cur.Name, "expires_at", cur.ExpiresAt, "protected", cur.Protected)
-	// forget cleared the mark for the old deadline; warn re-earns it for the new
-	// one straight away, because a lease set to less than --lease-warning (or to
-	// less than a janitor tick) would otherwise expire unannounced.
-	s.leases.warn(cur, time.Now())
 	return cur, true
 }
+
+// errLeaseReaping is a lease change that lost the race with a reap.
+var errLeaseReaping = errors.New("the sprite's lease ran out and it is being deleted")

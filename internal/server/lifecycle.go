@@ -758,6 +758,22 @@ func (l *Lifecycle) Cool(sp store.Sprite) bool {
 	return true
 }
 
+// WithLocked runs fn holding the sprite's transition lock, which orders it
+// against every boot, suspend, checkpoint, restore and delete of that sprite.
+// fn sees nothing of the runtime: this is for state kept outside the lifecycle
+// that has to be decided atomically with respect to those transitions, and
+// fn must not call a Lifecycle method that takes the same lock. Prefer a
+// specific method; every use is listed here:
+//   - leases.reap and Server.applyLease (leases.go) decide a sprite's lease
+//     against each other under it, so that a renewal and a reap in flight
+//     cannot both win.
+func (l *Lifecycle) WithLocked(id string, fn func() error) error {
+	rt := l.rt(id)
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return fn()
+}
+
 // Forget drops runtime state for a deleted sprite.
 func (l *Lifecycle) Forget(id string) {
 	l.mu.Lock()
