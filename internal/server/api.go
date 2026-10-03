@@ -71,6 +71,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 		log.Error("API keys unreadable: only the root token works until this is fixed", "err", s.keys.broken)
 	}
 	s.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
+	life.storage = s.storage
 	if s.storage.reflink {
 		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
 	} else {
@@ -82,7 +83,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
 	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
-		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.autoCheckpoints)
+		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
 	}
 	if opts.Backup.Bucket != "" {
 		s.backups = newBackupManager(s, backup.Config{Endpoint: opts.Backup.Endpoint,
@@ -413,7 +414,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
-		image = s.checkpointPath(src.ID, cp)
+		image = s.life.checkpointPath(src.ID, cp)
 		detail = map[string]any{"from": map[string]string{"sprite": src.Name, "checkpoint": cp}}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
@@ -432,7 +433,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	} else if req.Config != nil {
 		sp.Config = *req.Config
 	}
-	if err := s.life.disk.admit(*sp, "a new sprite", s.cloneCost(image)); err != nil {
+	if err := s.life.disk.admit(*sp, "a new sprite", s.life.cloneCost(image)); err != nil {
 		writeNoRoom(w, err)
 		return
 	}

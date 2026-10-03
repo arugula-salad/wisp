@@ -29,6 +29,10 @@ test:
 	$(GO) vet ./...
 	$(GO) test -race -count=1 ./...
 
-e2e:             ## official Sprites Go SDK against a running wispd
-	SPRITES_E2E_URL=http://127.0.0.1:7788 SPRITES_E2E_TOKEN=$$(cat $(WISP_DATA)/token) \
+# The daemon under test. Both default to the main install; set them (or WISP_DATA) to
+# aim at a test stack, since the environment wins over these defaults.
+SPRITES_E2E_URL ?= http://127.0.0.1:7788
+SPRITES_E2E_TOKEN ?= $(shell cat $(WISP_DATA)/token 2>/dev/null)
+e2e:             ## official Sprites Go SDK against a running wispd (SPRITES_E2E_URL, SPRITES_E2E_TOKEN)
+	SPRITES_E2E_URL=$(SPRITES_E2E_URL) SPRITES_E2E_TOKEN=$(SPRITES_E2E_TOKEN) \
 	  $(GO) test -tags e2e -count=1 -v ./e2e/

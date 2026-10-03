@@ -25,6 +25,28 @@ import (
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
+// Locking. The Lifecycle is the only code that touches a sprite's runtime:
+// its lock (rt.mu), its VM (rt.m) and the guest agent behind it (agentCall).
+// Everything else, the HTTP handlers above all, goes through *Lifecycle
+// methods that take the lock themselves. The order is:
+//
+//  1. rt.mu, one sprite's transition lock, is outermost. It is held across
+//     slow work: a boot, a suspend, a disk clone, a guest round trip, and the
+//     progress callbacks those report through, which may write to a client.
+//  2. At most one rt.mu is waited for at a time. Code holding one sprite's
+//     lock may look at another's only with TryLock (makeRoom), and code that
+//     must wait for a second lock lets go of its own first (leases.reap
+//     before the delete).
+//  3. Everything else is a leaf, taken under rt.mu or alone and held only
+//     for bookkeeping: l.mu (the runtime table, the tap pool, the loops),
+//     rt.useMu, the store's own lock, and the mutexes of the disk guard,
+//     admission, egress, backups and leases. None of them is ever held while
+//     waiting for rt.mu, so l.rt(id) may be called with or without a sprite
+//     locked, and the store may be read and written under rt.mu.
+//
+// Background passes that must never wait behind a transition (Status, peek,
+// autoscale, makeRoom) use TryLock and treat a held lock as "busy".
+
 const agentPort = 1024
 
 type Options struct {
@@ -169,6 +191,9 @@ type Lifecycle struct {
 	guestAPI func(store.Sprite, *guestChan) http.Handler
 	egress   *egress
 	disk     *diskGuard
+	// storage is the sprite volume (storage.go). Set by the Server; nil means
+	// no reflinks.
+	storage *storage
 	// admit is the host memory budget and the concurrent-boot cap (admission.go).
 	admit *admission
 	// backups is the backup tier, nil when no bucket is configured. A nil manager's
@@ -295,6 +320,56 @@ func (l *Lifecycle) rt(id string) *runtime {
 	return rt
 }
 
+// vmView is what can be read about a sprite's VM without waiting for a
+// transition in flight (peek). Callers outside the lifecycle read its fields
+// and ask the VM things through its methods, never through m.
+type vmView struct {
+	busy     bool         // a transition is in flight; tap and pid are unknown
+	tap      string       // "" when not running or without networking
+	pid      int          // the VMM's; 0 unless running
+	inflight int          // API requests pinning the sprite awake
+	m        *vmm.Machine // nil unless running; for the methods below only
+}
+
+func (v vmView) running() bool { return v.m != nil }
+
+// taskHolds asks the guest how many tasks are holding it awake. It is the same
+// question the idle watcher asks, so it does not count as activity.
+func (v vmView) taskHolds(ctx context.Context) (int, bool) {
+	var act struct {
+		Tasks int `json:"tasks"`
+	}
+	if v.m == nil || agentCall(ctx, v.m, http.MethodGet, "/internal/activity", nil, &act) != nil {
+		return 0, false
+	}
+	return act.Tasks, true
+}
+
+// peek reads a sprite's runtime state without waiting for a transition in flight.
+func (l *Lifecycle) peek(id string) vmView {
+	rt := l.rt(id)
+	rt.useMu.Lock()
+	v := vmView{inflight: rt.inflight}
+	rt.useMu.Unlock()
+	if !rt.mu.TryLock() {
+		v.busy = true
+		return v
+	}
+	defer rt.mu.Unlock()
+	v.tap, v.m = rt.tap, rt.m
+	if rt.m != nil {
+		v.pid = rt.m.Pid()
+	}
+	return v
+}
+
+// tapUsage is the size of the tap pool and how much of it is taken.
+func (l *Lifecycle) tapUsage() (total, used int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.taps, l.taps - len(l.freeTaps)
+}
+
 func (l *Lifecycle) takeTap() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -383,6 +458,15 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 	rt.begin()
 	var once sync.Once
 	return rt.m, func() { once.Do(rt.end) }, nil
+}
+
+// BeginUse counts as activity on a sprite that may be running, without waking
+// one that is not: the idle watcher does not suspend it until end is called.
+// (Acquire is the same for a request that needs the VM up.)
+func (l *Lifecycle) BeginUse(id string) (end func()) {
+	rt := l.rt(id)
+	rt.begin()
+	return rt.end
 }
 
 func (l *Lifecycle) cleanupLocked(rt *runtime) {
@@ -731,6 +815,22 @@ func (l *Lifecycle) Cool(sp store.Sprite) bool {
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
 	l.emit(sp, "sprite.cold", map[string]any{"reason": "operator"})
 	return true
+}
+
+// WithLocked runs fn holding the sprite's transition lock, which orders it
+// against every boot, suspend, checkpoint, restore and delete of that sprite.
+// fn sees nothing of the runtime: this is for state kept outside the lifecycle
+// that has to be decided atomically with respect to those transitions, and
+// fn must not call a Lifecycle method that takes the same lock. Prefer a
+// specific method; every use is listed here:
+//   - leases.reap and Server.applyLease (leases.go) decide a sprite's lease
+//     against each other under it, so that a renewal and a reap in flight
+//     cannot both win.
+func (l *Lifecycle) WithLocked(id string, fn func() error) error {
+	rt := l.rt(id)
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return fn()
 }
 
 // Forget drops runtime state for a deleted sprite.

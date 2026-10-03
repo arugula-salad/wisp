@@ -138,11 +138,11 @@ func (m *metrics) sample(now time.Time) {
 		}
 		pt := SpritePoint{State: state}
 		p.Sprites[sp.Name] = pt
-		vm, _, _ := l.peek(sp.ID)
-		if vm == nil {
+		vm := l.peek(sp.ID)
+		if !vm.running() {
 			continue
 		}
-		pr, ok := readProc(vm.Pid())
+		pr, ok := readProc(vm.pid)
 		if !ok {
 			continue
 		}

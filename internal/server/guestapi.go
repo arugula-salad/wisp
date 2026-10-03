@@ -68,9 +68,7 @@ func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
 			// A request from inside is activity like one from outside. It also has to
 			// be: suspending between the handler's last write and the guest reading
 			// it would turn every answer into a reset connection on resume.
-			rt := s.life.rt(sp.ID)
-			rt.begin()
-			defer rt.end()
+			defer s.life.BeginUse(sp.ID)()
 			h(w, r, cur, g)
 		}
 	}

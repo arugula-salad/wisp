@@ -198,8 +198,8 @@ func (g *diskGuard) watch() {
 
 // cloneCost is what cloning src onto the sprite volume writes up front: nothing
 // for a reflink, the file's allocated blocks for a copy.
-func (s *Server) cloneCost(src string) int64 {
-	if s.storage.reflink {
+func (l *Lifecycle) cloneCost(src string) int64 {
+	if l.storage != nil && l.storage.reflink {
 		return 0
 	}
 	return allocated(src)
