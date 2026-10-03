@@ -1,0 +1,59 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/fs/read",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "25"
+    },
+    "body": {
+      "size": 25,
+      "sha256": "97321cd0671245b7b1f7907a4fd462a71dff89322f5fc96ffdb8775347bad8a5",
+      "json": {
+        "path": "probe/nope.txt"
+      }
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "58",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:43 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "993",
+      "x-ratelimit-reset": "1790987564",
+      "x-vercel-id": "iad1:iad1::2ggd7-1790987503854-00f77e33f074"
+    },
+    "body": {
+      "size": 58,
+      "sha256": "3e28f7fb5e3193353ff1965ae34d41a5432e0b8bb1ceb7475cbfcd9bf66362d4",
+      "json": {
+        "error": {
+          "code": "not_found",
+          "message": "File not found."
+        }
+      }
+    },
+    "elapsedMs": 119
+  }
+}

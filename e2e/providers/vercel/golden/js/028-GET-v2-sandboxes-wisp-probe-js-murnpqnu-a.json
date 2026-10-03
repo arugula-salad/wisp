@@ -1,0 +1,103 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes/wisp-probe-js-murnpqnu-a",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "projectId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "1132",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:46 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "998",
+      "x-ratelimit-reset": "1790987567",
+      "x-vercel-id": "iad1:iad1::9pj9s-1790987506186-7d720a87579d"
+    },
+    "body": {
+      "size": 1132,
+      "sha256": "620a28d28cb4d458ebdccea75c9f6e83ad59d04443dbb9c444bc6cbb4aa504fa",
+      "json": {
+        "sandbox": {
+          "name": "wisp-probe-js-murnpqnu-a",
+          "currentSessionId": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "status": "running",
+          "statusUpdatedAt": 1790987499310,
+          "persistent": false,
+          "region": "iad1",
+          "failoverRegions": [],
+          "vcpus": 1,
+          "memory": 2048,
+          "runtime": "node22",
+          "architecture": "amd64",
+          "image": "vercel/sandbox/universal@sha256:c77f7436b9bc0a8b01ef7b09dbcea2de6a18a9fe2aafa89996d2da193da72cf0",
+          "timeout": 240000,
+          "totalEgressBytes": 0,
+          "totalIngressBytes": 0,
+          "totalActiveCpuDurationMs": 0,
+          "totalDurationMs": 0,
+          "cwd": "/vercel",
+          "tags": {
+            "probe": "wisp"
+          },
+          "createdAt": 1790987499311,
+          "updatedAt": 1790987499311,
+          "expiresAt": 1790987799236
+        },
+        "session": {
+          "id": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "runtime": "node22",
+          "architecture": "amd64",
+          "requestedAt": 1790987499206,
+          "startedAt": 1790987499236,
+          "status": "running",
+          "vcpus": 1,
+          "memory": 2048,
+          "timeout": 300000,
+          "region": "iad1",
+          "cwd": "/vercel",
+          "createdAt": 1790987499206,
+          "updatedAt": 1790987499255,
+          "interactivePort": 26661,
+          "sourceSandboxName": "wisp-probe-js-murnpqnu-a",
+          "projectId": "<redacted>"
+        },
+        "routes": [
+          {
+            "url": "https://sb-55drmefroggp.vercel.run",
+            "subdomain": "sb-55drmefroggp",
+            "port": 3000
+          }
+        ],
+        "resumed": false
+      }
+    },
+    "elapsedMs": 136
+  }
+}

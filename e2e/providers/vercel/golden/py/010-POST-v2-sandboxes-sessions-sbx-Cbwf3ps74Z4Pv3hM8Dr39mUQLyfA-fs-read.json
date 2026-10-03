@@ -1,0 +1,53 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/fs/read",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "connection": "keep-alive",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "authorization": "<redacted>",
+      "content-length": "33",
+      "content-type": "application/json"
+    },
+    "body": {
+      "size": 33,
+      "sha256": "b1b83d6ec10840f60df2ba11d282436769541c1cd489dee91e0868173763762a",
+      "json": {
+        "path": "/tmp/probe-abs/bin.dat"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-disposition": "attachment; filename=\"bin.dat\"",
+      "content-type": "application/octet-stream",
+      "date": "Sat, 03 Oct 2026 00:33:01 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987642",
+      "x-vercel-id": "iad1:iad1::t6f64-1790987581075-1922dc37a637",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 4,
+      "sha256": "3d1f57c984978ef98a18378c8166c1cb8ede02c03eeb6aee7e2f121dfeee3e56",
+      "base64": "AAEC/w=="
+    },
+    "elapsedMs": 133
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/cmd/cmd_aff5dc1098b24e5282d1982f9fac/logs",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "connection": "close",
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-type": "application/x-ndjson",
+      "date": "Sat, 03 Oct 2026 00:33:01 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "994",
+      "x-ratelimit-reset": "1790987642",
+      "x-vercel-id": "iad1:iad1::2bqxs-1790987581744-39f35f205cfd",
+      "transfer-encoding": "chunked"
+    },
+    "body": null,
+    "elapsedMs": 113,
+    "chunks": []
+  }
+}

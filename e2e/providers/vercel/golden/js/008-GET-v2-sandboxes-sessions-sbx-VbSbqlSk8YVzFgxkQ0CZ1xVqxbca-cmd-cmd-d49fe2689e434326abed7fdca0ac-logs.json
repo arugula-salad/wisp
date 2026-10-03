@@ -1,0 +1,61 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd/cmd_d49fe2689e434326abed7fdca0ac/logs",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-type": "application/x-ndjson",
+      "date": "Sat, 03 Oct 2026 00:31:41 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "995",
+      "x-ratelimit-reset": "1790987562",
+      "x-vercel-id": "iad1:iad1::spf2z-1790987501688-4745cc30a5db",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 116,
+      "sha256": "74bf43cadeede1200d40f34464ed870285f16b835932065f30c358d313410bab",
+      "text": "{\"data\":\"tick 1\\n\",\"stream\":\"stdout\"}\n{\"data\":\"tick 2\\n\",\"stream\":\"stdout\"}\n{\"data\":\"got-term\\n\",\"stream\":\"stdout\"}\n"
+    },
+    "elapsedMs": 991,
+    "chunks": [
+      {
+        "atMs": 307,
+        "data": "{\"data\":\"tick 1\\n\",\"stream\":\"stdout\"}\n"
+      },
+      {
+        "atMs": 488,
+        "data": "{\"data\":\"tick 2\\n\",\"stream\":\"stdout\"}\n"
+      },
+      {
+        "atMs": 990,
+        "data": "{\"data\":\"got-term\\n\",\"stream\":\"stdout\"}\n"
+      }
+    ]
+  }
+}

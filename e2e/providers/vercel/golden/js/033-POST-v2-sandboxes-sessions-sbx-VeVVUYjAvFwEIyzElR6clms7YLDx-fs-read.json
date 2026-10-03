@@ -1,0 +1,55 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VeVVUYjAvFwEIyzElR6clms7YLDx/fs/read",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "26"
+    },
+    "body": {
+      "size": 26,
+      "sha256": "353d9cc0e11580605d2a21da71515195ccd3f5d20589d458f89978958357cc16",
+      "json": {
+        "path": "probe/hello.txt"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-disposition": "attachment; filename=\"hello.txt\"",
+      "content-type": "application/octet-stream",
+      "date": "Sat, 03 Oct 2026 00:31:59 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987579",
+      "x-vercel-id": "iad1:iad1::7cwmc-1790987518910-087d8366a4f7",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 16,
+      "sha256": "28828e16bd66437164f88b64d783df378fda39864981b13671c4307f8a469e95",
+      "base64": "aGVsbG8gZnJvbSB3aXNwCg=="
+    },
+    "elapsedMs": 134
+  }
+}

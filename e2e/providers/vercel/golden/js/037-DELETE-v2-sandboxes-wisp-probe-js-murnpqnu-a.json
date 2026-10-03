@@ -1,0 +1,77 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v2/sandboxes/wisp-probe-js-murnpqnu-a",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "projectId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "654",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:32:02 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "20",
+      "x-ratelimit-remaining": "19",
+      "x-ratelimit-reset": "1790987524",
+      "x-vercel-id": "iad1:iad1::m2vqt-1790987521986-075d7ef16da0"
+    },
+    "body": {
+      "size": 654,
+      "sha256": "23e656da73730dca5de058455248ee145898edb014f61b4918c15c7c9b081af0",
+      "json": {
+        "sandbox": {
+          "name": "wisp-probe-js-murnpqnu-a",
+          "currentSnapshotId": "snap_wED7dOT3451SqyZgOtWY0Tiyw0ib",
+          "currentSessionId": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "status": "stopped",
+          "statusUpdatedAt": 1790987511954,
+          "persistent": false,
+          "region": "iad1",
+          "failoverRegions": [],
+          "vcpus": 1,
+          "memory": 2048,
+          "runtime": "node22",
+          "architecture": "amd64",
+          "image": "vercel/sandbox/universal@sha256:c77f7436b9bc0a8b01ef7b09dbcea2de6a18a9fe2aafa89996d2da193da72cf0",
+          "timeout": 240000,
+          "totalEgressBytes": 21651,
+          "totalIngressBytes": 33453,
+          "totalActiveCpuDurationMs": 17090,
+          "totalDurationMs": 11321,
+          "cwd": "/vercel",
+          "tags": {
+            "probe": "wisp"
+          },
+          "createdAt": 1790987499311,
+          "updatedAt": 1790987499311
+        }
+      }
+    },
+    "elapsedMs": 171
+  }
+}

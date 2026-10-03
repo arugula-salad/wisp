@@ -1,0 +1,62 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "project": [
+        "<redacted>"
+      ],
+      "sortBy": [
+        "name"
+      ],
+      "namePrefix": [
+        "wisp-probe-js-murnpqnu"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "53",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:32:02 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "997",
+      "x-ratelimit-reset": "1790987583",
+      "x-vercel-id": "iad1:iad1::4x4t2-1790987522373-ebae41c4f9f2"
+    },
+    "body": {
+      "size": 53,
+      "sha256": "c1ec0a5eda6cdd7223058c78b7000cb0b71971c453238466d1829457af50f949",
+      "json": {
+        "sandboxes": [],
+        "pagination": {
+          "count": 0,
+          "next": null
+        }
+      }
+    },
+    "elapsedMs": 100
+  }
+}

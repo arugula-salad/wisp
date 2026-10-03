@@ -1,0 +1,53 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/fs/write",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/gzip",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "x-cwd": "/",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "211"
+    },
+    "body": {
+      "size": 211,
+      "sha256": "b2977d5855fb61ad9a816432ac4ec75388d5b5554d6e182aa11ecd428258d524",
+      "base64": "H4sIAAAAAAAAA+3WTQ6CMBAFYHTJKWpcCw9o6XkAayDhL21Bb69BN4YYXdhAjPNtZjnTNK/TUelC1WGvu1yFparrLrAX6zkFIOWcTRXAvAKIwSIRpwBPEyEZooQLyTy4HeO1wdhMe/i61/xwP+J+5eyku4adK9P7a89DlmWb/hH+Q5abMK/a4Jg5jv/n/IPP8x/xmPK/iM32uvYIZD3j8/7XQxuY0nkPAFKId/s/meU/lmlE+V/Cfjc9+qEpfVWUHdNZS18AQgj5BzdR1lnxABAAAA=="
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "2",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:43 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "997",
+      "x-ratelimit-reset": "1790987564",
+      "x-vercel-id": "iad1:iad1::xjrlj-1790987503255-6cf365fbd50f"
+    },
+    "body": {
+      "size": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "json": {}
+    },
+    "elapsedMs": 148
+  }
+}

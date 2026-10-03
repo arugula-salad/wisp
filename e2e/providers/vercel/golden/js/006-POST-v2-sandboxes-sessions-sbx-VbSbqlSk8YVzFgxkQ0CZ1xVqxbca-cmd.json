@@ -1,0 +1,64 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "93"
+    },
+    "body": {
+      "size": 93,
+      "sha256": "11bb1bc66a297978d205d6bebb82a64bc9d10d13b168fd9bbe67cd202e7508da",
+      "json": {
+        "command": "definitely-not-a-binary",
+        "args": [],
+        "env": {},
+        "sudo": false,
+        "wait": true,
+        "logs": true
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "132",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:41 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "997",
+      "x-ratelimit-reset": "1790987562",
+      "x-vercel-id": "iad1:iad1::96qwh-1790987501382-027c9debd285"
+    },
+    "body": {
+      "size": 132,
+      "sha256": "95739b62659d15ed1bbf2c512cbf821de4fa49fa636959cca631787a1f15e4fd",
+      "json": {
+        "error": {
+          "code": "executable_not_found",
+          "message": "[invalid_argument] executable file not found in $PATH: definitely-not-a-binary"
+        }
+      }
+    },
+    "elapsedMs": 115
+  }
+}

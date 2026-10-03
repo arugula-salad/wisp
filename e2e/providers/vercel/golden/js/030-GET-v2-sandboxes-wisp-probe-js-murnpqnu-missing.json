@@ -1,0 +1,55 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes/wisp-probe-js-murnpqnu-missing",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "projectId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "117",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:46 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "996",
+      "x-ratelimit-reset": "1790987567",
+      "x-vercel-id": "iad1:iad1::q8b7g-1790987506434-0a5198d0d9a9"
+    },
+    "body": {
+      "size": 117,
+      "sha256": "d476652a3f8addc1f1248c1b5e99806e15afbd70301e53dd1a0a4d6dba6725e7",
+      "json": {
+        "error": {
+          "code": "not_found",
+          "message": "Named sandbox 'wisp-probe-js-murnpqnu-missing' not found for this project."
+        }
+      }
+    },
+    "elapsedMs": 123
+  }
+}

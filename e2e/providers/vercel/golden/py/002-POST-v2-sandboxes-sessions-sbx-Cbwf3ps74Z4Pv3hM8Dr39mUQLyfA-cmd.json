@@ -1,0 +1,87 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "wait": [
+        "true"
+      ],
+      "logs": [
+        "true"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "connection": "close",
+      "authorization": "<redacted>",
+      "content-length": "122",
+      "content-type": "application/json"
+    },
+    "body": {
+      "size": 122,
+      "sha256": "dbda4af2838a8229222377112bc1a05488c4d85d3a01e7cd29bd6c27f4fb556a",
+      "json": {
+        "command": "sh",
+        "args": [
+          "-c",
+          "echo out1; echo err1 >&2; sleep 1; echo out2; exit 3"
+        ],
+        "sudo": false,
+        "wait": true,
+        "logs": true
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-type": "application/x-ndjson",
+      "date": "Sat, 03 Oct 2026 00:32:58 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987639",
+      "x-vercel-id": "iad1:iad1::fs8wz-1790987578160-c59378580561",
+      "transfer-encoding": "chunked"
+    },
+    "body": {
+      "size": 603,
+      "sha256": "33bac7a4caeabe60aa2ae29ee0d6adb21043abd31907565ce7fe135bd0af0321",
+      "text": "{\"command\":{\"id\":\"cmd_bfb4975a12e04634af186b1b49f4\",\"name\":\"sh\",\"args\":[\"-c\",\"echo out1; echo err1 >&2; sleep 1; echo out2; exit 3\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA\",\"startedAt\":1790987578247,\"exitCode\":null}}\n{\"data\":\"err1\\n\",\"stream\":\"stderr\"}\n{\"data\":\"out1\\n\",\"stream\":\"stdout\"}\n{\"data\":\"out2\\n\",\"stream\":\"stdout\"}\n{\"command\":{\"id\":\"cmd_bfb4975a12e04634af186b1b49f4\",\"name\":\"sh\",\"args\":[\"-c\",\"echo out1; echo err1 >&2; sleep 1; echo out2; exit 3\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA\",\"startedAt\":1790987578247,\"exitCode\":3,\"durationMs\":1007}}\n"
+    },
+    "elapsedMs": 1144,
+    "chunks": [
+      {
+        "atMs": 139,
+        "data": "{\"command\":{\"id\":\"cmd_bfb4975a12e04634af186b1b49f4\",\"name\":\"sh\",\"args\":[\"-c\",\"echo out1; echo err1 >&2; sleep 1; echo out2; exit 3\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA\",\"startedAt\":1790987578247,\"exitCode\":null}}\n"
+      },
+      {
+        "atMs": 143,
+        "data": "{\"data\":\"err1\\n\",\"stream\":\"stderr\"}\n"
+      },
+      {
+        "atMs": 143,
+        "data": "{\"data\":\"out1\\n\",\"stream\":\"stdout\"}\n"
+      },
+      {
+        "atMs": 1135,
+        "data": "{\"data\":\"out2\\n\",\"stream\":\"stdout\"}\n"
+      },
+      {
+        "atMs": 1144,
+        "data": "{\"command\":{\"id\":\"cmd_bfb4975a12e04634af186b1b49f4\",\"name\":\"sh\",\"args\":[\"-c\",\"echo out1; echo err1 >&2; sleep 1; echo out2; exit 3\"],\"cwd\":\"/vercel\",\"sessionId\":\"sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA\",\"startedAt\":1790987578247,\"exitCode\":3,\"durationMs\":1007}}\n"
+      }
+    ]
+  }
+}

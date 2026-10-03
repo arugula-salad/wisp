@@ -1,0 +1,9 @@
+{
+  "name": "wisp-vercel-sandbox-probe",
+  "private": true,
+  "type": "module",
+  "description": "Probes the official, unmodified @vercel/sandbox SDK against hosted Vercel or a compatible server.",
+  "dependencies": {
+    "@vercel/sandbox": "3.5.1"
+  }
+}

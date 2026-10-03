@@ -1,0 +1,90 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/snapshot",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "23"
+    },
+    "body": {
+      "size": 23,
+      "sha256": "7a063b6a5cdd26ff33a1e359b3a0745f28d7858dcf1625c23e2e4fd0d7c19d11",
+      "json": {
+        "expiration": 86400000
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "783",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:50 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "995",
+      "x-ratelimit-reset": "1790987567",
+      "x-vercel-id": "iad1:iad1::jt4r5-1790987506562-cadc1dadb71f"
+    },
+    "body": {
+      "size": 783,
+      "sha256": "57d76a3ac8dd2b59e1e6653756adbccd48b7b323f0e466faf949a2fb8818b056",
+      "json": {
+        "snapshot": {
+          "id": "snap_wED7dOT3451SqyZgOtWY0Tiyw0ib",
+          "sourceSessionId": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "architecture": "amd64",
+          "region": "iad1",
+          "regions": [
+            "iad1"
+          ],
+          "status": "created",
+          "sizeBytes": 821242181,
+          "expiresAt": 1791073910174,
+          "createdAt": 1790987510175,
+          "updatedAt": 1790987510175,
+          "lastUsedAt": 1790987510175,
+          "creationMethod": "manual"
+        },
+        "session": {
+          "id": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "runtime": "node22",
+          "architecture": "amd64",
+          "requestedAt": 1790987499206,
+          "startedAt": 1790987499236,
+          "status": "snapshotting",
+          "vcpus": 1,
+          "memory": 2048,
+          "timeout": 300000,
+          "region": "iad1",
+          "cwd": "/vercel",
+          "snapshottedAt": 1790987506642,
+          "createdAt": 1790987499206,
+          "updatedAt": 1790987499255,
+          "interactivePort": 26661,
+          "sourceSandboxName": "wisp-probe-js-murnpqnu-a",
+          "projectId": "<redacted>"
+        }
+      }
+    },
+    "elapsedMs": 3678
+  }
+}

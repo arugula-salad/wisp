@@ -1,0 +1,69 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "wait": [
+        "true"
+      ],
+      "logs": [
+        "true"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "connection": "close",
+      "authorization": "<redacted>",
+      "content-length": "74",
+      "content-type": "application/json"
+    },
+    "body": {
+      "size": 74,
+      "sha256": "58a570164d5544d306c4ee43e85f698ed4f602568d4428f3b270b4c8ead96730",
+      "json": {
+        "command": "echo",
+        "args": [
+          "resumed"
+        ],
+        "sudo": false,
+        "wait": true,
+        "logs": true
+      }
+    }
+  },
+  "response": {
+    "status": 410,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "105",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:33:05 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987646",
+      "x-vercel-id": "iad1:iad1::zkzqb-1790987585701-251e92f7e1a0"
+    },
+    "body": {
+      "size": 105,
+      "sha256": "dfc3447649a41c5a2a88b66bf915a99c2958b3956f0405cbeb44728758509249",
+      "json": {
+        "error": {
+          "code": "sandbox_stopped",
+          "message": "Sandbox has stopped execution and is no longer available"
+        }
+      }
+    },
+    "elapsedMs": 105
+  }
+}

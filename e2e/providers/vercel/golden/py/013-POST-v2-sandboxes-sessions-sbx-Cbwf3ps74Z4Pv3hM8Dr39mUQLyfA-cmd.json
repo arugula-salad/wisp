@@ -1,0 +1,76 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "connection": "keep-alive",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "content-type": "application/json",
+      "authorization": "<redacted>",
+      "content-length": "178"
+    },
+    "body": {
+      "size": 178,
+      "sha256": "64fd8bd684e3c740400dd0e318dce55de480438cbd40892f3ac3e363064a4558",
+      "json": {
+        "command": "sh",
+        "args": [
+          "-c",
+          "case \"$1\" in\n  /*) path=$1 ;;\n  *) path=./$1 ;;\nesac\ntest \"$2\" \"$path\"\n",
+          "vercel-fs-is_dir",
+          "probe-dir/nested/deeper",
+          "-d"
+        ],
+        "sudo": false
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "319",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:33:01 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "996",
+      "x-ratelimit-reset": "1790987642",
+      "x-vercel-id": "iad1:iad1::9n6d9-1790987581449-849d00ed8beb"
+    },
+    "body": {
+      "size": 319,
+      "sha256": "79394fc2fb795550a62455604c89e9919613d48dbf9953581f89ebe7ac97b157",
+      "json": {
+        "command": {
+          "id": "cmd_aff5dc1098b24e5282d1982f9fac",
+          "name": "sh",
+          "args": [
+            "-c",
+            "case \"$1\" in\n  /*) path=$1 ;;\n  *) path=./$1 ;;\nesac\ntest \"$2\" \"$path\"\n",
+            "vercel-fs-is_dir",
+            "probe-dir/nested/deeper",
+            "-d"
+          ],
+          "cwd": "/vercel",
+          "sessionId": "sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA",
+          "startedAt": 1790987581541,
+          "exitCode": null
+        }
+      }
+    },
+    "elapsedMs": 143
+  }
+}

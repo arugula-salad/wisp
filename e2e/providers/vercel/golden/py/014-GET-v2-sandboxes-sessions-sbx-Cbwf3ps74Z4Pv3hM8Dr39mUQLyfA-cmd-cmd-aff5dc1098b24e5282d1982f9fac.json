@@ -1,0 +1,65 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes/sessions/sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA/cmd/cmd_aff5dc1098b24e5282d1982f9fac",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "wait": [
+        "true"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "connection": "keep-alive",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "content-type": "application/json",
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "331",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:33:01 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "995",
+      "x-ratelimit-reset": "1790987642",
+      "x-vercel-id": "iad1:iad1::f7vj7-1790987581597-e6b0f5a5817c"
+    },
+    "body": {
+      "size": 331,
+      "sha256": "88b364e03eae9d783009e84d7c289c8987a19d381d845d9d68cd6ae07f1febf0",
+      "json": {
+        "command": {
+          "id": "cmd_aff5dc1098b24e5282d1982f9fac",
+          "name": "sh",
+          "args": [
+            "-c",
+            "case \"$1\" in\n  /*) path=$1 ;;\n  *) path=./$1 ;;\nesac\ntest \"$2\" \"$path\"\n",
+            "vercel-fs-is_dir",
+            "probe-dir/nested/deeper",
+            "-d"
+          ],
+          "cwd": "/vercel",
+          "sessionId": "sbx_Cbwf3ps74Z4Pv3hM8Dr39mUQLyfA",
+          "startedAt": 1790987581541,
+          "exitCode": 0,
+          "durationMs": 0
+        }
+      }
+    },
+    "elapsedMs": 143
+  }
+}

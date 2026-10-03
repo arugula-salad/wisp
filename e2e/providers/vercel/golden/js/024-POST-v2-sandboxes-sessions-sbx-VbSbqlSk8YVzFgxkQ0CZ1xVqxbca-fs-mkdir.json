@@ -1,0 +1,59 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/fs/mkdir",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "25"
+    },
+    "body": {
+      "size": 25,
+      "sha256": "7db4ccbd869335b3cfa8739c935b06583cba82cb03ff6c9c8beef51a69fa2cd6",
+      "json": {
+        "path": "no/such/parent"
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "95",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:44 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "995",
+      "x-ratelimit-reset": "1790987565",
+      "x-vercel-id": "iad1:iad1::8nptn-1790987504458-c0db2736437f"
+    },
+    "body": {
+      "size": 95,
+      "sha256": "1b8de52fc1aeaeec34152140f135c22e24a0a1e594af8673f5316ff6750737ce",
+      "json": {
+        "error": {
+          "code": "file_error",
+          "message": "error creating directory: No such file or directory"
+        }
+      }
+    },
+    "elapsedMs": 114
+  }
+}

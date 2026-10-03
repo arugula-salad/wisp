@@ -1,0 +1,71 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "56"
+    },
+    "body": {
+      "size": 56,
+      "sha256": "3e2a558178b700b2c0e9b508be4ac172cc1aa8c73988d71f8cc98a5477c22828",
+      "json": {
+        "command": "sleep",
+        "args": [
+          "600"
+        ],
+        "env": {},
+        "sudo": false
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "188",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:42 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "996",
+      "x-ratelimit-reset": "1790987563",
+      "x-vercel-id": "iad1:iad1::2tshb-1790987502864-cc7f5010d03f"
+    },
+    "body": {
+      "size": 188,
+      "sha256": "444b61ad92cc21f1ff44a6fd66cd5f95e0416467a85b5e606bd9970dd55a633c",
+      "json": {
+        "command": {
+          "id": "cmd_99c2dc8c11034eecaced6a46040a",
+          "name": "sleep",
+          "args": [
+            "600"
+          ],
+          "cwd": "/vercel",
+          "sessionId": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "startedAt": 1790987502929,
+          "exitCode": null
+        }
+      }
+    },
+    "elapsedMs": 114
+  }
+}

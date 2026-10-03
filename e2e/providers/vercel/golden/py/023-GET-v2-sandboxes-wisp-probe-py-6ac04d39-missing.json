@@ -1,0 +1,56 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v2/sandboxes/wisp-probe-py-6ac04d39-missing",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ],
+      "projectId": [
+        "<redacted>"
+      ],
+      "resume": [
+        "false"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:36653",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate, zstd",
+      "connection": "keep-alive",
+      "user-agent": "vercel-sandbox/0.7.0 (Python/3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]; Linux/x86_64)",
+      "content-type": "application/json",
+      "authorization": "<redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "117",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:33:06 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "999",
+      "x-ratelimit-reset": "1790987647",
+      "x-vercel-id": "iad1:iad1::lfxs2-1790987585991-e7c78d0d0872"
+    },
+    "body": {
+      "size": 117,
+      "sha256": "ff9b33622cd658baf9ea5e6dd69af46a07f848a55394f0db5aa57a241fdc79d7",
+      "json": {
+        "error": {
+          "code": "not_found",
+          "message": "Named sandbox 'wisp-probe-py-6ac04d39-missing' not found for this project."
+        }
+      }
+    },
+    "elapsedMs": 92
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v2/sandboxes/sessions/sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca/cmd",
+    "query": {
+      "teamId": [
+        "<redacted>"
+      ]
+    },
+    "headers": {
+      "host": "127.0.0.1:33623",
+      "connection": "keep-alive",
+      "authorization": "<redacted>",
+      "content-type": "application/json",
+      "user-agent": "vercel/sandbox/3.5.1 (Node.js/v22.23.2; linux/x64)",
+      "accept": "*/*",
+      "accept-language": "*",
+      "sec-fetch-mode": "cors",
+      "accept-encoding": "gzip, deflate",
+      "content-length": "106"
+    },
+    "body": {
+      "size": 106,
+      "sha256": "7b991c46422b7a622eed05b6f8640932de9b6395d97b00b63b02df1545d5afd6",
+      "json": {
+        "command": "python3",
+        "args": [
+          "-m",
+          "http.server",
+          "3000",
+          "--directory",
+          "/vercel/www"
+        ],
+        "env": {},
+        "sudo": false
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "access-control-allow-headers": "Authorization, Accept, Content-Type",
+      "access-control-allow-methods": "OPTIONS, GET, POST, PUT, PATCH, DELETE",
+      "access-control-allow-origin": "*",
+      "cache-control": "private, max-age=0, must-revalidate",
+      "content-length": "238",
+      "content-type": "application/json; charset=utf-8",
+      "date": "Sat, 03 Oct 2026 00:31:44 GMT",
+      "server": "Vercel",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "x-ratelimit-limit": "1000",
+      "x-ratelimit-remaining": "993",
+      "x-ratelimit-reset": "1790987565",
+      "x-vercel-id": "iad1:iad1::8dbwn-1790987504666-5cfc063f85d6"
+    },
+    "body": {
+      "size": 238,
+      "sha256": "085daa7b3f07f7cbf30963d9f1e6e2e58be6d19c3e42843459f1f22b52f837ff",
+      "json": {
+        "command": {
+          "id": "cmd_ef55a3965c7645acadb8cede0df2",
+          "name": "python3",
+          "args": [
+            "-m",
+            "http.server",
+            "3000",
+            "--directory",
+            "/vercel/www"
+          ],
+          "cwd": "/vercel",
+          "sessionId": "sbx_VbSbqlSk8YVzFgxkQ0CZ1xVqxbca",
+          "startedAt": 1790987504754,
+          "exitCode": null
+        }
+      }
+    },
+    "elapsedMs": 149
+  }
+}
