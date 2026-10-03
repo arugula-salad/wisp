@@ -129,12 +129,23 @@ func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
 	}
 
 	vol.Store(1 << 30)
+	sub, _, _ := s.life.events.subscribe(func(e Event) bool { return e.Type == "disk.refused" }, 0, false)
+	defer s.life.events.unsubscribe(sub)
 	resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"full"}`)
 	if e := apiError(t, resp); e.StatusCode != http.StatusInsufficientStorage || e.ErrorCode != "insufficient_storage" {
 		t.Fatalf("create on a full volume = %+v", e)
 	}
 	if _, err := s.store.GetByName(store.Sprites, "full"); err == nil {
 		t.Fatal("a refused create left a sprite behind")
+	}
+	// The refusal comes before there is a record, and still names the sprite.
+	select {
+	case e := <-sub.ch:
+		if e.Sprite != "full" || e.SpriteID == "" || e.Detail["operation"] != "a new sprite" {
+			t.Fatalf("disk.refused = %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no disk.refused event")
 	}
 	sp, _ := s.store.GetByName(store.Sprites, "fits")
 	_, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), sp.ID, "", false, func(string, ...any) {})

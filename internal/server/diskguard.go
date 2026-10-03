@@ -53,6 +53,8 @@ type diskGuard struct {
 	warnPct int   // warn below this share of the volume (or of the image, for the host)
 	probe   func() (Headroom, error)
 	events  *eventBus // nil in tests that build a guard by hand
+	// event builds an event about a record (Lifecycle.event); nil with events.
+	event func(store.Record, string, map[string]any) Event
 
 	mu       sync.Mutex
 	low      bool
@@ -144,7 +146,7 @@ func probeHeadroom(dir string) (Headroom, error) {
 
 // admit refuses an operation that would write need bytes unless the reserve
 // survives it. A probe that fails is not a reason to refuse work.
-func (g *diskGuard) admit(sp store.Sprite, what string, need int64) error {
+func (g *diskGuard) admit(rec store.Record, what string, need int64) error {
 	h, err := g.probe()
 	g.mu.Lock()
 	h.Free -= g.claimed
@@ -157,7 +159,9 @@ func (g *diskGuard) admit(sp store.Sprite, what string, need int64) error {
 	if h.Free < h.VolumeFree {
 		where = "the filesystem holding " + h.Image
 	}
-	g.events.Publish(spriteEvent(sp, "disk.refused", map[string]any{"operation": what, "needed_bytes": need, "free_bytes": h.Free, "reserve_bytes": g.reserve}))
+	if g.event != nil {
+		g.events.Publish(g.event(rec, "disk.refused", map[string]any{"operation": what, "needed_bytes": need, "free_bytes": h.Free, "reserve_bytes": g.reserve}))
+	}
 	return fmt.Errorf("%w: %s needs %s and %s has %s free, of which %s is kept in reserve (--disk-reserve-mib); delete sprites or checkpoints",
 		errNoRoom, what, mib(need), where, mib(h.Free), mib(g.reserve))
 }
@@ -165,7 +169,7 @@ func (g *diskGuard) admit(sp store.Sprite, what string, need int64) error {
 // admitHost is admit for an operation that belongs to no sprite (an image
 // build), so a refusal is reported as a host-wide disk.refused event.
 func (g *diskGuard) admitHost(what string, need int64) error {
-	return g.admit(store.Sprite{}, what, need)
+	return g.admit(store.Record{}, what, need)
 }
 
 func mib(n int64) string { return fmt.Sprintf("%d MiB", n>>20) }
@@ -258,7 +262,7 @@ func (l *Lifecycle) makeRoom(sp store.Sprite, need int64) (release func(), fits 
 			vmm.DiscardSnapshot(dir)
 			free += got
 			l.log.Warn("sprite turned cold to make room for another's memory snapshot", "sprite", o.Name, "for", sp.Name, "freed", mib(got))
-			l.emit(o, "sprite.cold", map[string]any{"reason": "disk space", "for": sp.Name})
+			l.emit(o.Record, "sprite.cold", map[string]any{"reason": "disk space", "for": sp.Name})
 		}
 		rt.mu.Unlock()
 	}

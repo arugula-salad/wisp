@@ -210,6 +210,11 @@ type Lifecycle struct {
 	// onDelete is what the front end does when a sprite is deleted (OnDelete);
 	// guarded by mu.
 	onDelete []func(store.Sprite)
+	// describer names records in events and logs (SetDescriber); unstored are
+	// the records Create and Delete hold while the store does not (guarded by
+	// mu), so that what they report about is described too.
+	describer atomic.Pointer[Describer]
+	unstored  map[string]store.Sprite
 	// events is where everything below reports what it did (events.go).
 	events *eventBus
 	// denials rate-limits policy.denied events for the network policy.
@@ -223,9 +228,9 @@ type Lifecycle struct {
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
-	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, disk: newDiskGuard(opts, log), events: newEventBus(),
+	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, disk: newDiskGuard(opts, log), events: newEventBus(),
 		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate), quit: make(chan struct{})}
-	l.disk.events = l.events
+	l.disk.events, l.disk.event = l.events, l.event
 	l.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
 	if l.storage.reflink {
 		log.Info("sprite volume supports reflinks: new sprites and checkpoints are instant copy-on-write clones")
@@ -467,9 +472,9 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Sprite) (m *vmm.Machin
 		if err := l.startLocked(ctx, sp, rt); err != nil {
 			var lim *LimitError
 			if errors.As(err, &lim) {
-				l.emit(sp, "limit.refused", map[string]any{"limit": lim.Which, "max": lim.Limit, "current": lim.Current})
+				l.emit(sp.Record, "limit.refused", map[string]any{"limit": lim.Which, "max": lim.Limit, "current": lim.Current})
 			} else {
-				l.emit(sp, "sprite.wake_failed", map[string]any{"error": clipErr(err)})
+				l.emit(sp.Record, "sprite.wake_failed", map[string]any{"error": clipErr(err)})
 			}
 			return nil, nil, err
 		}
@@ -601,7 +606,7 @@ func (l *Lifecycle) bootLocked(ctx context.Context, sp store.Sprite, rt *runtime
 	if discarded != "" {
 		woke["warm_discarded"] = discarded
 	}
-	l.emit(sp, "sprite.woke", woke)
+	l.emit(sp.Record, "sprite.woke", woke)
 	go l.watch(sp, rt, m)
 	go l.autoscale(sp, rt, m)
 	return nil
@@ -697,7 +702,7 @@ func (l *Lifecycle) watch(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 			if rt.m == m {
 				l.cleanupLocked(rt)
 				l.log.Info("sprite VM exited", "sprite", sp.Name)
-				l.emit(sp, "sprite.exited", nil)
+				l.emit(sp.Record, "sprite.exited", nil)
 			}
 			rt.mu.Unlock()
 			return
@@ -765,7 +770,7 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 		rt.m.Kill()
 		l.cleanupLocked(rt)
 		l.log.Warn("no room for a memory snapshot even with every other sprite cold; sprite stopped cold instead", "sprite", sp.Name, "needed", mib(need))
-		l.emit(sp, "sprite.stopped", map[string]any{"reason": "no room for a memory snapshot"})
+		l.emit(sp.Record, "sprite.stopped", map[string]any{"reason": "no room for a memory snapshot"})
 		return nil
 	}
 	// Balloon the guest's free memory so that it is a hole in the snapshot, not
@@ -787,7 +792,7 @@ func (l *Lifecycle) suspendLocked(sp store.Sprite, rt *runtime, idle bool) error
 	took := time.Since(start)
 	snap := vmm.SnapshotBytes(l.store.Dir(sp.ID))
 	l.log.Info("sprite suspended", "sprite", sp.Name, "took", took.Round(time.Millisecond), "snapshot", mib(snap))
-	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap})
+	l.emit(sp.Record, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap})
 	// The disk is quiescent exactly here: the guest has synced and the VM is
 	// paused. Enqueueing is non-blocking and cannot fail, so a bucket that is
 	// unreachable never turns a good suspend into a bad one.
@@ -819,7 +824,7 @@ func (l *Lifecycle) Stop(sp store.Sprite, keepWarm bool) error {
 	rt.m.Kill()
 	l.cleanupLocked(rt)
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
-	l.emit(sp, "sprite.stopped", nil)
+	l.emit(sp.Record, "sprite.stopped", nil)
 	return nil
 }
 
@@ -833,7 +838,7 @@ func (l *Lifecycle) Cool(sp store.Sprite) bool {
 		return false
 	}
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
-	l.emit(sp, "sprite.cold", map[string]any{"reason": "operator"})
+	l.emit(sp.Record, "sprite.cold", map[string]any{"reason": "operator"})
 	return true
 }
 
@@ -917,7 +922,7 @@ func (l *Lifecycle) coolIfExpired(sp store.Sprite) {
 	if rt.m == nil && vmm.HasSnapshot(l.store.Dir(sp.ID)) {
 		vmm.DiscardSnapshot(l.store.Dir(sp.ID))
 		l.log.Info("sprite went cold", "sprite", sp.Name)
-		l.emit(cur, "sprite.cold", map[string]any{"reason": "warm ttl"})
+		l.emit(cur.Record, "sprite.cold", map[string]any{"reason": "warm ttl"})
 	}
 }
 

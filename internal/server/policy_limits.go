@@ -102,7 +102,7 @@ func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, policy stri
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return
 	}
-	s.life.emit(sp, "policy.changed", map[string]any{"policy": policy})
+	s.life.emit(sp.Record, "policy.changed", map[string]any{"policy": policy})
 	if err := s.life.ApplyPolicy(r.Context(), sp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", "policy saved but not applied to the running sprite: "+err.Error())
 		return

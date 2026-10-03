@@ -98,7 +98,7 @@ func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	// loop in one guest would starve every other sprite. (Approximate under
 	// concurrent creates, which is fine for a ceiling.)
 	if limit := s.opts.GuestCheckpointLimit; from != nil && limit > 0 && len(filterCheckpoints(sp, "", false)) >= limit {
-		s.life.emit(sp, "limit.refused", map[string]any{"limit": "guest_checkpoints", "max": limit, "current": len(filterCheckpoints(sp, "", false))})
+		s.life.emit(sp.Record, "limit.refused", map[string]any{"limit": "guest_checkpoints", "max": limit, "current": len(filterCheckpoints(sp, "", false))})
 		writeErr(w, http.StatusConflict, "checkpoint_limit", fmt.Sprintf(
 			"this sprite already has %d checkpoints, the most it may create from inside; delete some first", limit))
 		return

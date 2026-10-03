@@ -66,7 +66,7 @@ func newTestServer(t *testing.T, helper *fakeHelper) (*Server, *store.Store) {
 		t.Fatal(err)
 	}
 	e := &egress{log: quiet, store: st, gateway: netip.MustParseAddr("10.209.0.1"), enf: netpolicy.NewEnforcer(quiet), push: helper.push}
-	life := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, egress: e}
+	life := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, egress: e}
 	s := &Server{store: st, life: life, log: quiet, token: "t"}
 	life.OnDelete(s.deleted)
 	return s, st

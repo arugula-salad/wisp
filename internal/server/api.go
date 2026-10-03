@@ -75,6 +75,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
 	}
 	s.backups = life.backups
+	life.SetDescriber(describeSprite)
 	life.OnDelete(s.deleted)
 	s.leases = life.leases
 	// Once here, before anything is served: a lease that ran out while the

@@ -134,7 +134,7 @@ func (ls *leases) warn(sp store.Sprite, now time.Time) {
 		return
 	}
 	ls.log.Info("sprite lease running out", "sprite", sp.Name, "expires_at", sp.ExpiresAt)
-	ls.life.emit(sp, "sprite.expiring", map[string]any{
+	ls.life.emit(sp.Record, "sprite.expiring", map[string]any{
 		"expires_at": sp.ExpiresAt.UTC().Format(time.RFC3339), "in_ms": sp.ExpiresAt.Sub(now).Milliseconds()})
 }
 
@@ -167,7 +167,7 @@ func (ls *leases) reap(sp store.Sprite) {
 	ls.log.Info("lease expired; deleting sprite", "sprite", cur.Name, "id", cur.ID, "expires_at", cur.ExpiresAt)
 	// Before the delete, so a follower sees why the sprite.deleted that comes
 	// next was not somebody's DELETE.
-	ls.life.emit(cur, "sprite.expired", map[string]any{"expires_at": cur.ExpiresAt.UTC().Format(time.RFC3339)})
+	ls.life.emit(cur.Record, "sprite.expired", map[string]any{"expires_at": cur.ExpiresAt.UTC().Format(time.RFC3339)})
 	// Lifecycle.Delete, the same deletion a DELETE is, so expiry frees exactly
 	// what a DELETE frees, and forgets the warning sent.
 	if err := ls.life.Delete(cur); err != nil {

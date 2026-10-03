@@ -16,7 +16,7 @@ func TestShutdownStopsLoops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, quit: make(chan struct{})}
+	l := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, quit: make(chan struct{})}
 
 	var passes atomic.Int32
 	inPass, release := make(chan struct{}), make(chan struct{})

@@ -107,7 +107,7 @@ func (l *Lifecycle) createCheckpointLocked(rt *runtime, sid, comment string, aut
 		cp.ID, cp.IsAuto = fmt.Sprintf("auto-%d", sp.NextAuto+1), true
 	}
 	live := filepath.Join(l.store.Dir(sp.ID), vmm.DiskFile)
-	if err := l.disk.admit(sp, "a checkpoint", l.cloneCost(live)); err != nil {
+	if err := l.disk.admit(sp.Record, "a checkpoint", l.cloneCost(live)); err != nil {
 		return cp, err
 	}
 	info("Creating checkpoint %s...", cp.ID)
@@ -153,7 +153,7 @@ func (l *Lifecycle) createCheckpointLocked(rt *runtime, sid, comment string, aut
 		sp.Checkpoints = append(sp.Checkpoints, cp)
 	})
 	l.log.Info("checkpoint created", "sprite", sp.Name, "checkpoint", cp.ID)
-	l.emit(sp, "checkpoint.created", map[string]any{"checkpoint": cp.ID, "auto": auto})
+	l.emit(sp.Record, "checkpoint.created", map[string]any{"checkpoint": cp.ID, "auto": auto})
 	return cp, nil
 }
 
@@ -170,7 +170,7 @@ func (l *Lifecycle) deleteCheckpointLocked(sid, id string, pruned bool) error {
 	if err := os.Remove(l.checkpointPath(sp.ID, id)); err != nil {
 		return err
 	}
-	l.emit(sp, "checkpoint.deleted", map[string]any{"checkpoint": id, "pruned": pruned})
+	l.emit(sp.Record, "checkpoint.deleted", map[string]any{"checkpoint": id, "pruned": pruned})
 	return nil
 }
 
@@ -224,7 +224,7 @@ func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, sid, id string, info pr
 	// Upstream warns that a restore discards the current state for good. A full
 	// clone is cheap enough here to make every restore undoable instead.
 	// Checked before anything is stopped: the copy lands beside the disk it replaces.
-	if err := l.disk.admit(sp, "a restore", l.cloneCost(l.checkpointPath(sp.ID, id))); err != nil {
+	if err := l.disk.admit(sp.Record, "a restore", l.cloneCost(l.checkpointPath(sp.ID, id))); err != nil {
 		return err
 	}
 	if err := l.autoCheckpointLocked(rt, sid, "before restore to "+id, id, info); err != nil {
@@ -253,7 +253,7 @@ func (l *Lifecycle) restoreCheckpointLocked(rt *runtime, sid, id string, info pr
 	}
 	l.store.Update(sid, func(sp *store.Sprite) { sp.Lineage = lineage })
 	l.log.Info("checkpoint restored", "sprite", sp.Name, "checkpoint", id)
-	l.emit(sp, "checkpoint.restored", map[string]any{"checkpoint": id})
+	l.emit(sp.Record, "checkpoint.restored", map[string]any{"checkpoint": id})
 	if wasRunning {
 		// The environment restarts on its own, so services come back from the
 		// restored disk without waiting for the next request.

@@ -49,6 +49,9 @@ var errProvision = errors.New("provision disk")
 // the disk guard, store.ErrExists for a name already taken, errProvision.
 func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, error) {
 	sp := spec.Sprite
+	// Described from here, so that a refusal before the record is written
+	// names the sprite it refused.
+	defer l.holdUnstored(sp)()
 	var image string
 	var detail map[string]any
 	switch {
@@ -66,7 +69,7 @@ func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, 
 		}
 		image = base
 	}
-	if err := l.disk.admit(sp, "a new sprite", l.cloneCost(image)); err != nil {
+	if err := l.disk.admit(sp.Record, "a new sprite", l.cloneCost(image)); err != nil {
 		return sp, err
 	}
 	if err := l.store.Create(&sp); err != nil {
@@ -78,7 +81,7 @@ func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, 
 		return sp, fmt.Errorf("%w: %v", errProvision, err)
 	}
 	l.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", spec.Checkpoint != nil, "image", sp.Image)
-	l.emit(sp, "sprite.created", detail)
+	l.emit(sp.Record, "sprite.created", detail)
 	// A sprite can be born already inside the warning window -- a lobby child with
 	// a two-minute lease, say, under a five-minute --lease-warning. The janitor
 	// would never get to warn about it, so the warning is evaluated here too,
@@ -112,6 +115,10 @@ func cloneFile(ctx context.Context, src, dst string) error {
 // hold it.
 func (l *Lifecycle) Delete(sp store.Sprite) error {
 	l.Stop(sp, false)
+	// The record as it is just before it goes, to describe sprite.deleted by.
+	if cur, err := l.store.Get(sp.ID); err == nil {
+		defer l.holdUnstored(cur)()
+	}
 	if err := l.store.Delete(sp.ID); err != nil {
 		return err
 	}
@@ -127,7 +134,7 @@ func (l *Lifecycle) Delete(sp store.Sprite) error {
 	l.backups.MarkDeleted(sp)
 	l.leases.forget(sp.ID) // a warning already sent belongs to the sprite
 	l.log.Info("sprite deleted", "sprite", sp.Name)
-	l.emit(sp, "sprite.deleted", nil)
+	l.emit(sp.Record, "sprite.deleted", nil)
 	return nil
 }
 

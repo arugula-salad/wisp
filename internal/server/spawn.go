@@ -166,7 +166,7 @@ func (s *Server) registerGuestSpawn(mux *http.ServeMux, bind func(guestHandler) 
 // spawnRefused answers a sprite without a spawn policy that asked for
 // something only a spawner may do.
 func (s *Server) spawnRefused(w http.ResponseWriter, self store.Sprite) {
-	s.life.emit(self, "policy.denied", map[string]any{"policy": "spawn"})
+	s.life.emit(self.Record, "policy.denied", map[string]any{"policy": "spawn"})
 	writeErr(w, http.StatusForbidden, "spawn_disabled",
 		"this sprite may not manage sprites; enable it from outside with POST /v1/sprites/"+self.Name+"/policy/spawn")
 }
@@ -218,6 +218,6 @@ func (s *Server) setSpawnPolicy(w http.ResponseWriter, r *http.Request, p *store
 		return
 	}
 	s.log.Info("spawn policy set", "sprite", sp.Name, "enabled", p != nil && p.Enabled)
-	s.life.emit(sp, "policy.changed", map[string]any{"policy": "spawn", "enabled": p != nil && p.Enabled})
+	s.life.emit(sp.Record, "policy.changed", map[string]any{"policy": "spawn", "enabled": p != nil && p.Enabled})
 	w.WriteHeader(http.StatusNoContent)
 }

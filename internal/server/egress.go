@@ -248,7 +248,7 @@ func (l *Lifecycle) networkDenied(id, kind, target, reason string) {
 	if err != nil {
 		return
 	}
-	l.emit(sp, "policy.denied", map[string]any{"policy": "network", "kind": kind, "target": target, "reason": reason})
+	l.emit(sp.Record, "policy.denied", map[string]any{"policy": "network", "kind": kind, "target": target, "reason": reason})
 }
 
 // tapFor takes a tap for the sprite unless its network policy cannot be

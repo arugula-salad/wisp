@@ -48,7 +48,7 @@ func (s *Server) setNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.log.Info("network policy set", "sprite", r.PathValue("name"), "rules", len(req.Rules), "restricted", policy.Restrictive())
 		if sp, err := s.store.Get(sp.ID); err == nil {
-			s.life.emit(sp, "policy.changed", map[string]any{"policy": "network", "rules": len(req.Rules), "restricted": policy.Restrictive()})
+			s.life.emit(sp.Record, "policy.changed", map[string]any{"policy": "network", "rules": len(req.Rules), "restricted": policy.Restrictive()})
 		}
 		go s.life.RepublishNetworkPolicy(sp.ID)
 		// 204, not the 200 the API reference lists: the official Go SDK treats anything else as failure.
