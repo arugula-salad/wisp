@@ -51,6 +51,7 @@ func NewSystemSupervisor(defsDir, logsDir, runDir string) *Supervisor {
 		return nil
 	}
 	services := map[string]*service{}
+	skipped := false
 	for _, e := range entries {
 		name, ok := strings.CutSuffix(e.Name(), ".json")
 		if !ok || e.IsDir() {
@@ -63,6 +64,7 @@ func NewSystemSupervisor(defsDir, logsDir, runDir string) *Supervisor {
 		if err != nil {
 			// The rest still start: one bad file must not take the others down with it.
 			log.Printf("system service %s: %v", e.Name(), err)
+			skipped = true
 			continue
 		}
 		s := newService(ServiceDef{Name: name, Cmd: def.Cmd, Args: def.Args, Needs: []string{}, Env: def.Env, Dir: def.Dir})
@@ -79,7 +81,10 @@ func NewSystemSupervisor(defsDir, logsDir, runDir string) *Supervisor {
 		logRot: LogRotation{MaxBytes: defaultLogMaxBytes, Keep: defaultLogKeep}}
 	os.MkdirAll(logsDir, 0o755)
 	os.MkdirAll(runDir, 0o755)
-	sv.startAll(true)
+	// The sweep of logs and pids no definition owns is only safe when every
+	// definition was read: a file that failed to parse still owns its old logs,
+	// which are what anyone debugging it needs.
+	sv.startAll(!skipped)
 	for _, n := range sv.sortedNames() {
 		log.Printf("system service %s: %s", n, sv.services[n].state.Status)
 	}
