@@ -55,6 +55,14 @@ except for IDs, timestamps, hosts and what is listed here.
 
 **Lifecycle.**
 
+- The daemon's `--max-sprites` counts every API's sandboxes; a create past it is `429
+  too_many_sandboxes` ("The concurrency limit has been exceeded: …") with `Retry-After: 60`, which
+  the JS SDK reports at once rather than retrying (it waits out at most 20 s). Hosted's limits are
+  per plan.
+- A stop marks the session `stopping` before it stops the VM; calls on it meanwhile answer `422
+  sandbox_stopping` (the SDKs resume on it, after the stop), and traffic never wakes a VM that is
+  being stopped.
+
 - A session's timeout is the engine's deadline, with action stop; extend-timeout moves it. A
   session that has timed out is noticed (and, for a persistent sandbox, snapshotted) the next
   time anything looks at the sandbox, and its `stoppedAt` is the deadline.
