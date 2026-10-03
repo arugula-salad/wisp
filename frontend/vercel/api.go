@@ -302,6 +302,16 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &req) {
 		return
 	}
+	// The daemon's sandbox limit counts every API's. 429 is hosted's status for
+	// its limits ("The concurrency limit has been exceeded."); a Retry-After past
+	// 20 s makes the JS SDK give up at once rather than retry a limit that
+	// waiting will not lift.
+	if limit, n := f.opts.MaxSandboxes, f.store.Count(); limit > 0 && n >= limit {
+		w.Header().Set("Retry-After", "60")
+		writeErr(w, http.StatusTooManyRequests, "too_many_sandboxes",
+			fmt.Sprintf("The concurrency limit has been exceeded: this server holds at most %d sandboxes.", limit))
+		return
+	}
 	name := req.Name
 	if name == "" {
 		name = newSandboxName()
@@ -332,11 +342,13 @@ func (f *Frontend) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var routes []route
+	seen := map[int]bool{}
 	for _, p := range req.Ports {
-		if p < 1 || p > 65535 {
-			writeErr(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("Invalid request: invalid port %d.", p))
+		if _, ok := portString(p); !ok || seen[p] {
+			writeErr(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("Invalid request: invalid or repeated port %d.", p))
 			return
 		}
+		seen[p] = true
 		routes = append(routes, route{Port: p, Subdomain: newSubdomain()})
 	}
 	// Where the disk comes from: the image, or another sandbox's snapshot.

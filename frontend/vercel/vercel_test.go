@@ -678,3 +678,134 @@ func TestMkdirMessage(t *testing.T) {
 		}
 	}
 }
+
+// The daemon's sandbox limit counts every API's records, and a Vercel create
+// past it is a 429 with a Retry-After the JS SDK will not wait out.
+func TestSandboxLimitCountsEveryAPI(t *testing.T) {
+	fx := newFixture(t)
+	fx.f.opts.MaxSandboxes = 2
+	if err := fx.st.Create(&store.Sprite{Record: store.Record{ID: store.NewID()}, SpriteMeta: store.SpriteMeta{Name: "a-sprite"}}); err != nil {
+		t.Fatal(err)
+	}
+	fx.create(map[string]any{"name": "one"})
+	w := fx.do("POST", "/v3/sandboxes", adminKey, map[string]any{"name": "two"})
+	wantErr(t, w, 429, "too_many_sandboxes", "The concurrency limit has been exceeded: this server holds at most 2 sandboxes.")
+	if w.Header().Get("Retry-After") != "60" {
+		t.Fatalf("Retry-After %q", w.Header().Get("Retry-After"))
+	}
+	if _, err := fx.st.GetByName(API, "two"); err == nil {
+		t.Fatal("the refused sandbox exists")
+	}
+	fx.do("DELETE", "/v2/sandboxes/one", adminKey, nil)
+	fx.create(map[string]any{"name": "two"})
+}
+
+// Ports are numbers in 1-65535, once each; a route dials its port written
+// plainly, and a route's path is cleaned before it is matched or forwarded.
+func TestPortsAndRoutePaths(t *testing.T) {
+	fx := newFixture(t)
+	for _, ports := range []any{[]int{0}, []int{70000}, []int{-1}, []int{3000, 3000}, []string{"3000"}, []any{3000.5}} {
+		wantErr(t, fx.do("POST", "/v3/sandboxes", adminKey, map[string]any{"name": "bad", "ports": ports}), 400, "bad_request", "")
+	}
+	out, _ := fx.create(map[string]any{"name": "web", "ports": []int{3000}})
+	sub := out["routes"].([]any)[0].(map[string]any)["subdomain"].(string)
+	var dialed []string
+	inner := fx.f.dialPort
+	fx.f.dialPort = func(ctx context.Context, m *vmm.Machine, port string) (net.Conn, error) {
+		dialed = append(dialed, port)
+		return inner(ctx, m, port)
+	}
+	fx.port = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, r.URL.Path) })
+	get := func(p string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "http://127.0.0.1:7824/", nil)
+		req.URL.Path = p
+		w := httptest.NewRecorder()
+		fx.h.ServeHTTP(w, req)
+		return w
+	}
+	for p, want := range map[string]string{
+		"/" + sub + "/a/../b//c/": "/b/c/",
+		"/./" + sub + "/x":        "/x",
+		"/" + sub + "/../" + sub:  "/",
+		"/" + sub + "/../../etc":  "", // climbs out of the route: not a route (the API redirects it)
+	} {
+		w := get(p)
+		if want == "" {
+			if w.Code == 200 {
+				t.Errorf("%s reached the port: %q", p, w.Body.String())
+			}
+			continue
+		}
+		if w.Code != 200 || w.Body.String() != want {
+			t.Errorf("%s: %d %q, want %q", p, w.Code, w.Body.String(), want)
+		}
+	}
+	for _, d := range dialed {
+		if d != "3000" {
+			t.Errorf("dialed port %q", d)
+		}
+	}
+	// A route whose stored port is not a port is no route.
+	sp, _ := fx.st.GetByName(API, "web")
+	fx.f.updateMeta(sp.ID, func(m *meta) { m.Routes[0].Port = 0 })
+	if w := get("/" + sub + "/"); w.Code != 404 {
+		t.Errorf("a route to port 0: %d", w.Code)
+	}
+}
+
+// A session marked stopping (as a stop marks it before it stops the VM) is
+// not woken by traffic: commands, files and routes are refused with
+// sandbox_stopping, which the SDKs resume on, and nothing boots.
+func TestStoppingSessionIsNotWoken(t *testing.T) {
+	fx := newFixture(t)
+	out, sid := fx.create(map[string]any{"name": "s", "ports": []int{3000}})
+	sub := out["routes"].([]any)[0].(map[string]any)["subdomain"].(string)
+	sp, _ := fx.st.GetByName(API, "s")
+	fx.f.updateMeta(sp.ID, func(m *meta) { m.current().Status = "stopping" })
+	boots := fx.boots
+	wantErr(t, fx.do("POST", "/v2/sandboxes/sessions/"+sid+"/cmd", adminKey, map[string]any{"command": "true"}), 422, "sandbox_stopping", "")
+	wantErr(t, fx.do("POST", "/v2/sandboxes/sessions/"+sid+"/fs/read", adminKey, map[string]any{"path": "x"}), 422, "sandbox_stopping", "")
+	req := httptest.NewRequest("GET", "http://127.0.0.1:7824/"+sub+"/", nil)
+	w := httptest.NewRecorder()
+	fx.h.ServeHTTP(w, req)
+	wantErr(t, w, 422, "sandbox_stopping", "")
+	if fx.boots != boots {
+		t.Fatalf("traffic to a stopping sandbox booted it (%d -> %d)", boots, fx.boots)
+	}
+	// The metadata is re-read under the lock: a handler holding a stale
+	// "running" record is still refused.
+	rec, m, s, _ := fx.f.findSession(sid)
+	s.Status, m.current().Status = "running", "running"
+	w = httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"command":"true"}`))
+	fx.f.runCommand(w, r, rec, m, s)
+	wantErr(t, w, 422, "sandbox_stopping", "")
+	// A stop decides and marks under the sandbox's lock, the one traffic takes.
+	fx.f.updateMeta(sp.ID, func(m *meta) { m.current().Status = "running" })
+	unlock := fx.f.lock(sp.ID)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Blocks on the lock the test holds; the stop then marks first.
+		fx.do("POST", "/v2/sandboxes/sessions/"+sid+"/stop", adminKey, nil)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if m, _ := metaOf(mustRecord(t, fx, sp.ID)); m.current().Status != "running" {
+		t.Fatalf("the stop ran without the lock: %s", m.current().Status)
+	}
+	unlock()
+	<-done
+	m2, _ := metaOf(mustRecord(t, fx, sp.ID))
+	if m2.current().Status != "stopped" || m2.current().RequestedStopAt == 0 {
+		t.Fatalf("after the stop: %+v", m2.current())
+	}
+}
+
+func mustRecord(t *testing.T, fx *fixture, id string) store.Record {
+	t.Helper()
+	rec, err := fx.st.GetRecord(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}

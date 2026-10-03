@@ -268,9 +268,8 @@ func (f *Frontend) runCommand(w http.ResponseWriter, r *http.Request, rec store.
 		writeErr(w, http.StatusBadRequest, "bad_request", "Invalid request: `command` is required.")
 		return
 	}
-	c, status, code, msg := f.startCommand(r.Context(), rec, m, s, req)
+	c := f.startCommand(w, r.Context(), rec, m, s, req)
 	if c == nil {
-		writeErr(w, status, code, msg)
 		return
 	}
 	if !req.Wait {
@@ -294,13 +293,12 @@ func (f *Frontend) runCommand(w http.ResponseWriter, r *http.Request, rec store.
 	}
 }
 
-// startCommand starts req in the session's VM. On failure c is nil and the
-// rest is the error to answer.
-func (f *Frontend) startCommand(ctx context.Context, rec store.Record, m meta, s session, req cmdReq) (c *command, status int, code, msg string) {
-	mach, release, err := f.acquire(ctx, rec)
-	if err != nil {
-		f.log.Warn("could not reach a sandbox's VM for a command", "name", m.Name, "err", err)
-		return nil, http.StatusGone, "sandbox_stopped", "Sandbox has stopped execution and is no longer available"
+// startCommand starts req in the session's VM. On failure it is nil, and the
+// error has been answered.
+func (f *Frontend) startCommand(w http.ResponseWriter, ctx context.Context, rec store.Record, m meta, s session, req cmdReq) (c *command) {
+	mach, release, ok := f.acquireRunning(w, ctx, rec.ID, s.ID)
+	if !ok {
+		return nil
 	}
 	spec := f.spec(m, req)
 	started := f.now()
@@ -311,12 +309,14 @@ func (f *Frontend) startCommand(ctx context.Context, rec store.Record, m meta, s
 		var se errStart
 		switch {
 		case errors.As(err, &nf):
-			return nil, http.StatusBadRequest, "executable_not_found", nf.Error()
+			writeErr(w, http.StatusBadRequest, "executable_not_found", nf.Error())
 		case errors.As(err, &se):
-			return nil, http.StatusBadRequest, "bad_request", "[invalid_argument] " + se.msg
+			writeErr(w, http.StatusBadRequest, "bad_request", "[invalid_argument] "+se.msg)
+		default:
+			f.log.Warn("command failed to start", "name", m.Name, "err", err)
+			writeErr(w, http.StatusInternalServerError, "internal_server_error", "Failed to start command: "+err.Error())
 		}
-		f.log.Warn("command failed to start", "name", m.Name, "err", err)
-		return nil, http.StatusInternalServerError, "internal_server_error", "Failed to start command: " + err.Error()
+		return nil
 	}
 	c = &command{ID: newCommandID(), Name: req.Command, Args: req.Args, Cwd: spec.dir, SessionID: s.ID, RecordID: rec.ID,
 		StartedAt: started.UnixMilli(), mach: mach, agentID: p.agentID, proc: p,
@@ -356,7 +356,7 @@ func (f *Frontend) startCommand(ctx context.Context, rec store.Record, m meta, s
 			}
 		}
 	}()
-	return c, 0, "", ""
+	return c
 }
 
 // command looks up {cid} in the session.

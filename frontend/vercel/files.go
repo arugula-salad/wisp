@@ -45,9 +45,8 @@ func (f *Frontend) writeFiles(w http.ResponseWriter, r *http.Request, rec store.
 		base = "/"
 	}
 	base = f.resolve(base, "")
-	mach, release, err := f.acquire(r.Context(), rec)
-	if err != nil {
-		stopped(w)
+	mach, release, ok := f.acquireRunning(w, r.Context(), rec.ID, s.ID)
+	if !ok {
 		return
 	}
 	defer release()
@@ -147,9 +146,8 @@ func (f *Frontend) readFile(w http.ResponseWriter, r *http.Request, rec store.Re
 		writeErr(w, http.StatusBadRequest, "bad_request", "Invalid request: `path` is required.")
 		return
 	}
-	mach, release, err := f.acquire(r.Context(), rec)
-	if err != nil {
-		stopped(w)
+	mach, release, ok := f.acquireRunning(w, r.Context(), rec.ID, s.ID)
+	if !ok {
 		return
 	}
 	defer release()
@@ -194,9 +192,8 @@ func (f *Frontend) mkdir(w http.ResponseWriter, r *http.Request, rec store.Recor
 		return
 	}
 	dir := f.resolve(req.Path, req.Cwd)
-	mach, release, err := f.acquire(r.Context(), rec)
-	if err != nil {
-		stopped(w)
+	mach, release, ok := f.acquireRunning(w, r.Context(), rec.ID, s.ID)
+	if !ok {
 		return
 	}
 	defer release()

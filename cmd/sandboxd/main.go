@@ -135,7 +135,7 @@ func vercelFrontend(listen, domain, image string, maxTimeout time.Duration, memP
 				domain = net.JoinHostPort(domain, port)
 			}
 			fe := vercel.New(vercel.Options{Disk: image, CheckKey: env.Sprites.CheckKey, MaxTimeout: maxTimeout,
-				MemPerVCPU: memPerVCPU, RouteURL: func(sub string) string { return "http://" + sub + "." + domain }},
+				MemPerVCPU: memPerVCPU, MaxSandboxes: env.Options.MaxSprites, RouteURL: func(sub string) string { return "http://" + sub + "." + domain }},
 				env.Store, env.Engine, env.Log)
 			h := fe.Handler()
 			// *.localhost resolves to ::1 where systemd-resolved answers it, so a

@@ -88,6 +88,9 @@ type Options struct {
 	// Home is the default user's home, and every command's default cwd. Empty
 	// is /vercel, as in the guest image; tests point it elsewhere.
 	Home string
+	// MaxSandboxes is how many sandboxes the daemon may hold, of every API
+	// (wispd's --max-sprites); 0 is no limit.
+	MaxSandboxes int
 	// Sudo is the program a command with sudo: true runs under: empty is
 	// "sudo", as in the guest image; tests use none ("-").
 	Sudo string
