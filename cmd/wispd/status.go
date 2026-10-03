@@ -193,6 +193,13 @@ func printStatus(w io.Writer, st server.Status) {
 		}
 		fmt.Fprintln(w)
 	}
+	if cg := h.Cgroup; cg != nil {
+		mem := "no memory cap"
+		if cg.MemoryMax > 0 {
+			mem = "memory.max " + size(cg.MemoryMax)
+		}
+		fmt.Fprintf(w, "cgroup     %s in use by all VMs, %s, cpu.weight %d (%s)\n", size(cg.MemoryCurrent), mem, cg.CPUWeight, cg.Path)
+	}
 	if st.Daemon != nil {
 		if h.Networking {
 			fmt.Fprintf(w, "network    %d of %d taps in use\n", h.TapsUsed, h.TapsTotal)

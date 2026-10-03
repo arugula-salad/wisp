@@ -138,6 +138,12 @@ admitted into room for one — but nothing already running is ever evicted to fi
 Set the budget below physical RAM with room for all of the above, and treat it as a brake on
 overcommit rather than a promise.
 
+For a promise, add a kernel bound on top: `--cgroup-memory-max 32G` and
+`--cgroup-cpu-weight 50` write `memory.max` / `cpu.weight` on the cgroup subtree holding all of
+this daemon's VMs, which a systemd `MemoryMax=` on the unit does not reach. Useful when a second
+daemon shares the host with one that matters more. Keep the budget below the cap so admission
+refuses before the kernel OOM-kills; details in [security](security.md#capping-all-of-a-daemons-vms-together).
+
 ## Disk pressure
 
 The volume holds sprite disks, checkpoints, one memory snapshot per warm sprite, and the

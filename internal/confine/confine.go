@@ -91,33 +91,62 @@ type Confiner struct {
 	// notes records what could not be enabled, for the startup log.
 	notes []string
 	log   *slog.Logger
+	// caps are the subtree-wide limits asked for; capsFailed says writing them failed.
+	caps       Caps
+	capsFailed bool
 }
+
+// openSubtree is openCgroups, replaceable in tests that need a host without one.
+var openSubtree = openCgroups
 
 // Open probes the host and prepares the cgroup subtree. It returns nil for
 // ModeOff. In ModeStrict a missing feature is an error; in ModeBestEffort it is
 // recorded in Describe. log (nil for slog.Default) hears about a VM that
 // starts with less than Describe claims.
-func Open(mode Mode, name string, log *slog.Logger) (*Confiner, error) {
-	if mode == ModeOff {
-		return nil, nil
+//
+// caps (see Caps) are written on the subtree root as soon as it is open. With
+// no subtree, or when they cannot be written, ModeStrict refuses to start and
+// anything else warns: the caps are a request on top of the per-VM limits,
+// which still apply wherever a leaf can be made.
+func Open(mode Mode, name string, caps Caps, log *slog.Logger) (*Confiner, error) {
+	if err := caps.Validate(); err != nil {
+		return nil, err
 	}
 	if log == nil {
 		log = slog.Default()
 	}
-	c := &Confiner{mode: mode, abi: abiVersion(), log: log}
+	if mode == ModeOff {
+		if caps.Set() {
+			log.Warn("cgroup caps not applied: --confine=off puts no VM in a cgroup", "caps", caps.String())
+		}
+		return nil, nil
+	}
+	c := &Confiner{mode: mode, abi: abiVersion(), log: log, caps: caps}
 	if c.abi < 1 {
 		c.notes = append(c.notes, "landlock unavailable (kernel lacks it, or it is not in the boot-time LSM list)")
 	} else if c.abi < abiScope {
 		c.notes = append(c.notes, fmt.Sprintf("landlock abi %d predates signal/unix scoping (needs %d)", c.abi, abiScope))
 	}
-	cg, err := openCgroups(name)
+	cg, err := openSubtree(name)
 	if err != nil {
 		c.notes = append(c.notes, err.Error())
+		if caps.Set() {
+			c.notes = append(c.notes, fmt.Sprintf("%v (%s not applied)", errCapsWithoutCgroups, caps))
+		}
 	} else {
 		c.cg = cg
+		if caps.Set() {
+			if err := cg.apply(caps); err != nil {
+				c.notes = append(c.notes, err.Error())
+				c.capsFailed = true
+			}
+		}
 	}
 	if mode == ModeStrict && len(c.notes) > 0 {
 		return nil, fmt.Errorf("confine=strict: %s", strings.Join(c.notes, "; "))
+	}
+	if caps.Set() && (c.cg == nil || c.capsFailed) {
+		log.Warn("cgroup caps not applied; the daemon's VMs together are not bounded (use --confine=strict to refuse instead)", "caps", caps.String())
 	}
 	return c, nil
 }
@@ -131,6 +160,9 @@ func (c *Confiner) Describe() string {
 	cgroups := "unavailable"
 	if c.cg != nil {
 		cgroups = strings.Join(wantControllers, ",") + " at " + c.cg.root
+		if c.caps.Set() && !c.capsFailed {
+			cgroups += " (subtree caps " + c.caps.String() + ")"
+		}
 	}
 	s := fmt.Sprintf("landlock: %s; cgroup: %s", landlockSummary(c.abi), cgroups)
 	if len(c.notes) > 0 {

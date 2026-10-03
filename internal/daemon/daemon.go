@@ -136,7 +136,7 @@ func Run(name string, opts server.Options, f *Flags, extra ...Frontend) {
 	}
 	// One cgroup subtree per data directory, so a second wispd (dev, tests)
 	// on the same host does not sweep away the first one's VM cgroups.
-	conf, err := confine.Open(mode, "wisp-"+cgroupTag(abs), log)
+	conf, err := confine.Open(mode, "wisp-"+cgroupTag(abs), f.cgroupCaps, log)
 	if err != nil {
 		fatal(log, err)
 	}

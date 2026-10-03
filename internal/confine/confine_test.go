@@ -392,7 +392,7 @@ func TestParseMode(t *testing.T) {
 
 // TestOffIsNil: ModeOff must leave the launch path exactly as it was.
 func TestOffIsNil(t *testing.T) {
-	c, err := Open(ModeOff, "wisp-test", nil)
+	c, err := Open(ModeOff, "wisp-test", Caps{}, nil)
 	if err != nil || c != nil {
 		t.Fatalf("Open(ModeOff) = %v, %v; want nil, nil", c, err)
 	}

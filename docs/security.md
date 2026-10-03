@@ -42,6 +42,32 @@ The limits come from the VM's shape, so a resources policy that sizes the guest 
 host cgroup. The cgroup subtree is found by walking up from wispd's own cgroup to the first
 level with `cpu`, `memory` and `pids` delegated (`user@<uid>.service` on a systemd host).
 
+### Capping all of a daemon's VMs together
+
+Each daemon puts its VM leaves in a subtree of its own, `wisp-<tag of the data dir>` (on a
+systemd host `app.slice/wisp-<tag>` or `user@<uid>.service/wisp-<tag>`), so two daemons on one
+host never share or sweep each other's. That subtree is a *sibling* of the daemon's own cgroup,
+so `MemoryMax=` or `CPUWeight=` on a systemd unit bounds the daemon process but **not its
+VMs**. Two flags put hard caps on the subtree itself, i.e. on every VM of that daemon together:
+
+| Flag | Writes | Value |
+|---|---|---|
+| `--cgroup-memory-max` | `memory.max` | bytes, or a binary size such as `32G` / `512M` (at least `256M`), or `max` to clear a cap. Empty (default) writes nothing |
+| `--cgroup-cpu-weight` | `cpu.weight` | 1–10000 (the kernel's default is 100) against the rest of the host's cgroups. 0 (default) writes nothing |
+
+They are written when the daemon opens the subtree at startup and show in the `vmm confinement`
+log line and in `wispd status` (the `cgroup` line, `host.cgroup` in `--json`), which reports
+what the kernel holds whoever wrote it. The subtree outlives the daemon, so dropping a flag
+does not undo a cap an earlier run wrote: pass `--cgroup-memory-max max --cgroup-cpu-weight 100`
+once to clear them. The memory cap is a kernel bound, not admission control: when the VMs
+together reach it the kernel reclaims and then OOM-kills a VMM (losing that sprite's memory
+state), so keep `--max-running-memory-mib` below it and let admission refuse first. Lowering it
+below what is already in use while sprites run forces that reclaim at once.
+
+If there is no delegated cgroup subtree (or `--confine=off`, which puts no VM in a cgroup), a
+requested cap cannot be applied: `--confine=strict` refuses to start, anything else logs a
+warning and runs uncapped.
+
 **What this does not do**, so the claim stays honest:
 
 - Every VMM still runs as your uid. The jailer's per-VM uid and chroot are not reproduced;
