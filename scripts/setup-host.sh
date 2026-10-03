@@ -23,33 +23,52 @@
 #   - wisp-net.service to re-apply the above at boot
 #
 #   ./scripts/setup-host.sh --print-rules   # show the nftables ruleset; needs no root
+#
+# WISP_POOL=N (default 0) makes a second, independent network pool beside the first,
+# for a networked wispd run with --net-pool N (a test stack beside production). Every
+# name above gets the pool number: bridge msbrN, taps msNtap*, table `inet wispN`,
+# wisp-netN.service, wisp-netdN.service with its socket at /run/wispN/netd.sock, and
+# the /16 defaults to 10.(209+N). Pool 0 keeps the names listed above.
+# internal/netd/pool.go derives the same names for wispd and wisp-netd.
 set -euo pipefail
 trap 'echo "setup-host.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-BR=msbr0
-TAP_PREFIX=mstap
+POOL="${WISP_POOL:-0}"
+case "$POOL" in
+  0) SFX="" TAP_PREFIX=mstap ;;
+  [1-9]|[1-3][0-9]|4[0-6]) SFX="$POOL" TAP_PREFIX="ms${POOL}tap" ;;
+  *) echo "WISP_POOL must be a number from 0 to 46, got '$POOL'" >&2; exit 2 ;;
+esac
+BR="msbr$POOL"
+TABLE="wisp$SFX"
 # First two octets of the sprite /16. wispd reads the network back off the
 # bridge, so this is the only place it is configured. Not 10.88: that is podman's default.
-PREFIX="${WISP_NET_PREFIX:-10.209}"
+PREFIX="${WISP_NET_PREFIX:-10.$((209 + POOL))}"
 NET="$PREFIX.0.0/16"
 GW="$PREFIX.0.1"
 TAPS="${TAPS:-32}"
-UNIT=/etc/systemd/system/wisp-net.service
-INSTALLED=/usr/local/sbin/wisp-net
+UNIT="/etc/systemd/system/wisp-net$SFX.service"
+INSTALLED="/usr/local/sbin/wisp-net$SFX"
 # Where wispd's policy listeners are (egressDNSPort / egressProxyPort in
 # internal/server/egress.go). Keep the two files in step.
 POLICY_DNS_PORT=7853
 POLICY_PROXY_PORT=7880
 NETD_SRC="$(cd "$(dirname "$0")/.." && pwd)/bin/wisp-netd"
-NETD_BIN=/usr/local/sbin/wisp-netd
-NETD_UNIT=/etc/systemd/system/wisp-netd.service
+# Each pool's helper has its own copy of the binary, so setting up (or removing)
+# another pool never replaces the one an existing helper runs.
+NETD_BIN="/usr/local/sbin/wisp-netd$SFX"
+NETD_UNIT="/etc/systemd/system/wisp-netd$SFX.service"
+NETD_SOCKET="/run/wisp$SFX/netd.sock"
+# Pool 0's generated units stay as they were before pools existed.
+POOL_ENV="" NETD_POOL_ARG=""
+if [ "$POOL" != 0 ]; then POOL_ENV=" WISP_POOL=$POOL" NETD_POOL_ARG=" --pool $POOL"; fi
 
 # KEEP is restricted4's membership to start with (see apply).
 ruleset() {
   cat <<EOF
-table inet wisp
-delete table inet wisp
-table inet wisp {
+table inet $TABLE
+delete table inet $TABLE
+table inet $TABLE {
   set private4 {
     type ipv4_addr; flags interval
     elements = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 127.0.0.0/8 }
@@ -95,14 +114,14 @@ OWNER="${WISP_OWNER:-${SUDO_USER:-}}"
 ufw_active() { command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; }
 
 remove() {
-  nft delete table inet wisp 2>/dev/null || true
+  nft delete table inet "$TABLE" 2>/dev/null || true
   if ufw_active; then
     ufw route delete allow in on "$BR" >/dev/null 2>&1 || true
     ufw delete allow in on "$BR" to any port "$POLICY_DNS_PORT" >/dev/null 2>&1 || true
     ufw delete allow in on "$BR" to any port "$POLICY_PROXY_PORT" proto tcp >/dev/null 2>&1 || true
   fi
   if [ -f "$NETD_UNIT" ]; then
-    systemctl disable --now wisp-netd.service 2>/dev/null || true
+    systemctl disable --now "wisp-netd$SFX.service" 2>/dev/null || true
     rm -f "$NETD_UNIT" "$NETD_BIN"
     systemctl daemon-reload
   fi
@@ -111,11 +130,11 @@ remove() {
   done
   ip link delete "$BR" 2>/dev/null || true
   if [ -f "$UNIT" ]; then
-    systemctl disable --now wisp-net.service 2>/dev/null || true
+    systemctl disable --now "wisp-net$SFX.service" 2>/dev/null || true
     rm -f "$UNIT" "$INSTALLED"
     systemctl daemon-reload
   fi
-  echo "removed wisp host networking (net.ipv4.ip_forward left as is)"
+  echo "removed wisp host networking${SFX:+ for pool $POOL} (net.ipv4.ip_forward left as is)"
 }
 
 # Another interface owning (part of) our range would silently steal the return
@@ -163,7 +182,7 @@ apply() {
   # next push.
   # On a first run the set does not exist and nft fails; under pipefail + set -e that
   # would end the script without a word, so the failure is absorbed here.
-  KEEP=$(nft list set inet wisp restricted4 2>/dev/null | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p' || true)
+  KEEP=$(nft list set inet "$TABLE" restricted4 2>/dev/null | tr -d '\n\t' | sed -n 's/.*elements = {\([^}]*\)}.*/\1/p' || true)
   ruleset | nft -f -
 }
 
@@ -171,14 +190,14 @@ install_unit() {
   install -m 0755 "$0" "$INSTALLED"
   cat > "$UNIT" <<EOF
 [Unit]
-Description=wisp guest networking (bridge, taps, nftables)
+Description=wisp guest networking${SFX:+ pool $POOL} (bridge, taps, nftables)
 After=network-pre.target
 Wants=network-pre.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-Environment=WISP_OWNER=$OWNER TAPS=$TAPS WISP_NET_PREFIX=$PREFIX
+Environment=WISP_OWNER=$OWNER TAPS=$TAPS WISP_NET_PREFIX=$PREFIX$POOL_ENV
 ExecStart=$INSTALLED --no-install
 ExecStop=$INSTALLED --remove-runtime
 
@@ -186,7 +205,7 @@ ExecStop=$INSTALLED --remove-runtime
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable wisp-net.service >/dev/null
+  systemctl enable "wisp-net$SFX.service" >/dev/null
 }
 
 # The root helper behind restrictive network policies. Optional: without it
@@ -199,13 +218,13 @@ install_netd() {
   install -m 0755 "$NETD_SRC" "$NETD_BIN"
   cat > "$NETD_UNIT" <<EOF
 [Unit]
-Description=wisp network policy helper (members of nft set restricted4)
-After=wisp-net.service
-Wants=wisp-net.service
+Description=wisp network policy helper (members of nft set ${SFX:+inet $TABLE }restricted4)
+After=wisp-net$SFX.service
+Wants=wisp-net$SFX.service
 
 [Service]
-ExecStart=$NETD_BIN --owner $OWNER --net $NET
-RuntimeDirectory=wisp
+ExecStart=$NETD_BIN --owner $OWNER --net $NET$NETD_POOL_ARG
+RuntimeDirectory=wisp$SFX
 Restart=on-failure
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -217,22 +236,26 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable wisp-netd.service >/dev/null
-  systemctl restart wisp-netd.service
+  systemctl enable "wisp-netd$SFX.service" >/dev/null
+  systemctl restart "wisp-netd$SFX.service"
 }
 
 case "${1:-}" in
   --remove) remove ;;
   --remove-runtime)
-    nft delete table inet wisp 2>/dev/null || true
+    nft delete table inet "$TABLE" 2>/dev/null || true
     for dev in /sys/class/net/${TAP_PREFIX}*; do [ -e "$dev" ] && ip link delete "$(basename "$dev")" || true; done
     ip link delete "$BR" 2>/dev/null || true ;;
   --no-install) apply ;;
   "")
     apply
     install_unit
-    echo "ok: bridge $BR ($GW/16), $TAPS taps owned by $OWNER, NAT + isolation rules, boot unit installed"
-    if install_netd; then echo "ok: network policy helper wisp-netd.service started (socket /run/wisp/netd.sock, for $OWNER)"; fi
-    echo "restart wispd to pick up networking; suspended sprites will cold-boot once to gain a NIC" ;;
+    echo "ok: bridge $BR ($GW/16), $TAPS taps owned by $OWNER, NAT + isolation rules, boot unit${SFX:+ wisp-net$SFX.service} installed"
+    if install_netd; then echo "ok: network policy helper wisp-netd$SFX.service started (socket $NETD_SOCKET, for $OWNER)"; fi
+    if [ "$POOL" = 0 ]; then
+      echo "restart wispd to pick up networking; suspended sprites will cold-boot once to gain a NIC"
+    else
+      echo "pool $POOL is ready for a wispd started with --net-pool $POOL"
+    fi ;;
   *) echo "usage: $0 [--remove | --print-rules]" >&2; exit 2 ;;
 esac

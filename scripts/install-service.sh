@@ -125,8 +125,12 @@ WAIT=""
 if grep -qs -- " $DATA/vm\$" /etc/systemd/system/wisp-storage.service; then
   WAIT+="mountpoint -q '$DATA/vm' && "
 fi
-if [ -e /etc/systemd/system/wisp-net.service ] && ! grep -q -- '--net=false' <<<"$CUR_FLAGS"; then
-  WAIT+="[ -e /sys/class/net/msbr0 ] && "
+# The network pool (wispd --net-pool) names the bridge and its boot unit: pool 0 is
+# msbr0 and wisp-net, pool N msbrN and wisp-netN.
+POOL=$(grep -oE -- '--net-pool[= ]+[0-9]+' <<<"$CUR_FLAGS" | grep -oE '[0-9]+$' || true)
+POOL=${POOL:-0}
+if [ -e "/etc/systemd/system/wisp-net$([ "$POOL" = 0 ] || echo "$POOL").service" ] && ! grep -q -- '--net=false' <<<"$CUR_FLAGS"; then
+  WAIT+="[ -e /sys/class/net/msbr$POOL ] && "
 fi
 cat > "$LIB/wait-host.sh" <<EOF
 #!/bin/sh
