@@ -51,6 +51,7 @@ func serve(args []string) {
 	listen := fs.String("listen", "vsock", "vsock, tcp:HOST:PORT or unix:PATH (the latter two are for host-side testing)")
 	stateDir := fs.String("state-dir", "/.sprite", "where service definitions and logs live (on the sprite's disk)")
 	runDir := fs.String("run-dir", "/run/sprite-services", "pid files; must not survive a reboot")
+	systemDir := fs.String("system-services-dir", "/etc/wisp/services.d", "the image's own daemons, started at boot (vsock only)")
 	fs.Parse(args)
 
 	var ln net.Listener
@@ -74,6 +75,13 @@ func serve(args []string) {
 	memLimit, _ := strconv.Atoi(boot["memlimit"])
 	agent.InitPolicy(agent.Policy{Profile: boot["profile"], NoNewPrivs: boot["nnp"] == "1", MemoryLimitMB: memLimit},
 		"/run/sprite-policy.json")
+
+	// The image's own daemons (E2B's envd, say), not the user's: they are
+	// started here and are nowhere in the services API. Only in a real guest: on
+	// the host these paths would name the host's files.
+	if *listen == "vsock" {
+		agent.NewSystemSupervisor(*systemDir, "/var/log/wisp/services", "/run/wisp-system-services")
+	}
 
 	// Service starts and crashes go to wispd's event stream, which only exists over vsock.
 	var report func(agent.ServiceReport)

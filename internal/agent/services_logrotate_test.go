@@ -48,7 +48,7 @@ func say(t *testing.T, sv *Supervisor, s *service, text string) {
 
 func logDirFiles(t *testing.T, sv *Supervisor) []string {
 	t.Helper()
-	entries, err := os.ReadDir(sv.logsDir())
+	entries, err := os.ReadDir(sv.logsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func dirBytes(t *testing.T, sv *Supervisor) int64 {
 	t.Helper()
 	var total int64
 	for _, n := range logDirFiles(t, sv) {
-		st, err := os.Stat(filepath.Join(sv.logsDir(), n))
+		st, err := os.Stat(filepath.Join(sv.logsDir, n))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -202,7 +202,7 @@ func TestOrphanLogsAreSweptAtStart(t *testing.T) {
 	sv := NewSupervisor(dir+"/state", dir+"/run")
 	define(t, sv, "web")
 	for _, name := range []string{"web.log", "ghost.log", "ghost.log.1", "ghost.log.7", "notalog.txt"} {
-		if err := os.WriteFile(filepath.Join(sv.logsDir(), name), []byte("x\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(sv.logsDir, name), []byte("x\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
