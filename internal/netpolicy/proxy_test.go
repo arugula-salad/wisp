@@ -68,11 +68,16 @@ func startProxy(t *testing.T, e *Enforcer, dst netip.AddrPort, blocked func(neti
 }
 
 // roundTrip sends msg, half-closes, and returns whatever comes back.
+//
+// A dial error is returned, not fatal: a denying proxy accepts and resets at
+// once, and on loopback that RST can land before the dialer has collected the
+// result of its non-blocking connect, which then reports "connect: connection
+// reset by peer". That is the same refusal, just observed earlier.
 func roundTrip(t *testing.T, proxy, msg string) (string, error) {
 	t.Helper()
 	c, err := net.DialTimeout("tcp4", proxy, 2*time.Second)
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(5 * time.Second))
