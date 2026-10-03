@@ -1,0 +1,424 @@
+package vercel
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"syscall"
+	"time"
+
+	"github.com/arugula-salad/wisp/engine"
+	"github.com/arugula-salad/wisp/internal/store"
+)
+
+// Sessions: one run of a sandbox's VM each, addressed by session ID. A call on
+// a session that is not running is 410 sandbox_stopped, on which the SDKs
+// resume the sandbox (GET /v2/sandboxes/{name}?resume=true) and retry once.
+
+// sessionHandler is a handler for one session of one sandbox.
+type sessionHandler func(w http.ResponseWriter, r *http.Request, rec store.Record, m meta, s session)
+
+// findSession finds the sandbox a session belongs to, settled.
+func (f *Frontend) findSession(sid string) (store.Record, meta, session, bool) {
+	look := func(id string) (store.Record, meta, *session, bool) {
+		rec, err := f.store.GetRecord(id)
+		m, ok := metaOf(rec)
+		if err != nil || !ok {
+			return rec, m, nil, false
+		}
+		s := m.findSession(sid)
+		return rec, m, s, s != nil
+	}
+	if id, ok := f.sessions.Load(sid); ok {
+		if rec, m, _, ok := look(id.(string)); ok {
+			rec, m = f.settle(rec, m)
+			return rec, m, *m.findSession(sid), true
+		}
+	}
+	for _, sp := range f.sandboxes() {
+		if rec, m, _, ok := look(sp.ID); ok {
+			f.sessions.Store(sid, sp.ID)
+			rec, m = f.settle(rec, m)
+			return rec, m, *m.findSession(sid), true
+		}
+	}
+	return store.Record{}, meta{}, session{}, false
+}
+
+// stopped is hosted's answer for a call on a session that is not running.
+func stopped(w http.ResponseWriter) {
+	writeErr(w, http.StatusGone, "sandbox_stopped", "Sandbox has stopped execution and is no longer available")
+}
+
+// session looks up {sid}. With running, a session that is not the sandbox's
+// current running one is 410.
+func (f *Frontend) session(running bool, h sessionHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sid := r.PathValue("sid")
+		rec, m, s, ok := f.findSession(sid)
+		if !ok {
+			writeErr(w, http.StatusNotFound, "not_found", fmt.Sprintf("Session '%s' not found.", sid))
+			return
+		}
+		if running && (s.Status != "running" || m.current().ID != sid) {
+			stopped(w)
+			return
+		}
+		h(w, r, rec, m, s)
+	}
+}
+
+// settle notices a session whose timeout has run out: the engine stops the VM
+// at the deadline (the sandbox's deadline action is stop) without telling us,
+// so the session is ended here, the first time anything looks, as if it had
+// been stopped at its deadline (and a persistent sandbox snapshotted).
+func (f *Frontend) settle(rec store.Record, m meta) (store.Record, meta) {
+	c := m.current()
+	if c.Status != "running" || f.now().Before(c.deadline()) {
+		return rec, m
+	}
+	unlock := f.lock(rec.ID)
+	defer unlock()
+	r2, m2, _, err := f.stopSessionLocked(rec.ID, c.StartedAt+c.Timeout, false, 0)
+	if err != nil {
+		f.log.Warn("ending a timed-out session failed", "name", m.Name, "err", err)
+		if cur, err := f.store.GetRecord(rec.ID); err == nil {
+			if cm, ok := metaOf(cur); ok {
+				return cur, cm
+			}
+		}
+		return rec, m
+	}
+	return r2, m2
+}
+
+// stopSessionLocked ends the current session at stoppedAt: the VM is stopped
+// cold, its commands end, and the disk is checkpointed as a new snapshot when
+// the sandbox is persistent or this is a snapshot (manual, with that
+// expiration in ms). A session already stopped is left as it is, unless
+// manual. The caller holds f.lock(id).
+func (f *Frontend) stopSessionLocked(id string, stoppedAt int64, manual bool, expiration int64) (store.Record, meta, *snapshot, error) {
+	cur, err := f.store.GetRecord(id)
+	m, ok := metaOf(cur)
+	if err != nil || !ok {
+		return cur, m, nil, store.ErrNotFound
+	}
+	c := m.current()
+	if c.Status != "running" && !manual {
+		return cur, m, nil, nil
+	}
+	now := f.ms()
+	// The deadline goes first, so the engine does not act on it while this
+	// stops the VM itself.
+	if _, err := f.life.SetDeadline(id, nil, ""); err != nil && !errors.Is(err, engine.ErrLeaseReaping) {
+		return cur, m, nil, err
+	}
+	if err := f.life.Stop(cur); err != nil {
+		return cur, m, nil, err
+	}
+	f.cmds.endSession(c.ID)
+	wasRunning := c.Status == "running"
+	var snap *snapshot
+	if m.Persistent || manual {
+		comment := "vercel: stop of session " + c.ID
+		method := "stop"
+		if manual {
+			comment, method = "vercel: snapshot of session "+c.ID, "manual"
+		}
+		cp, err := f.life.CreateCheckpoint(cur, nil, comment, func(string, ...any) {})
+		if err != nil {
+			f.log.Error("snapshot failed", "name", m.Name, "err", err)
+			if manual {
+				return cur, m, nil, err
+			}
+		} else {
+			s := snapshot{ID: newSnapshotID(), Checkpoint: cp.ID, SourceSessionID: c.ID, CreatedAt: now,
+				SizeBytes: f.checkpointBytes(id, cp.ID), Method: method}
+			if expiration > 0 {
+				s.ExpiresAt = now + expiration
+			}
+			snap = &s
+		}
+	}
+	var drop []snapshot
+	cur, m, err = f.updateMeta(id, func(m *meta) {
+		c := m.current()
+		if wasRunning {
+			c.Status, c.RequestedStopAt, c.StoppedAt = "stopped", now, max(c.StartedAt, min(stoppedAt, now))
+			m.TotalDurationMs += c.StoppedAt - c.StartedAt
+			m.StatusUpdatedAt = now
+		}
+		m.DiskIs = ""
+		if snap != nil {
+			if manual {
+				c.SnapshottedAt = now
+			} else {
+				// A persistent sandbox keeps the snapshot of its last stop, not every one.
+				for _, s := range m.Snapshots {
+					if s.Method == "stop" {
+						drop = append(drop, s)
+					}
+				}
+				m.Snapshots = filterSnapshots(m.Snapshots, func(s snapshot) bool { return s.Method != "stop" })
+			}
+			m.Snapshots = append(m.Snapshots, *snap)
+			m.CurrentSnapshotID, m.DiskIs = snap.ID, snap.ID
+		}
+	})
+	for _, s := range drop {
+		if err := f.life.DeleteCheckpoint(cur, s.Checkpoint); err != nil && !errors.Is(err, engine.ErrNoCheckpoint) {
+			f.log.Warn("could not delete a superseded stop snapshot", "name", m.Name, "snapshot", s.ID, "err", err)
+		}
+	}
+	f.log.Info("session stopped", "name", m.Name, "session", c.ID, "snapshot", snap != nil)
+	return cur, m, snap, err
+}
+
+func filterSnapshots(in []snapshot, keep func(snapshot) bool) []snapshot {
+	out := in[:0:0]
+	for _, s := range in {
+		if keep(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// checkpointBytes is the space a checkpoint takes (its allocated blocks; on a
+// reflink volume much of it is shared). The engine keeps a sandbox's
+// checkpoints under its machine directory.
+func (f *Frontend) checkpointBytes(id, cp string) int64 {
+	fi, err := os.Stat(filepath.Join(f.store.Dir(id), "checkpoints", cp+".ext4"))
+	if err != nil {
+		return 0
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return st.Blocks * 512
+	}
+	return fi.Size()
+}
+
+// resume starts a new session on a stopped sandbox: on its disk as it was left
+// (a persistent sandbox, or one whose disk is still its last snapshot), or on
+// its last snapshot restored. A non-persistent sandbox that never had a
+// snapshot cannot be resumed: 400 snapshot_not_found, as hosted answers.
+// status is 0 on success, else the error to answer.
+func (f *Frontend) resume(r *http.Request, id string) (rec store.Record, m meta, status int, code, msg string) {
+	unlock := f.lock(id)
+	defer unlock()
+	rec, err := f.store.GetRecord(id)
+	m, ok := metaOf(rec)
+	if err != nil || !ok {
+		return rec, m, http.StatusNotFound, "not_found", "Sandbox not found."
+	}
+	if m.current().Status == "running" {
+		return rec, m, 0, "", ""
+	}
+	source := m.DiskIs
+	switch {
+	case m.DiskIs != "" || m.Persistent:
+	case m.CurrentSnapshotID != "":
+		s := m.findSnapshot(m.CurrentSnapshotID)
+		if s == nil {
+			return rec, m, http.StatusBadRequest, "snapshot_not_found", "Cannot resume sandbox: no snapshot available."
+		}
+		if err := f.life.RestoreCheckpoint(rec, nil, s.Checkpoint, func(string, ...any) {}, nil); err != nil {
+			f.log.Error("restoring a snapshot to resume failed", "name", m.Name, "snapshot", s.ID, "err", err)
+			return rec, m, http.StatusInternalServerError, "internal_server_error", "Failed to restore the sandbox's snapshot: " + err.Error()
+		}
+		source = s.ID
+	default:
+		return rec, m, http.StatusBadRequest, "snapshot_not_found", "Cannot resume sandbox: no snapshot available."
+	}
+	now := f.ms()
+	sess := session{ID: newSessionID(), RequestedAt: now, StartedAt: now, Timeout: m.Timeout, Status: "running", SourceSnapshotID: source}
+	if rec, m, err = f.updateMeta(id, func(m *meta) {
+		m.addSession(sess)
+		m.DiskIs = ""
+		m.StatusUpdatedAt = now
+		if s := m.findSnapshot(source); s != nil {
+			s.LastUsedAt = now
+		}
+	}); err != nil {
+		return rec, m, http.StatusNotFound, "not_found", "Sandbox not found."
+	}
+	f.sessions.Store(sess.ID, id)
+	end := sess.deadline()
+	if _, err := f.life.SetDeadline(id, &end, store.DeadlineStop); err != nil {
+		return rec, m, http.StatusInternalServerError, "internal_server_error", err.Error()
+	}
+	_, release, err := f.acquire(r.Context(), rec)
+	if err != nil {
+		// The session never ran: it is over before it began.
+		f.life.SetDeadline(id, nil, "")
+		rec, m, _ = f.updateMeta(id, func(m *meta) {
+			c := m.current()
+			c.Status, c.StoppedAt = "stopped", f.ms()
+		})
+		var lim *engine.LimitError
+		if errors.As(err, &lim) {
+			return rec, m, http.StatusTooManyRequests, "too_many_requests", lim.Message
+		}
+		return rec, m, http.StatusInternalServerError, "internal_server_error", "Failed to start sandbox: " + err.Error()
+	}
+	release()
+	started := f.ms()
+	rec, m, _ = f.updateMeta(id, func(m *meta) { m.current().StartedAt = started })
+	end = m.current().deadline()
+	f.life.SetDeadline(id, &end, store.DeadlineStop)
+	f.log.Info("sandbox resumed", "name", m.Name, "session", sess.ID, "from", source)
+	return rec, m, 0, "", ""
+}
+
+func (f *Frontend) getSession(w http.ResponseWriter, r *http.Request, rec store.Record, m meta, s session) {
+	writeJSON(w, http.StatusOK, map[string]any{"session": f.sessionOf(rec, m, s), "routes": f.routesOf(m)})
+}
+
+// stop is POST …/stop: it returns once the session has stopped (and a
+// persistent sandbox has been snapshotted). Stopping a stopped session is
+// the same answer again.
+func (f *Frontend) stop(w http.ResponseWriter, r *http.Request, rec store.Record, m meta, s session) {
+	var snap *snapshot
+	if s.Status == "running" && m.current().ID == s.ID {
+		unlock := f.lock(rec.ID)
+		var err error
+		rec, m, snap, err = f.stopSessionLocked(rec.ID, f.ms(), false, 0)
+		unlock()
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "not_found", "Sandbox not found.")
+			return
+		} else if err != nil {
+			writeErr(w, http.StatusInternalServerError, "internal_server_error", "Error stopping sandbox: "+err.Error())
+			return
+		}
+		s = *m.findSession(s.ID)
+	}
+	out := map[string]any{"sandbox": f.sandboxOf(m, true), "session": f.sessionOf(rec, m, s)}
+	if snap != nil {
+		out["snapshot"] = f.snapshotOf(*snap, "created")
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// extend is POST …/extend-timeout: the session's timeout grows by duration
+// ms; the sandbox's own timeout (each new session's) is unchanged.
+func (f *Frontend) extend(w http.ResponseWriter, r *http.Request, rec store.Record, m meta, s session) {
+	var req struct {
+		Duration *int64 `json:"duration"`
+	}
+	if !readBody(w, r, &req) {
+		return
+	}
+	if req.Duration == nil || *req.Duration <= 0 {
+		writeErr(w, http.StatusBadRequest, "bad_request", "Invalid request: `duration` must be a positive number of milliseconds.")
+		return
+	}
+	unlock := f.lock(rec.ID)
+	defer unlock()
+	var total int64
+	rec, m, err := f.updateMeta(rec.ID, func(m *meta) {
+		if c := m.current(); c.ID == s.ID && c.Status == "running" {
+			total = c.Timeout + *req.Duration
+		}
+	})
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "not_found", "Sandbox not found.")
+		return
+	}
+	if total == 0 {
+		stopped(w)
+		return
+	}
+	if time.Duration(total)*time.Millisecond > f.opts.MaxTimeout {
+		writeErr(w, http.StatusBadRequest, "bad_request",
+			fmt.Sprintf("Invalid request: the session's timeout cannot exceed %d ms.", f.opts.MaxTimeout.Milliseconds()))
+		return
+	}
+	rec, m, err = f.updateMeta(rec.ID, func(m *meta) { m.current().Timeout = total })
+	if err == nil {
+		end := m.current().deadline()
+		_, err = f.life.SetDeadline(rec.ID, &end, store.DeadlineStop)
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal_server_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": f.sessionOf(rec, m, *m.current())})
+}
+
+// snapshot is POST …/snapshot: the session stops and its filesystem becomes
+// a snapshot (an engine checkpoint of the disk), which later sessions of this
+// sandbox resume from and other sandboxes can be created from. 201, with the
+// session reported as snapshotting, as hosted reports it.
+func (f *Frontend) snapshot(w http.ResponseWriter, r *http.Request, rec store.Record, m meta, s session) {
+	var req struct {
+		Expiration *int64 `json:"expiration"`
+	}
+	if !readBody(w, r, &req) {
+		return
+	}
+	var exp int64
+	if req.Expiration != nil {
+		exp = *req.Expiration
+		if exp != 0 && exp < 86400000 {
+			writeErr(w, http.StatusBadRequest, "bad_request", "`expiration` must be 0 (no expiration) or >= 86400000 ms (1 day).")
+			return
+		}
+	}
+	unlock := f.lock(rec.ID)
+	rec, m, snap, err := f.stopSessionLocked(rec.ID, f.ms(), true, exp)
+	unlock()
+	if err != nil || snap == nil {
+		msg := "snapshot failed"
+		if err != nil {
+			msg = err.Error()
+		}
+		writeErr(w, http.StatusInternalServerError, "internal_server_error", "Error snapshotting sandbox: "+msg)
+		return
+	}
+	sj := f.sessionOf(rec, m, *m.findSession(s.ID))
+	sj.Status, sj.StoppedAt, sj.RequestedStopAt, sj.Duration, sj.ActiveCPUDurationMs, sj.NetworkTransfer = "snapshotting", 0, 0, nil, nil, nil
+	writeJSON(w, http.StatusCreated, map[string]any{"snapshot": f.snapshotOf(*snap, "created"), "session": sj})
+}
+
+// listSessions is GET /v2/sandboxes/sessions: the sessions of one sandbox
+// (name=) or of all of them, newest first unless sortOrder=asc.
+func (f *Frontend) listSessions(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, ok := limitOf(w, q.Get("limit"), 50)
+	if !ok {
+		return
+	}
+	offset, ok := cursorOf(w, q.Get("cursor"))
+	if !ok {
+		return
+	}
+	type item struct {
+		rec store.Record
+		m   meta
+		s   session
+	}
+	var items []item
+	for _, sp := range f.sandboxes() {
+		m, ok := metaOf(sp.Record)
+		if !ok || (q.Get("name") != "" && m.Name != q.Get("name")) ||
+			(q.Get("project") != "" && m.ProjectID != "" && m.ProjectID != q.Get("project")) {
+			continue
+		}
+		rec, m := f.settle(sp.Record, m)
+		for _, s := range m.Sessions {
+			items = append(items, item{rec, m, s})
+		}
+	}
+	asc := q.Get("sortOrder") == "asc"
+	sort.Slice(items, func(i, j int) bool { return (items[i].s.RequestedAt < items[j].s.RequestedAt) == asc })
+	page, next := paginate(len(items), offset, limit)
+	out := []sessionJSON{}
+	for _, it := range items[page[0]:page[1]] {
+		out = append(out, f.sessionOf(it.rec, it.m, it.s))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out, "pagination": paginationJSON{Count: len(out), Next: next}})
+}
