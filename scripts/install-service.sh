@@ -210,6 +210,15 @@ SYSUNITS="${WISP_SYSTEM_UNIT_DIR:-/etc/systemd/system}" # overridable for script
 if grep -qs -- " $DATA/vm\$" "$SYSUNITS/wisp-storage.service"; then
   WAIT+="mountpoint -q '$DATA/vm' && "
 fi
+# A second daemon's data directory on a filesystem of its own (a nofail fstab entry, say) has
+# to be mounted first, or the daemon would start on an empty directory on whatever is beneath
+# it. Not the main install, which waits on wisp-storage above and keeps rendering as it did.
+if [ "$NAME" != wisp ]; then
+  DATA_MNT=$(findmnt -no TARGET -T "$DATA" 2>/dev/null || true)
+  if [ -n "$DATA_MNT" ] && [ "$DATA_MNT" != / ]; then
+    WAIT+="mountpoint -q '$DATA_MNT' && "
+  fi
+fi
 # The network pool (wispd --net-pool) names the bridge and its boot unit: pool 0 is
 # msbr0 and wisp-net, pool N msbrN and wisp-netN.
 # Go's flag package takes -net-pool as well as --net-pool, and the last one wins.

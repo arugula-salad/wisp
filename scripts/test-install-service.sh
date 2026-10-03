@@ -35,6 +35,8 @@ exit 0
 EOF
 printf '#!/bin/sh\necho yes\n' > "$T/stub/loginctl"
 printf '#!/bin/sh\nexit 0\n' > "$T/stub/journalctl"
+# Every data dir is on / unless a test says otherwise, whatever the host's /tmp is.
+printf '#!/bin/sh\necho "${FAKE_DATA_MNT:-/}"\n' > "$T/stub/findmnt"
 chmod +x "$T/stub/"*
 
 # A fake checkout: the script under test plus stub daemons.
@@ -129,6 +131,11 @@ fi
 fresh; SB=$H/sb; mkdata "$SB"
 run "$T/repo" -- --bin sandboxd --name sb --data "$SB" -- --listen 127.0.0.1:7790 --net=false > /dev/null
 grep -q '^After=' "$H/.config/systemd/user/sb.service" && fail "After= without a wisp.service" || pass "no After= when wisp.service is absent"
+# A data dir on a filesystem of its own (geek's /bulk is nofail) waits for that mount.
+grep -q mountpoint "$H/.local/lib/wisp/sb/wait-host.sh" && fail "wait-host.sh waits for a mount with data on /" || pass "no mount wait with data on /"
+rm -f "$H/.config/systemd/user/sb.service"
+run "$T/repo" FAKE_DATA_MNT=/bulk -- --bin sandboxd --name sb --data "$SB" > /dev/null
+grep -q "^  mountpoint -q '/bulk' && exit 0\$" "$H/.local/lib/wisp/sb/wait-host.sh" && pass "sandboxd waits for its data dir's own mount (/bulk)" || { fail "wait-host.sh with data on /bulk:"; cat "$H/.local/lib/wisp/sb/wait-host.sh"; }
 # A reinstall of the same thing is fine and keeps the remembered flags.
 run "$T/repo" -- --bin sandboxd --name sb --data "$SB" > /dev/null && pass "sandboxd reinstall without flags keeps its env file" || fail "sandboxd reinstall refused"
 
