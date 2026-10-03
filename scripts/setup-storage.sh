@@ -34,6 +34,15 @@ MNT="$DATA/vm"
 SIZE_GB="${SPRITE_VOLUME_GB:-40}"
 UNIT=/etc/systemd/system/wisp-storage.service
 
+# The boot unit's name is fixed, so there is one volume per host. A unit that mounts another
+# data directory's vm/ belongs to that install (usually production's): creating would rewrite
+# it, --remove would disable it and delete the image it names, --grow would grow it.
+if [ -f "$UNIT" ] && ! awk -v m="$MNT" '/^ExecStart=/ && $NF == m { found = 1 } END { exit !found }' "$UNIT"; then
+  echo "refusing: $UNIT mounts another data directory's volume ($(sed -n 's/^ExecStart=//p' "$UNIT")), not $MNT." >&2
+  echo "This script manages one volume per host; put a second daemon's data on a reflink filesystem of its own instead." >&2
+  exit 1
+fi
+
 mounted() { mountpoint -q "$MNT"; }
 
 # current_image: the file behind the mounted volume, or else the one the boot unit
