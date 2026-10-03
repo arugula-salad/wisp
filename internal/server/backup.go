@@ -122,7 +122,7 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 		return nil, err
 	}
 
-	for _, sp := range m.store.List("") {
+	for _, sp := range m.store.All() {
 		latest, err := repo.Latest(ctx, sp.ID)
 		if err != nil {
 			continue // never backed up, or unreadable: either way, no recovery point
@@ -140,18 +140,22 @@ func (m *backupManager) repository(ctx context.Context) (*backup.Repo, error) {
 	return repo, nil
 }
 
-// Enqueue asks for a backup of one sprite. It never blocks and never reports an
-// error: a suspend that cannot be backed up is still a good suspend.
-func (m *backupManager) Enqueue(sp store.Sprite, reason string) {
-	if m == nil || slices.Contains(sp.Labels, NoBackupLabel) {
+// Enqueue asks for a backup of one sprite, by ID. It never blocks and never
+// reports an error: a suspend that cannot be backed up is still a good suspend.
+// A sprite labelled NoBackupLabel, or one that is gone, is not queued.
+func (m *backupManager) Enqueue(id, reason string) {
+	if m == nil {
+		return
+	}
+	if sp, err := m.store.Get(id); err != nil || slices.Contains(sp.Labels, NoBackupLabel) {
 		return
 	}
 	m.mu.Lock()
-	if _, dup := m.pending[sp.ID]; !dup {
-		m.pending[sp.ID] = reason
-		m.order = append(m.order, sp.ID)
-		m.stateFor(sp.ID).Phase = "queued"
-		m.stateFor(sp.ID).Reason = reason
+	if _, dup := m.pending[id]; !dup {
+		m.pending[id] = reason
+		m.order = append(m.order, id)
+		m.stateFor(id).Phase = "queued"
+		m.stateFor(id).Reason = reason
 	}
 	m.mu.Unlock()
 	select {
@@ -223,7 +227,7 @@ func (m *backupManager) run() {
 // one backs up a single sprite and records the outcome.
 func (m *backupManager) one(id, reason string) {
 	log := m.log
-	sp, err := m.findByID(id)
+	sp, err := m.store.Get(id)
 	if err != nil {
 		return // deleted while it waited
 	}
@@ -265,15 +269,6 @@ func (m *backupManager) one(id, reason string) {
 	}
 }
 
-func (m *backupManager) findByID(id string) (store.Sprite, error) {
-	for _, sp := range m.store.List("") {
-		if sp.ID == id {
-			return sp, nil
-		}
-	}
-	return store.Sprite{}, store.ErrNotFound
-}
-
 // errBackupDeferred means there was no consistent way to read the disk that does
 // not get in a sprite's way right now. It is not a failure: the periodic loop
 // tries again.
@@ -284,7 +279,7 @@ func (m *backupManager) backupSprite(ctx context.Context, sp store.Sprite, reaso
 	if err != nil {
 		return nil, backup.Stats{}, err
 	}
-	c, err := m.life.captureDisk(ctx, sp)
+	c, err := m.life.captureDisk(ctx, sp.Record)
 	if err != nil {
 		return nil, backup.Stats{}, err
 	}
@@ -349,7 +344,7 @@ type capture struct {
 // point: a running sprite is deferred rather than paused for the length of an
 // upload, and a stopped one is read in place, by a caller that watches for it
 // starting.
-func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture, error) {
+func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Record) (*capture, error) {
 	dir := l.store.Dir(sp.ID)
 	live := filepath.Join(dir, vmm.DiskFile)
 	rt := l.rt(sp.ID)
@@ -377,7 +372,7 @@ func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture,
 			}
 			defer func() {
 				if rerr := rt.m.Resume(ctx); rerr != nil {
-					l.log.Error("resume after backup snapshot failed", "sprite", sp.Name, "err", rerr)
+					l.log.Error("resume after backup snapshot failed", "sprite", l.label(sp), "err", rerr)
 				}
 			}()
 			c.at = time.Now()
@@ -390,9 +385,11 @@ func (l *Lifecycle) captureDisk(ctx context.Context, sp store.Sprite) (*capture,
 	}
 
 	// The record and the checkpoint list are read under the same lock a checkpoint
-	// is taken under, so the manifest's two halves agree.
+	// is taken under, so the manifest's two halves agree. The manifest keeps the
+	// whole stored record, the front end's metadata with the engine's, because
+	// a restore writes it back as it was.
 	var err error
-	if c.sprite, err = l.store.Get(sp.Name); err != nil {
+	if c.sprite, err = l.store.Get(sp.ID); err != nil {
 		c.cleanup()
 		return nil, err
 	}
@@ -411,7 +408,7 @@ func (m *backupManager) periodic() {
 	if _, err := m.repository(context.Background()); err != nil {
 		return // State reports it; there is nothing to upload to
 	}
-	for _, sp := range m.store.List("") {
+	for _, sp := range m.store.All() {
 		if slices.Contains(sp.Labels, NoBackupLabel) {
 			continue
 		}
@@ -425,12 +422,12 @@ func (m *backupManager) periodic() {
 		}
 		// Without reflinks there is nothing consistent to read until it stops, and
 		// its suspend will ask for a backup itself.
-		running := m.life.Status(sp) == "running"
+		running := m.life.Status(sp.Record) == "running"
 		if running && !m.storage.reflink {
 			continue
 		}
 		if st.LastAt == nil {
-			m.Enqueue(sp, "first")
+			m.Enqueue(sp.ID, "first")
 			continue
 		}
 		// Only if something actually changed since that backup.
@@ -441,9 +438,9 @@ func (m *backupManager) periodic() {
 		if !running {
 			// A stopped sprite whose disk is newer than its recovery point is a
 			// backup that was missed, whatever the reason.
-			m.Enqueue(sp, "catch-up")
+			m.Enqueue(sp.ID, "catch-up")
 		} else if time.Since(*st.LastAt) >= every {
-			m.Enqueue(sp, "periodic")
+			m.Enqueue(sp.ID, "periodic")
 		}
 	}
 }

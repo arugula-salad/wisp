@@ -23,7 +23,7 @@ var (
 // paths live in the VM and in its warm snapshot; once both are gone (a kill, a
 // restore, going cold) the next boot starts from placeholders again. Callers
 // hold rt.mu.
-func (l *Lifecycle) liveMounts(sp store.Sprite, rt *runtime) map[int]string {
+func (l *Lifecycle) liveMounts(sp store.Record, rt *runtime) map[int]string {
 	if rt.m == nil && !vmm.HasSnapshot(l.store.Dir(sp.ID)) {
 		return nil
 	}
@@ -32,7 +32,7 @@ func (l *Lifecycle) liveMounts(sp store.Sprite, rt *runtime) map[int]string {
 
 // checkpointMounted reports whether a checkpoint's image backs a drive right now,
 // in which case the file must not be deleted from under the guest. Callers hold rt.mu.
-func (l *Lifecycle) checkpointMounted(sp store.Sprite, rt *runtime, id string) bool {
+func (l *Lifecycle) checkpointMounted(sp store.Record, rt *runtime, id string) bool {
 	for _, mounted := range l.liveMounts(sp, rt) {
 		if mounted == id {
 			return true
@@ -44,14 +44,14 @@ func (l *Lifecycle) checkpointMounted(sp store.Sprite, rt *runtime, id string) b
 // MountCheckpoint attaches checkpoint id behind a free slot of the VM that from
 // is the channel of, and returns the slot. Mounting what is already mounted is
 // idempotent. Errors: errStaleGuest, errNoCheckpoint, errMountsFull, errNoSlots.
-func (l *Lifecycle) MountCheckpoint(ctx context.Context, sp store.Sprite, from *guestChan, id string) (int, error) {
+func (l *Lifecycle) MountCheckpoint(ctx context.Context, sp store.Record, from *guestChan, id string) (int, error) {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.m == nil || rt.guest != from {
 		return -1, errStaleGuest
 	}
-	sp, err := l.store.Get(sp.Name) // re-read under the lock
+	sp, err := l.store.GetRecord(sp.ID) // re-read under the lock
 	if err != nil || findCheckpoint(sp, id) == nil {
 		return -1, errNoCheckpoint
 	}
@@ -74,7 +74,7 @@ func (l *Lifecycle) MountCheckpoint(ctx context.Context, sp store.Sprite, from *
 	if err := rt.m.SwapDrive(ctx, vmm.SlotDrive(slot), rel); err != nil {
 		return -1, fmt.Errorf("%w (%v)", errNoSlots, err)
 	}
-	l.store.Update(sp.Name, func(sp *store.Sprite) {
+	l.store.UpdateRecord(sp.ID, func(sp *store.Record) {
 		next := map[int]string{slot: id}
 		for k, v := range mounts {
 			next[k] = v
@@ -87,14 +87,14 @@ func (l *Lifecycle) MountCheckpoint(ctx context.Context, sp store.Sprite, from *
 // UnmountCheckpoint detaches checkpoint id from the VM that from is the channel
 // of. Unmounting what is not mounted is not an error. Errors: errStaleGuest,
 // store.ErrNotFound, or the VM's own.
-func (l *Lifecycle) UnmountCheckpoint(ctx context.Context, sp store.Sprite, from *guestChan, id string) error {
+func (l *Lifecycle) UnmountCheckpoint(ctx context.Context, sp store.Record, from *guestChan, id string) error {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.m == nil || rt.guest != from {
 		return errStaleGuest
 	}
-	sp, err := l.store.Get(sp.Name)
+	sp, err := l.store.GetRecord(sp.ID)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (l *Lifecycle) UnmountCheckpoint(ctx context.Context, sp store.Sprite, from
 		if err := rt.m.SwapDrive(ctx, vmm.SlotDrive(slot), ""); err != nil {
 			return err
 		}
-		l.store.Update(sp.Name, func(sp *store.Sprite) {
+		l.store.UpdateRecord(sp.ID, func(sp *store.Record) {
 			next := map[int]string{}
 			for k, v := range mounts {
 				if k != slot {

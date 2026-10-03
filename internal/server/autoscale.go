@@ -86,13 +86,13 @@ func (a *autoscaler) next(ram, grant int, st vmm.BalloonStats) int {
 }
 
 // autoscaleOn reports whether sp's policy asks for autoscale.
-func autoscaleOn(sp store.Sprite) bool {
+func autoscaleOn(sp store.Record) bool {
 	return sp.Resources != nil && sp.Resources.Memory != nil && sp.Resources.Memory.Autoscale
 }
 
 // balloonTarget is the balloon size a VM should have right now: the RAM above
 // the grant under autoscale, nothing otherwise.
-func balloonTarget(rt *runtime, sp store.Sprite, ram int) int {
+func balloonTarget(rt *runtime, sp store.Record, ram int) int {
 	if !autoscaleOn(sp) {
 		return 0
 	}
@@ -104,20 +104,20 @@ func balloonTarget(rt *runtime, sp store.Sprite, ram int) int {
 
 // setBalloon puts the balloon where it belongs after a boot or a resume (a
 // suspend squeezes it; see vmm.Squeeze). Callers hold rt.mu.
-func (l *Lifecycle) setBalloon(ctx context.Context, sp store.Sprite, rt *runtime, m *vmm.Machine, resumed bool) {
+func (l *Lifecycle) setBalloon(ctx context.Context, sp store.Record, rt *runtime, m *vmm.Machine, resumed bool) {
 	target := balloonTarget(rt, sp, m.MemMiB())
 	if target == 0 && !resumed {
 		return // a fresh VM's balloon is empty
 	}
 	if err := m.SetBalloon(ctx, target); err != nil {
 		// A VM resumed from a snapshot taken before VMs had a balloon has none.
-		l.log.Info("balloon not set (a VM from before balloons has none until its next cold boot)", "sprite", sp.Name, "err", err)
+		l.log.Info("balloon not set (a VM from before balloons has none until its next cold boot)", "sprite", l.label(sp), "err", err)
 	}
 }
 
 // autoscale runs the controller for one VM until it exits. It only acts while
 // the policy asks for autoscale; turning it off hands everything back.
-func (l *Lifecycle) autoscale(sp store.Sprite, rt *runtime, m *vmm.Machine) {
+func (l *Lifecycle) autoscale(sp store.Record, rt *runtime, m *vmm.Machine) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	var a autoscaler
@@ -130,7 +130,7 @@ func (l *Lifecycle) autoscale(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 			return
 		case <-tick.C:
 		}
-		cur, err := l.store.Get(sp.Name)
+		cur, err := l.store.GetRecord(sp.ID)
 		if err != nil {
 			return
 		}
@@ -158,19 +158,19 @@ func (l *Lifecycle) autoscale(sp store.Sprite, rt *runtime, m *vmm.Machine) {
 
 // autoscaleTick is one controller step; callers hold rt.mu. It reports true
 // when the VM cannot be autoscaled at all.
-func (l *Lifecycle) autoscaleTick(sp store.Sprite, rt *runtime, m *vmm.Machine, on bool, a *autoscaler) bool {
+func (l *Lifecycle) autoscaleTick(sp store.Record, rt *runtime, m *vmm.Machine, on bool, a *autoscaler) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if !on {
 		if err := m.SetBalloon(ctx, 0); err == nil && rt.grantMiB > 0 {
-			l.log.Info("memory autoscale off; balloon emptied", "sprite", sp.Name)
+			l.log.Info("memory autoscale off; balloon emptied", "sprite", l.label(sp))
 		}
 		rt.grantMiB = 0
 		return false
 	}
 	st, err := m.Balloon(ctx)
 	if errors.Is(err, vmm.ErrNoBalloon) {
-		l.log.Warn("memory autoscale needs a cold boot: this VM was resumed from a snapshot without a balloon", "sprite", sp.Name)
+		l.log.Warn("memory autoscale needs a cold boot: this VM was resumed from a snapshot without a balloon", "sprite", l.label(sp))
 		return true
 	}
 	if err != nil {
@@ -183,11 +183,11 @@ func (l *Lifecycle) autoscaleTick(sp store.Sprite, rt *runtime, m *vmm.Machine, 
 		return false
 	}
 	if err := m.SetBalloon(ctx, ram-rt.grantMiB); err != nil {
-		l.log.Warn("memory autoscale: balloon update failed", "sprite", sp.Name, "err", err)
+		l.log.Warn("memory autoscale: balloon update failed", "sprite", l.label(sp), "err", err)
 		return false
 	}
 	if rt.grantMiB != old {
-		l.log.Info("memory autoscale", "sprite", sp.Name, "grant_mib", rt.grantMiB, "was", old,
+		l.log.Info("memory autoscale", "sprite", l.label(sp), "grant_mib", rt.grantMiB, "was", old,
 			"ceiling_mib", ram, "available_mib", st.Available>>20)
 	}
 	return false

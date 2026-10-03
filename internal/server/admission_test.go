@@ -30,17 +30,17 @@ func newSprite(t *testing.T, s *Server, name string, ramMiB int) (store.Sprite, 
 func TestSpriteRAMIsTheCeilingThePolicyAsksFor(t *testing.T) {
 	opts := Options{DefaultMemMiB: 2048}
 	var sp store.Sprite
-	if got := spriteRAMMiB(sp, opts); got != 2048 {
+	if got := spriteRAMMiB(sp.Record, opts); got != 2048 {
 		t.Fatalf("default = %d, want 2048", got)
 	}
 	sp.Config.RamMB = 512
-	if got := spriteRAMMiB(sp, opts); got != 512 {
+	if got := spriteRAMMiB(sp.Record, opts); got != 512 {
 		t.Fatalf("config = %d, want 512", got)
 	}
 	// A memory policy wins, and it is the ceiling that is reserved: the limit
 	// plus the VM headroom, never the autoscale grant.
 	sp.Resources = &store.ResourcesPolicy{Memory: &store.MemoryPolicy{LimitMB: 1024, Autoscale: true}}
-	if got, want := spriteRAMMiB(sp, opts), 1024+vmHeadroomMiB; got != want {
+	if got, want := spriteRAMMiB(sp.Record, opts), 1024+vmHeadroomMiB; got != want {
 		t.Fatalf("policy ceiling = %d, want %d", got, want)
 	}
 }
@@ -51,7 +51,7 @@ func TestMemoryBudgetRefusesAWakeInUpstreamsShape(t *testing.T) {
 	_, rtA := newSprite(t, s, "a", 0)
 	_, rtB := newSprite(t, s, "b", 0)
 
-	if err := a.reserveMemory(rtA, spA.Name, spriteRAMMiB(spA, s.opts)); err != nil {
+	if err := a.reserveMemory(rtA, spA.Name, spriteRAMMiB(spA.Record, s.opts)); err != nil {
 		t.Fatalf("first 2048 of 3000: %v", err)
 	}
 	err := a.reserveMemory(rtB, "b", 2048)
@@ -149,7 +149,7 @@ func TestAdmitStartIsNeverOversubscribed(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for r := 0; r < rounds; r++ {
-				booted, err := s.life.admitStart(sprites[i], rts[i])
+				booted, err := s.life.admitStart(sprites[i].Record, rts[i])
 				if err != nil {
 					var lim *LimitError
 					if !errors.As(err, &lim) {
@@ -207,12 +207,12 @@ func TestARefusedStartReservesNothing(t *testing.T) {
 	spB, rtB := newSprite(t, s, "b", 0)
 	spC, rtC := newSprite(t, s, "c", 0)
 
-	bootedA, err := s.life.admitStart(spA, rtA)
+	bootedA, err := s.life.admitStart(spA.Record, rtA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// B fits the budget but not the boot cap: its memory must not stay reserved.
-	if _, err := s.life.admitStart(spB, rtB); err == nil {
+	if _, err := s.life.admitStart(spB.Record, rtB); err == nil {
 		t.Fatal("the boot cap admitted a second boot")
 	}
 	if mem, boots := s.life.admit.usage(); mem != 512 || boots != 1 {
@@ -227,10 +227,10 @@ func TestARefusedStartReservesNothing(t *testing.T) {
 	bootedA()
 
 	// C now clears the boot cap but not the budget, once B and a third are in.
-	if _, err := s.life.admitStart(spB, rtB); err != nil {
+	if _, err := s.life.admitStart(spB.Record, rtB); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.life.admitStart(spC, rtC); err == nil {
+	if _, err := s.life.admitStart(spC.Record, rtC); err == nil {
 		t.Fatal("1024 MiB held three 512 MiB sprites")
 	}
 	if mem, _ := s.life.admit.usage(); mem != 1024 {
@@ -252,7 +252,7 @@ func TestWakeRefusalPublishesLimitRefused(t *testing.T) {
 	})
 	sp, _ := newSprite(t, s, "big", 0)
 	// Admission refuses before anything is started, so this never touches a VM.
-	if _, _, err := s.life.Acquire(context.Background(), sp); err == nil {
+	if _, _, err := s.life.Acquire(context.Background(), sp.Record); err == nil {
 		t.Fatal("2048 MiB was admitted into a 256 MiB budget")
 	}
 	mu.Lock()
@@ -268,7 +268,7 @@ func TestWakeRefusalPublishesLimitRefused(t *testing.T) {
 func TestStatusReportsTheAdmissionBudget(t *testing.T) {
 	s, _ := newOperatorServer(t, Options{MaxRunningMemoryMiB: 8192, MaxConcurrentBoots: 4, DefaultMemMiB: 2048})
 	sp, rt := newSprite(t, s, "one", 0)
-	booted, err := s.life.admitStart(sp, rt)
+	booted, err := s.life.admitStart(sp.Record, rt)
 	if err != nil {
 		t.Fatal(err)
 	}

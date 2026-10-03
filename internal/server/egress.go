@@ -41,7 +41,9 @@ type egress struct {
 	store   *store.Store
 	gateway netip.Addr // invalid when this daemon has no sprite network
 	enf     *netpolicy.Enforcer
-	push    func(context.Context, []netip.Addr) error
+	// label is how the log names a sprite (Lifecycle.label).
+	label func(store.Record) string
+	push  func(context.Context, []netip.Addr) error
 	// down is why restrictive policies are impossible here; empty when they are possible.
 	down string
 
@@ -52,8 +54,8 @@ type egress struct {
 }
 
 // onDeny hears of each refused lookup or connection (netpolicy.Enforcer.OnDeny).
-func newEgress(opts Options, st *store.Store, log *slog.Logger, gateway net.IP, onDeny func(sprite, kind, target, reason string)) *egress {
-	e := &egress{log: log, store: st, enf: netpolicy.NewEnforcer(log)}
+func newEgress(opts Options, st *store.Store, log *slog.Logger, gateway net.IP, label func(store.Record) string, onDeny func(sprite, kind, target, reason string)) *egress {
+	e := &egress{log: log, store: st, label: label, enf: netpolicy.NewEnforcer(log)}
 	e.enf.OnDeny = onDeny
 	socket := opts.NetdSocket
 	if socket == "" {
@@ -91,7 +93,7 @@ func (e *egress) listen(resolvers string) error {
 	return nil
 }
 
-func (e *egress) addr(sp store.Sprite) netip.Addr {
+func (e *egress) addr(sp store.Record) netip.Addr {
 	if !e.gateway.IsValid() || sp.NetIndex == 0 {
 		return netip.Addr{}
 	}
@@ -99,12 +101,20 @@ func (e *egress) addr(sp store.Sprite) netip.Addr {
 	return netip.AddrFrom4([4]byte{gw[0], gw[1], byte(sp.NetIndex >> 8), byte(sp.NetIndex)})
 }
 
+// name is how the log refers to sp.
+func (e *egress) name(sp store.Record) string {
+	if e.label == nil { // an egress built by hand in a test
+		return sp.ID
+	}
+	return e.label(sp)
+}
+
 // compile never fails open: rules that were valid when stored but no longer
 // compile (say, an include this build lacks) become "refuse everything".
-func (e *egress) compile(sp store.Sprite) *netpolicy.Policy {
+func (e *egress) compile(sp store.Record) *netpolicy.Policy {
 	p, err := netpolicy.Compile(sp.NetworkRules)
 	if err != nil {
-		e.log.Error("stored network policy is invalid; denying all egress", "sprite", sp.Name, "err", err)
+		e.log.Error("stored network policy is invalid; denying all egress", "sprite", e.name(sp), "err", err)
 		p, _ = netpolicy.Compile([]store.NetworkRule{{Domain: "*", Action: "deny"}})
 	}
 	return p
@@ -120,7 +130,7 @@ func (e *egress) syncLocked() error {
 		return nil
 	}
 	var want []netip.Addr
-	for _, sp := range e.store.List("") {
+	for _, sp := range e.store.Records() {
 		if a := e.addr(sp); a.IsValid() && e.compile(sp).Restrictive() {
 			want = append(want, a)
 		}
@@ -161,10 +171,10 @@ func (e *egress) reconcile() {
 
 // setPolicy stores rules for the sprite and makes them effective immediately.
 // A restrictive policy that the kernel cannot back is rolled back and rejected.
-func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.Policy) error {
+func (e *egress) setPolicy(id string, rules []store.NetworkRule, p *netpolicy.Policy) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	sp, err := e.store.Get(name)
+	sp, err := e.store.GetRecord(id)
 	if err != nil {
 		return err
 	}
@@ -172,7 +182,7 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 		return fmt.Errorf("%w: %s", errUnenforceable, e.down)
 	}
 	prev := sp.NetworkRules
-	if sp, err = e.store.Update(name, func(s *store.Sprite) {
+	if sp, err = e.store.UpdateRecord(id, func(s *store.Record) {
 		s.NetworkRules = rules
 		s.UpdatedAt = time.Now().UTC()
 	}); err != nil {
@@ -181,7 +191,7 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 	// The enforcer learns the policy before the kernel starts diverting the
 	// sprite to it, so no connection is judged by the policy it replaced.
 	if a := e.addr(sp); a.IsValid() {
-		e.enf.Set(a, sp.Name, p)
+		e.enf.Set(a, sp.ID, p)
 	}
 	if err := e.syncLocked(); err != nil {
 		if !p.Restrictive() {
@@ -189,10 +199,10 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 			// diverted to listeners that now allow it everything.
 			return nil
 		}
-		e.store.Update(name, func(s *store.Sprite) { s.NetworkRules = prev })
+		e.store.UpdateRecord(id, func(s *store.Record) { s.NetworkRules = prev })
 		if a := e.addr(sp); a.IsValid() {
 			sp.NetworkRules = prev
-			e.enf.Set(a, sp.Name, e.compile(sp))
+			e.enf.Set(a, sp.ID, e.compile(sp))
 		}
 		return fmt.Errorf("%w: wisp-netd: %v (is the helper installed? sudo scripts/setup-host.sh)", errUnenforceable, err)
 	}
@@ -202,15 +212,15 @@ func (e *egress) setPolicy(name string, rules []store.NetworkRule, p *netpolicy.
 // admit is asked before a sprite is given a NIC. It refreshes the enforcer from
 // the record and, for a restricted sprite, insists on a push that succeeds now:
 // a set that was right a minute ago proves nothing about this boot.
-func (e *egress) admit(sp store.Sprite) error {
+func (e *egress) admit(sp store.Record) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if cur, err := e.store.Get(sp.Name); err == nil {
+	if cur, err := e.store.GetRecord(sp.ID); err == nil {
 		sp = cur // the caller's copy may predate a policy change
 	}
 	p := e.compile(sp)
 	if a := e.addr(sp); a.IsValid() {
-		e.enf.Set(a, sp.Name, p)
+		e.enf.Set(a, sp.ID, p)
 	}
 	if !p.Restrictive() {
 		return nil
@@ -225,7 +235,7 @@ func (e *egress) admit(sp store.Sprite) error {
 }
 
 // forget is called once a sprite is deleted. Its address will be reused.
-func (e *egress) forget(sp store.Sprite) {
+func (e *egress) forget(sp store.Record) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if a := e.addr(sp); a.IsValid() {
@@ -238,12 +248,13 @@ func (e *egress) forget(sp store.Sprite) {
 
 // networkDenied publishes a refusal of the network policy. A guest retrying in
 // a loop can refuse itself thousands of times a second, so the events are
-// rate limited per sprite; the log keeps every one.
-func (l *Lifecycle) networkDenied(name, kind, target, reason string) {
-	if !l.denials.allow(name) {
+// rate limited per sprite; the log keeps every one. The enforcer knows sprites
+// by ID.
+func (l *Lifecycle) networkDenied(id, kind, target, reason string) {
+	if !l.denials.allow(id) {
 		return
 	}
-	sp, err := l.store.Get(name)
+	sp, err := l.store.GetRecord(id)
 	if err != nil {
 		return
 	}
@@ -252,7 +263,7 @@ func (l *Lifecycle) networkDenied(name, kind, target, reason string) {
 
 // tapFor takes a tap for the sprite unless its network policy cannot be
 // enforced right now, in which case it fails closed: no NIC.
-func (l *Lifecycle) tapFor(sp store.Sprite) (string, error) {
+func (l *Lifecycle) tapFor(sp store.Record) (string, error) {
 	tap := l.takeTap()
 	if tap == "" {
 		return "", nil
@@ -265,8 +276,8 @@ func (l *Lifecycle) tapFor(sp store.Sprite) (string, error) {
 	if vmm.HasSnapshot(l.store.Dir(sp.ID)) && sp.BootIP != "" {
 		// Its snapshot has a NIC, so resuming without one means discarding memory
 		// state. An unreachable helper is fixable; lost processes are not.
-		return "", fmt.Errorf("refusing to wake %s: %w", sp.Name, err)
+		return "", fmt.Errorf("refusing to wake %s: %w", l.label(sp), err)
 	}
-	l.log.Warn("booting without a NIC", "sprite", sp.Name, "reason", err)
+	l.log.Warn("booting without a NIC", "sprite", l.label(sp), "reason", err)
 	return "", nil
 }

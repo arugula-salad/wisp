@@ -117,8 +117,8 @@ func serviceEvent(sp store.Sprite, r serviceReport) (Event, bool) {
 // reader resumes with Last-Event-ID after the wake.
 func (s *Server) registerGuestEvents(mux *http.ServeMux, sp store.Sprite) {
 	current := func(w http.ResponseWriter) (store.Sprite, bool) {
-		cur, err := s.store.Get(sp.Name)
-		if err != nil || cur.ID != sp.ID {
+		cur, err := s.store.Get(sp.ID)
+		if err != nil {
 			writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 			return cur, false
 		}

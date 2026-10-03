@@ -132,7 +132,7 @@ func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseReq
 		writeErr(w, http.StatusBadRequest, "bad_request", msg)
 		return sp, false
 	}
-	cur, err := s.leases.set(sp, func(sp *store.Sprite) {
+	cur, err := s.leases.set(sp.Record, func(sp *store.Record) {
 		if req.touchesExpiry() {
 			sp.ExpiresAt = exp
 		}
@@ -150,5 +150,6 @@ func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseReq
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return sp, false
 	}
-	return cur, true
+	sp.Record = cur
+	return sp, true
 }

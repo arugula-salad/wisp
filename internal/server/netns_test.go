@@ -113,7 +113,7 @@ func TestNetworkPolicyInNamespaces(t *testing.T) {
 	if e.down != "" {
 		t.Fatalf("listeners: %s", e.down)
 	}
-	s := &Server{store: st, life: &Lifecycle{store: st, log: log, runtimes: map[string]*runtime{}, egress: e}, log: log, token: "t"}
+	s := &Server{store: st, life: &Lifecycle{store: st, log: log, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, egress: e}, log: log, token: "t"}
 	for _, sp := range []store.Sprite{shut, open} { // what startLocked does before attaching a NIC
 		if err := e.admit(sp); err != nil {
 			t.Fatal(err)

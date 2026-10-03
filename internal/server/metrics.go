@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/arugula-salad/wisp/internal/store"
 )
 
 // The web UI's history: a sampler keeps the last hour of host and per-sprite
@@ -124,9 +126,9 @@ func (m *metrics) sample(now time.Time) {
 	elapsed := now.Sub(m.last).Seconds()
 	ticks := map[int]int64{}
 	states := map[string]string{}
-	sprites := m.s.store.List("")
+	sprites := m.s.store.List(store.Sprites, "")
 	for _, sp := range sprites {
-		state := l.Status(sp)
+		state := l.Status(sp.Record)
 		states[sp.Name] = state
 		switch state {
 		case "running":

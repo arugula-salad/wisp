@@ -27,7 +27,7 @@ type guestChan struct {
 	srv *http.Server
 }
 
-func (l *Lifecycle) openGuestChan(sp store.Sprite) (*guestChan, error) {
+func (l *Lifecycle) openGuestChan(sp store.Record) (*guestChan, error) {
 	ln, err := vmm.ListenGuest(l.store.Dir(sp.ID), guestAPIPort)
 	if err != nil {
 		return nil, err
@@ -56,12 +56,15 @@ type guestHandler func(http.ResponseWriter, *http.Request, store.Sprite, *guestC
 // checkpoint routes with the /sprites/{name} part removed, the way upstream's
 // /.sprite/api.sock does. The /v1/sprites routes are for a sprite that may
 // create sprites of its own (spawn.go).
-func (s *Server) guestAPI(sp store.Sprite, g *guestChan) http.Handler {
+func (s *Server) guestAPI(rec store.Record, g *guestChan) http.Handler {
+	// For its name: the VM is booting, so the record is there.
+	sp, _ := s.store.Get(rec.ID)
 	bind := func(h guestHandler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			// Names are reusable after a delete; the ID pins this channel to the sprite it was opened for.
-			cur, err := s.store.Get(sp.Name)
-			if err != nil || cur.ID != sp.ID {
+			// By ID: names are reusable after a delete, IDs are not, so this is
+			// the sprite the channel was opened for or nothing.
+			cur, err := s.store.Get(sp.ID)
+			if err != nil {
 				writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 				return
 			}

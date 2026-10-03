@@ -51,7 +51,7 @@ func (n *ndjson) info(f string, a ...any)     { n.emit("info", "data", fmt.Sprin
 func (n *ndjson) fail(f string, a ...any)     { n.emit("error", "error", fmt.Sprintf(f, a...)) }
 func (n *ndjson) complete(f string, a ...any) { n.emit("complete", "data", fmt.Sprintf(f, a...)) }
 
-func findCheckpoint(sp store.Sprite, id string) *store.Checkpoint {
+func findCheckpoint(sp store.Record, id string) *store.Checkpoint {
 	for i := range sp.Checkpoints {
 		if sp.Checkpoints[i].ID == id {
 			return &sp.Checkpoints[i]
@@ -62,7 +62,7 @@ func findCheckpoint(sp store.Sprite, id string) *store.Checkpoint {
 
 // filterCheckpoints is the listing, newest first. Autos appear only on request;
 // history keeps the checkpoints that descend from that one.
-func filterCheckpoints(sp store.Sprite, history string, includeAuto bool) []store.Checkpoint {
+func filterCheckpoints(sp store.Record, history string, includeAuto bool) []store.Checkpoint {
 	out := []store.Checkpoint{}
 	for _, cp := range slices.Backward(sp.Checkpoints) {
 		if cp.IsAuto && !includeAuto {
@@ -97,15 +97,15 @@ func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	// sprite may not. Every checkpoint is a full clone, so without a ceiling a
 	// loop in one guest would starve every other sprite. (Approximate under
 	// concurrent creates, which is fine for a ceiling.)
-	if limit := s.opts.GuestCheckpointLimit; from != nil && limit > 0 && len(filterCheckpoints(sp, "", false)) >= limit {
-		s.life.emit(sp, "limit.refused", map[string]any{"limit": "guest_checkpoints", "max": limit, "current": len(filterCheckpoints(sp, "", false))})
+	if limit := s.opts.GuestCheckpointLimit; from != nil && limit > 0 && len(filterCheckpoints(sp.Record, "", false)) >= limit {
+		s.life.emit(sp.Record, "limit.refused", map[string]any{"limit": "guest_checkpoints", "max": limit, "current": len(filterCheckpoints(sp.Record, "", false))})
 		writeErr(w, http.StatusConflict, "checkpoint_limit", fmt.Sprintf(
 			"this sprite already has %d checkpoints, the most it may create from inside; delete some first", limit))
 		return
 	}
 
 	out := newNDJSON(w)
-	cp, err := s.life.CreateCheckpoint(sp, from, req.Comment, out.info)
+	cp, err := s.life.CreateCheckpoint(sp.Record, from, req.Comment, out.info)
 	if err != nil {
 		out.fail("%v", err)
 		return
@@ -116,11 +116,11 @@ func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 func (s *Server) listCheckpoints(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *guestChan) {
 	// Always JSON: the SDK rejects the text/plain form upstream has for history listings.
 	q := r.URL.Query()
-	writeJSON(w, http.StatusOK, filterCheckpoints(sp, q.Get("history"), q.Get("includeAuto") == "true"))
+	writeJSON(w, http.StatusOK, filterCheckpoints(sp.Record, q.Get("history"), q.Get("includeAuto") == "true"))
 }
 
 func (s *Server) getCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *guestChan) {
-	cp := findCheckpoint(sp, r.PathValue("id"))
+	cp := findCheckpoint(sp.Record, r.PathValue("id"))
 	if cp == nil {
 		writeErr(w, http.StatusNotFound, "not_found", "checkpoint not found")
 		return
@@ -129,7 +129,7 @@ func (s *Server) getCheckpoint(w http.ResponseWriter, r *http.Request, sp store.
 }
 
 func (s *Server) deleteCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *guestChan) {
-	switch err := s.life.DeleteCheckpoint(sp, r.PathValue("id")); {
+	switch err := s.life.DeleteCheckpoint(sp.Record, r.PathValue("id")); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, errCheckpointMounted):
@@ -147,7 +147,7 @@ const guestRestoreGrace = 300 * time.Millisecond
 
 func (s *Server) restoreCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, from *guestChan) {
 	id := r.PathValue("id")
-	if findCheckpoint(sp, id) == nil {
+	if findCheckpoint(sp.Record, id) == nil {
 		writeErr(w, http.StatusNotFound, "not_found", "checkpoint not found")
 		return
 	}
@@ -163,7 +163,7 @@ func (s *Server) restoreCheckpoint(w http.ResponseWriter, r *http.Request, sp st
 			time.Sleep(guestRestoreGrace)
 		}
 	}
-	if err := s.life.RestoreCheckpoint(sp, from, id, out.info, beforeStop); err != nil {
+	if err := s.life.RestoreCheckpoint(sp.Record, from, id, out.info, beforeStop); err != nil {
 		if from != nil && !errors.Is(err, errStaleGuest) {
 			s.log.Error("in-guest restore failed", "sprite", sp.Name, "checkpoint", id, "err", err)
 		}

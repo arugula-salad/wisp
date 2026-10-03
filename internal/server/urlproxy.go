@@ -150,12 +150,20 @@ func (s *Server) spriteForHost(host string) (string, bool) {
 		if strings.Contains(name, ".") {
 			return "", false
 		}
-		if sp, err := s.store.Get(name); err == nil && s.urlDomainOf(sp) != domain {
+		if sp, err := s.store.GetByName(store.Sprites, name); err == nil && s.urlDomainOf(sp) != domain {
 			return "", false
 		}
 		return name, true
 	}
-	return s.store.DomainOwner(host)
+	id, ok := s.store.DomainOwner(host)
+	if !ok {
+		return "", false
+	}
+	sp, err := s.store.Get(id)
+	if err != nil || sp.API != store.Sprites {
+		return "", false
+	}
+	return sp.Name, true
 }
 
 // URLDomainUnder is the URL domain whose <name>.<domain> host is: the most
@@ -233,7 +241,7 @@ func spriteURLProxy(dial func(context.Context) (net.Conn, error), wait time.Dura
 // proxy to its HTTP port. The sprite stays pinned awake while requests are in flight.
 // public marks a request from the internet-facing listener, which is told less.
 func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name string, public bool) {
-	sp, err := s.store.Get(name)
+	sp, err := s.store.GetByName(store.Sprites, name)
 	if err != nil {
 		httpstats.NoteErr(r.Context(), "no such sprite")
 		http.Error(w, "no such sprite", http.StatusNotFound)
@@ -248,7 +256,7 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 			return
 		}
 	}
-	m, release, err := s.life.Acquire(r.Context(), sp)
+	m, release, err := s.life.Acquire(r.Context(), sp.Record)
 	var lim *LimitError
 	if errors.As(err, &lim) {
 		httpstats.NoteErr(r.Context(), "at a limit")

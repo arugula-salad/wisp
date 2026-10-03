@@ -129,19 +129,30 @@ func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
 	}
 
 	vol.Store(1 << 30)
+	sub, _, _ := s.life.events.subscribe(func(e Event) bool { return e.Type == "disk.refused" }, 0, false)
+	defer s.life.events.unsubscribe(sub)
 	resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"full"}`)
 	if e := apiError(t, resp); e.StatusCode != http.StatusInsufficientStorage || e.ErrorCode != "insufficient_storage" {
 		t.Fatalf("create on a full volume = %+v", e)
 	}
-	if _, err := s.store.Get("full"); err == nil {
+	if _, err := s.store.GetByName(store.Sprites, "full"); err == nil {
 		t.Fatal("a refused create left a sprite behind")
 	}
-	sp, _ := s.store.Get("fits")
-	_, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), "fits", "", false, func(string, ...any) {})
+	// The refusal comes before there is a record, and still names the sprite.
+	select {
+	case e := <-sub.ch:
+		if e.Sprite != "full" || e.SpriteID == "" || e.Detail["operation"] != "a new sprite" {
+			t.Fatalf("disk.refused = %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no disk.refused event")
+	}
+	sp, _ := s.store.GetByName(store.Sprites, "fits")
+	_, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), sp.ID, "", false, func(string, ...any) {})
 	if !errors.Is(err, errNoRoom) {
 		t.Fatalf("checkpoint on a full volume: %v", err)
 	}
-	if got, _ := s.store.Get("fits"); len(got.Checkpoints) != 0 {
+	if got, _ := s.store.GetByName(store.Sprites, "fits"); len(got.Checkpoints) != 0 {
 		t.Fatal("a refused checkpoint was recorded")
 	}
 }
@@ -160,7 +171,7 @@ func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
 			continue
 		}
 		at := warmed.Add(time.Duration(i) * time.Minute)
-		s.store.Update(name, func(sp *store.Sprite) { sp.LastWarmingAt = &at })
+		s.store.UpdateByName(store.Sprites, name, func(sp *store.Sprite) { sp.LastWarmingAt = &at })
 		for _, f := range []string{"snap.vmstate", "snap.mem"} {
 			if err := os.WriteFile(filepath.Join(s.store.Dir(sp.ID), f), bytes.Repeat([]byte{1}, snap/2), 0o644); err != nil {
 				t.Fatal(err)
@@ -168,13 +179,13 @@ func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
 		}
 	}
 	warm := func(name string) bool {
-		sp, _ := s.store.Get(name)
+		sp, _ := s.store.GetByName(store.Sprites, name)
 		return vmm.HasSnapshot(s.store.Dir(sp.ID))
 	}
-	me, _ := s.store.Get("suspending")
+	me, _ := s.store.GetByName(store.Sprites, "suspending")
 
 	room := func(need int64) bool {
-		release, fits := s.life.makeRoom(me, need)
+		release, fits := s.life.makeRoom(me.Record, need)
 		release()
 		return fits
 	}
@@ -183,13 +194,13 @@ func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
 		t.Fatal("a snapshot that fits should cost nobody anything")
 	}
 	// Two suspends at once may not both be promised the same free bytes.
-	release, fits := s.life.makeRoom(me, 9*snap)
+	release, fits := s.life.makeRoom(me.Record, 9*snap)
 	if !fits || !warm("oldest") {
 		t.Fatal("9 of 10 free should fit")
 	}
 	vol.Store(10*snap + snap/2) // what a second suspend sees while the first still writes
-	other, _ := s.store.Get("newest")
-	if _, fits := s.life.makeRoom(other, 9*snap); fits {
+	other, _ := s.store.GetByName(store.Sprites, "newest")
+	if _, fits := s.life.makeRoom(other.Record, 9*snap); fits {
 		t.Fatal("the same space was promised twice")
 	}
 	release()
@@ -237,8 +248,8 @@ func TestExclusiveCountsOnlyUnsharedBytes(t *testing.T) {
 func TestStatusLiveAndOffline(t *testing.T) {
 	s, h := newOperatorServer(t, Options{MaxRunning: 3})
 	apiCall(t, h, "POST", "/v1/sprites", `{"name":"one"}`)
-	sp, _ := s.store.Get("one")
-	if _, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), "one", "", false, func(string, ...any) {}); err != nil {
+	sp, _ := s.store.GetByName(store.Sprites, "one")
+	if _, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), sp.ID, "", false, func(string, ...any) {}); err != nil {
 		t.Fatal(err)
 	}
 

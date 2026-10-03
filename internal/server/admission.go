@@ -98,7 +98,7 @@ func newAdmission(opts Options, log *slog.Logger) *admission {
 // budget reserves. It mirrors vmConfig + applyPolicy, in that order of
 // precedence: a memory policy wins over the sprite's own config, which wins
 // over the daemon default.
-func spriteRAMMiB(sp store.Sprite, opts Options) int {
+func spriteRAMMiB(sp store.Record, opts Options) int {
 	if sp.Resources != nil && sp.Resources.Memory != nil && sp.Resources.Memory.LimitMB > 0 {
 		return sp.Resources.Memory.LimitMB + vmHeadroomMiB
 	}
@@ -168,11 +168,11 @@ func (a *admission) usage() (reservedMiB, boots int) {
 // over, whether it worked or not, and frees only the boot slot; the count and
 // the memory stay reserved for as long as the VM exists and are given back by
 // releaseStart. On error nothing is left reserved.
-func (l *Lifecycle) admitStart(sp store.Sprite, rt *runtime) (booted func(), err error) {
+func (l *Lifecycle) admitStart(sp store.Record, rt *runtime) (booted func(), err error) {
 	if err := l.reserveRun(); err != nil {
 		return nil, err
 	}
-	if err := l.admit.reserveMemory(rt, sp.Name, spriteRAMMiB(sp, l.opts)); err != nil {
+	if err := l.admit.reserveMemory(rt, l.label(sp), spriteRAMMiB(sp, l.opts)); err != nil {
 		l.releaseRun()
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (l *Lifecycle) admitStart(sp store.Sprite, rt *runtime) (booted func(), err
 	if vmm.HasSnapshot(l.store.Dir(sp.ID)) {
 		return func() {}, nil
 	}
-	if err := l.admit.reserveBoot(sp.Name); err != nil {
+	if err := l.admit.reserveBoot(l.label(sp)); err != nil {
 		l.admit.releaseMemory(rt)
 		l.releaseRun()
 		return nil, err

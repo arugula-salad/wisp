@@ -141,7 +141,7 @@ func (s *Server) uiHandler() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 		defer cancel()
-		_, release, err := s.life.Acquire(ctx, sp)
+		_, release, err := s.life.Acquire(ctx, sp.Record)
 		if err != nil {
 			s.writeWakeErr(w, sp.Name, err)
 			return
@@ -156,7 +156,7 @@ func (s *Server) uiHandler() http.Handler {
 		if !ok {
 			return
 		}
-		if err := s.life.Stop(sp, true); err != nil {
+		if err := s.life.Stop(sp.Record, true); err != nil {
 			writeErr(w, http.StatusInternalServerError, "suspend_failed", err.Error())
 			return
 		}
@@ -167,7 +167,7 @@ func (s *Server) uiHandler() http.Handler {
 		if !ok {
 			return
 		}
-		if !s.life.Cool(sp) {
+		if !s.life.Cool(sp.Record) {
 			writeErr(w, http.StatusConflict, "not_warm", "only a suspended (warm) sprite can be sent cold")
 			return
 		}

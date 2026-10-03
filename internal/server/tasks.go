@@ -24,7 +24,7 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 		}
 		// A task is a hold on the current run, so a sprite that is not running has
 		// none. Answer that without waking it just to ask.
-		if s.life.Status(sp) != "running" {
+		if s.life.Status(sp.Record) != "running" {
 			if r.PathValue("task") != "" {
 				writeErr(w, http.StatusNotFound, "not_found", "task not found")
 				return
@@ -38,13 +38,13 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 
 // noteHold logs when a sprite starts and stops being held awake by tasks, so
 // "why is this VM still running" has an answer in the log.
-func (l *Lifecycle) noteHold(sp store.Sprite, held *bool, tasks int) {
+func (l *Lifecycle) noteHold(sp store.Record, held *bool, tasks int) {
 	if now := tasks > 0; now != *held {
 		*held = now
 		if now {
-			l.log.Info("sprite held awake by tasks", "sprite", sp.Name, "tasks", tasks)
+			l.log.Info("sprite held awake by tasks", "sprite", l.label(sp), "tasks", tasks)
 		} else {
-			l.log.Info("sprite no longer held by tasks", "sprite", sp.Name)
+			l.log.Info("sprite no longer held by tasks", "sprite", l.label(sp))
 		}
 	}
 }

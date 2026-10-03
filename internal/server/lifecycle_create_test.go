@@ -37,11 +37,11 @@ func TestLeaseExpiryAndAPIDeleteAreTheSameDeletion(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Backed up, so the deletion has a tombstone to write.
-		s.backups.Enqueue(sp, "suspend")
+		s.backups.Enqueue(sp.ID, "suspend")
 		waitBackup(t, s, sp.ID)
 		// Leased and inside the warning window, so the reaper has a warning to forget.
 		soon := time.Now().Add(time.Minute).UTC()
-		if _, err := s.leases.set(sp, func(sp *store.Sprite) { sp.ExpiresAt = &soon }); err != nil {
+		if _, err := s.leases.set(sp.Record, func(sp *store.Record) { sp.ExpiresAt = &soon }); err != nil {
 			t.Fatal(err)
 		}
 		s.life.rt(sp.ID) // a runtime to forget
@@ -69,7 +69,7 @@ func TestLeaseExpiryAndAPIDeleteAreTheSameDeletion(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for _, sp := range []store.Sprite{byAPI, byLease} {
-		if _, err := s.store.Get(sp.Name); err == nil {
+		if _, err := s.store.GetByName(store.Sprites, sp.Name); err == nil {
 			t.Errorf("%s: record survived", sp.Name)
 		}
 		if _, err := os.Stat(s.store.Dir(sp.ID)); !os.IsNotExist(err) {
@@ -115,7 +115,7 @@ func TestCreateRollsBackADiskThatCouldNotBeMade(t *testing.T) {
 	if !errors.Is(err, errProvision) || !strings.HasPrefix(err.Error(), "provision disk: ") {
 		t.Fatalf("err = %v, want errProvision", err)
 	}
-	if _, err := s.store.Get("broken"); err == nil {
+	if _, err := s.store.GetByName(store.Sprites, "broken"); err == nil {
 		t.Error("the record of a sprite without a disk survived")
 	}
 	if _, err := os.Stat(s.store.Dir(sp.ID)); !os.IsNotExist(err) {

@@ -55,7 +55,7 @@ func (s *Server) cloneSource(from cloneFrom, parent *store.Sprite) (src store.Sp
 		}
 		name = parent.Name
 	}
-	src, err := s.store.Get(name)
+	src, err := s.store.GetByName(store.Sprites, name)
 	if err != nil {
 		return src, "", nil, notFound
 	}
@@ -64,7 +64,7 @@ func (s *Server) cloneSource(from cloneFrom, parent *store.Sprite) (src store.Sp
 		// nothing about sprites that are not its business.
 		return src, "", nil, notFound
 	}
-	src, checkpoint, unlock, err = s.life.HoldCheckpoint(src, from.Checkpoint)
+	src.Record, checkpoint, unlock, err = s.life.HoldCheckpoint(src.Record, from.Checkpoint)
 	switch {
 	case errors.Is(err, errNoCheckpoint):
 		return src, "", nil, &createError{http.StatusNotFound, "checkpoint_not_found",
@@ -88,7 +88,7 @@ func spawnPolicy(sp store.Sprite) store.SpawnPolicy {
 
 func (s *Server) children(parent store.Sprite) []store.Sprite {
 	var out []store.Sprite
-	for _, sp := range s.store.List("") {
+	for _, sp := range s.store.List(store.Sprites, "") {
 		if sp.ParentID == parent.ID {
 			out = append(out, sp)
 		}
@@ -143,7 +143,7 @@ func (s *Server) registerGuestSpawn(mux *http.ServeMux, bind func(guestHandler) 
 	}
 	child := func(h func(http.ResponseWriter, store.Sprite)) http.HandlerFunc {
 		return spawner(func(w http.ResponseWriter, r *http.Request, self store.Sprite) {
-			sp, err := s.store.Get(r.PathValue("name"))
+			sp, err := s.store.GetByName(store.Sprites, r.PathValue("name"))
 			if err != nil || sp.ParentID != self.ID {
 				writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 				return
@@ -166,7 +166,7 @@ func (s *Server) registerGuestSpawn(mux *http.ServeMux, bind func(guestHandler) 
 // spawnRefused answers a sprite without a spawn policy that asked for
 // something only a spawner may do.
 func (s *Server) spawnRefused(w http.ResponseWriter, self store.Sprite) {
-	s.life.emit(self, "policy.denied", map[string]any{"policy": "spawn"})
+	s.life.emit(self.Record, "policy.denied", map[string]any{"policy": "spawn"})
 	writeErr(w, http.StatusForbidden, "spawn_disabled",
 		"this sprite may not manage sprites; enable it from outside with POST /v1/sprites/"+self.Name+"/policy/spawn")
 }
@@ -210,7 +210,7 @@ func (s *Server) setSpawnPolicy(w http.ResponseWriter, r *http.Request, p *store
 	if !ok {
 		return
 	}
-	if _, err := s.store.Update(sp.Name, func(sp *store.Sprite) {
+	if _, err := s.store.Update(sp.ID, func(sp *store.Sprite) {
 		sp.Spawn = p
 		sp.UpdatedAt = time.Now().UTC()
 	}); err != nil {
@@ -218,6 +218,6 @@ func (s *Server) setSpawnPolicy(w http.ResponseWriter, r *http.Request, p *store
 		return
 	}
 	s.log.Info("spawn policy set", "sprite", sp.Name, "enabled", p != nil && p.Enabled)
-	s.life.emit(sp, "policy.changed", map[string]any{"policy": "spawn", "enabled": p != nil && p.Enabled})
+	s.life.emit(sp.Record, "policy.changed", map[string]any{"policy": "spawn", "enabled": p != nil && p.Enabled})
 	w.WriteHeader(http.StatusNoContent)
 }

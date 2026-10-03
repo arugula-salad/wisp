@@ -172,13 +172,20 @@ func restoreOne(ctx context.Context, repo *backup.Repo, st *store.Store,
 
 	rec := backup.RestoreRecord(m)
 	if rename != "" {
-		rec.Name = rename
+		rec.Name, rec.Hostname = rename, rename // a sprite's hostname is its name
 	}
-	if existing, err := st.Get(rec.Name); err == nil {
+	named, nameErr := st.GetByName(store.Sprites, rec.Name)
+	// The record keeps its ID, and with it its machine directory, so it cannot
+	// go beside the sprite it was backed up from. Checked before --force deletes
+	// anything, so a refused restore leaves every sprite as it was.
+	if existing, err := st.Get(rec.ID); err == nil && (nameErr != nil || named.ID != rec.ID) {
+		return fmt.Errorf("this backup's sprite is here already, as %q (id %s); restoring a copy beside it is not supported", existing.Name, existing.ID)
+	}
+	if nameErr == nil {
 		if !force {
-			return fmt.Errorf("%q already exists here (id %s); pass --force to replace it, or --rename", rec.Name, existing.ID)
+			return fmt.Errorf("%q already exists here (id %s); pass --force to replace it, or --rename", rec.Name, named.ID)
 		}
-		if err := st.Delete(rec.Name); err != nil {
+		if err := st.Delete(named.ID); err != nil {
 			return err
 		}
 	}
@@ -193,7 +200,7 @@ func restoreOne(ctx context.Context, repo *backup.Repo, st *store.Store,
 		fmt.Printf("  "+format+"\n", a...)
 	})
 	if err != nil {
-		st.Delete(rec.Name) // removes the half-written directory too
+		st.Delete(rec.ID) // removes the half-written directory too
 		return err
 	}
 	fmt.Printf("  %d chunks, %s written in %s\n", stats.Chunks, humanBytes(stats.Read),

@@ -94,7 +94,7 @@ func (ls *leases) warning() time.Duration {
 // leaseExpired is the whole rule. The reaper applies it twice, once on a stale
 // record and once on a fresh one under the sprite's lock, so protection and
 // expiry are tested together here rather than by each caller.
-func leaseExpired(sp store.Sprite, now time.Time) bool {
+func leaseExpired(sp store.Record, now time.Time) bool {
 	return sp.ExpiresAt != nil && !sp.Protected && !now.Before(*sp.ExpiresAt)
 }
 
@@ -107,7 +107,7 @@ func (ls *leases) sweep() {
 		return
 	}
 	now := time.Now()
-	for _, sp := range ls.store.List("") {
+	for _, sp := range ls.store.Records() {
 		if leaseExpired(sp, now) {
 			ls.reap(sp)
 			continue
@@ -118,7 +118,7 @@ func (ls *leases) sweep() {
 
 // warn publishes sprite.expiring once per deadline. A renewal or a protection
 // clears the mark, so the next deadline is warned about in its own right.
-func (ls *leases) warn(sp store.Sprite, now time.Time) {
+func (ls *leases) warn(sp store.Record, now time.Time) {
 	if ls == nil {
 		return
 	}
@@ -133,7 +133,7 @@ func (ls *leases) warn(sp store.Sprite, now time.Time) {
 	if !first {
 		return
 	}
-	ls.log.Info("sprite lease running out", "sprite", sp.Name, "expires_at", sp.ExpiresAt)
+	ls.log.Info("sprite lease running out", "sprite", ls.life.label(sp), "expires_at", sp.ExpiresAt)
 	ls.life.emit(sp, "sprite.expiring", map[string]any{
 		"expires_at": sp.ExpiresAt.UTC().Format(time.RFC3339), "in_ms": sp.ExpiresAt.Sub(now).Milliseconds()})
 }
@@ -148,13 +148,13 @@ func (ls *leases) warn(sp store.Sprite, now time.Time) {
 //
 // The lock is dropped before the delete, because the delete path stops the VM
 // and takes that same lock. What makes the gap safe is the mark, not the lock.
-func (ls *leases) reap(sp store.Sprite) {
-	var cur store.Sprite
+func (ls *leases) reap(sp store.Record) {
+	var cur store.Record
 	commit := false
 	ls.life.WithLocked(sp.ID, func() error {
 		var err error
-		cur, err = ls.store.Get(sp.Name)
-		commit = err == nil && cur.ID == sp.ID && leaseExpired(cur, time.Now())
+		cur, err = ls.store.GetRecord(sp.ID)
+		commit = err == nil && leaseExpired(cur, time.Now())
 		if commit {
 			ls.claim(cur.ID)
 		}
@@ -164,14 +164,14 @@ func (ls *leases) reap(sp store.Sprite) {
 		return
 	}
 	defer ls.release(cur.ID)
-	ls.log.Info("lease expired; deleting sprite", "sprite", cur.Name, "id", cur.ID, "expires_at", cur.ExpiresAt)
+	ls.log.Info("lease expired; deleting sprite", "sprite", ls.life.label(cur), "id", cur.ID, "expires_at", cur.ExpiresAt)
 	// Before the delete, so a follower sees why the sprite.deleted that comes
 	// next was not somebody's DELETE.
 	ls.life.emit(cur, "sprite.expired", map[string]any{"expires_at": cur.ExpiresAt.UTC().Format(time.RFC3339)})
 	// Lifecycle.Delete, the same deletion a DELETE is, so expiry frees exactly
 	// what a DELETE frees, and forgets the warning sent.
 	if err := ls.life.Delete(cur); err != nil {
-		ls.log.Error("deleting an expired sprite failed; it will be tried again", "sprite", cur.Name, "err", err)
+		ls.log.Error("deleting an expired sprite failed; it will be tried again", "sprite", ls.life.label(cur), "err", err)
 	}
 }
 
@@ -211,21 +211,21 @@ func (ls *leases) forget(id string) {
 // under the sprite's lifecycle lock, which is what serializes it against a
 // reap in flight; see reap for the two orders and their outcomes. A sprite a
 // reap has committed to is errLeaseReaping, one that is gone store.ErrNotFound.
-func (ls *leases) set(sp store.Sprite, update func(*store.Sprite)) (store.Sprite, error) {
+func (ls *leases) set(sp store.Record, update func(*store.Record)) (store.Record, error) {
 	if ls == nil {
-		return store.Sprite{}, errors.New("no lease reaper")
+		return store.Record{}, errors.New("no lease reaper")
 	}
-	var cur store.Sprite
+	var cur store.Record
 	err := ls.life.WithLocked(sp.ID, func() error {
 		if ls.claimed(sp.ID) {
 			return errLeaseReaping
 		}
 		var err error
-		if cur, err = ls.store.Update(sp.Name, update); err != nil {
+		if cur, err = ls.store.UpdateRecord(sp.ID, update); err != nil {
 			return err
 		}
 		ls.forget(cur.ID)
-		ls.log.Info("lease set", "sprite", cur.Name, "expires_at", cur.ExpiresAt, "protected", cur.Protected)
+		ls.log.Info("lease set", "sprite", ls.life.label(cur), "expires_at", cur.ExpiresAt, "protected", cur.Protected)
 		// forget cleared the mark for the old deadline; warn re-earns it for the new
 		// one straight away, because a lease set to less than --lease-warning (or to
 		// less than a janitor tick) would otherwise expire unannounced.

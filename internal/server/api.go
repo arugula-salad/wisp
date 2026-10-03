@@ -68,13 +68,14 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	s.storage = life.storage
 	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admitHost, log)
 	s.metrics = newMetrics(s)
-	s.httpStats = httpstats.New(func(name string) bool { _, err := st.Get(name); return err == nil })
+	s.httpStats = httpstats.New(func(name string) bool { _, err := st.GetByName(store.Sprites, name); return err == nil })
 	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
 	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
 	}
 	s.backups = life.backups
+	life.SetDescriber(describeSprite)
 	life.OnDelete(s.deleted)
 	s.leases = life.leases
 	// Once here, before anything is served: a lease that ran out while the
@@ -261,7 +262,7 @@ type spriteJSON struct {
 
 func (s *Server) render(sp store.Sprite) spriteJSON {
 	return spriteJSON{
-		ID: sp.ID, Name: sp.Name, Organization: s.org, Status: s.life.Status(sp),
+		ID: sp.ID, Name: sp.Name, Organization: s.org, Status: s.life.Status(sp.Record),
 		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name, s.urlDomainOf(sp)),
 		URLSettings: sp.URLSettings, URLDomain: s.urlDomainOf(sp), Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
 		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, ParentID: sp.ParentID,
@@ -272,7 +273,7 @@ func (s *Server) render(sp store.Sprite) spriteJSON {
 
 // lookup resolves {name}, writing the 404 itself when absent.
 func (s *Server) lookup(w http.ResponseWriter, r *http.Request) (store.Sprite, bool) {
-	sp, err := s.store.Get(r.PathValue("name"))
+	sp, err := s.store.GetByName(store.Sprites, r.PathValue("name"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "not_found", "sprite not found")
 		return sp, false
@@ -322,7 +323,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		s.life.events.Publish(e)
 		writeLimitErr(w, lim)
 	}
-	if limit, n := s.opts.MaxSprites, len(s.store.List("")); limit > 0 && n >= limit {
+	if limit, n := s.opts.MaxSprites, s.store.Count(); limit > 0 && n >= limit {
 		refused(&LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
 			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)}, "max_sprites")
 		return
@@ -339,7 +340,8 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	}
 
 	now := time.Now().UTC()
-	sp := &store.Sprite{ID: store.NewID(), Name: req.Name, Environment: req.Environment, Labels: req.Labels,
+	// The guest is named after the sprite.
+	sp := &store.Sprite{ID: store.NewID(), Name: req.Name, Hostname: req.Name, Environment: req.Environment, Labels: req.Labels,
 		URLSettings: store.URLSettings{Auth: "sprite"}, CreatedAt: now, UpdatedAt: now}
 	if req.URLSettings != nil && req.URLSettings.Auth != "" {
 		sp.URLSettings = *req.URLSettings
@@ -371,7 +373,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 			return
 		}
 		// Checked again by the store; this only saves a pull that would be for nothing.
-		if _, err := s.store.Get(req.Name); err == nil {
+		if _, err := s.store.GetByName(store.Sprites, req.Name); err == nil {
 			writeErr(w, http.StatusBadRequest, "name_taken", "a sprite with that name already exists")
 			return
 		}
@@ -395,7 +397,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
-		spec.Checkpoint = &CheckpointRef{Sprite: src, ID: cp}
+		spec.Checkpoint = &CheckpointRef{Sprite: src.Record, ID: cp}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
 		sp.Image = src.Image // the disk still descends from it
@@ -439,7 +441,7 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request, keep func(store.Sp
 		HasMore               bool         `json:"has_more"`
 		NextContinuationToken string       `json:"next_continuation_token,omitempty"`
 	}{Sprites: []spriteJSON{}, Org: s.orgInfo()}
-	for _, sp := range s.store.List(q.Get("prefix")) {
+	for _, sp := range s.store.List(store.Sprites, q.Get("prefix")) {
 		if sp.Name <= after || !keep(sp) {
 			continue
 		}
@@ -492,7 +494,7 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sp, err := s.store.Update(r.PathValue("name"), func(sp *store.Sprite) {
+	sp, err := s.store.UpdateByName(store.Sprites, r.PathValue("name"), func(sp *store.Sprite) {
 		if req.URLSettings != nil {
 			sp.URLSettings = *req.URLSettings
 		}
@@ -528,7 +530,7 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleted(store.Sprite) { s.syncDomains() }
 
 func (s *Server) remove(w http.ResponseWriter, sp store.Sprite) {
-	if err := s.life.Delete(sp); err != nil {
+	if err := s.life.Delete(sp.Record); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
@@ -563,7 +565,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 	if !ok {
 		return
 	}
-	m, release, err := s.life.Acquire(r.Context(), sp)
+	m, release, err := s.life.Acquire(r.Context(), sp.Record)
 	if err != nil {
 		s.writeWakeErr(w, sp.Name, err)
 		return

@@ -23,7 +23,8 @@ import (
 // unless ImageDisk or Checkpoint says otherwise.
 type CreateSpec struct {
 	// Sprite is the record to create, complete but for its NetIndex, which the
-	// store assigns.
+	// store assigns: the engine's Record and whatever the front end keeps
+	// beside it, which the engine stores without reading.
 	Sprite store.Sprite
 	// ImageDisk is the disk of the container image Sprite.Image names
 	// (images.go). The caller holds it until Create returns, so the cached
@@ -36,7 +37,7 @@ type CreateSpec struct {
 
 // CheckpointRef names one checkpoint of a sprite.
 type CheckpointRef struct {
-	Sprite store.Sprite
+	Sprite store.Record
 	ID     string
 }
 
@@ -49,13 +50,17 @@ var errProvision = errors.New("provision disk")
 // the disk guard, store.ErrExists for a name already taken, errProvision.
 func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, error) {
 	sp := spec.Sprite
+	// Described from here, so that a refusal before the record is written
+	// names the sprite it refused.
+	defer l.holdUnstored(sp)()
 	var image string
 	var detail map[string]any
 	switch {
 	case spec.Checkpoint != nil:
 		src := spec.Checkpoint
 		image = l.checkpointPath(src.Sprite.ID, src.ID)
-		detail = map[string]any{"from": map[string]string{"sprite": src.Sprite.Name, "checkpoint": src.ID}}
+		from, _ := l.describe(src.Sprite.ID)
+		detail = map[string]any{"from": map[string]string{"sprite": from, "checkpoint": src.ID}}
 	case spec.ImageDisk != "":
 		image = spec.ImageDisk
 		detail = map[string]any{"from": map[string]string{"image": sp.Image}}
@@ -66,7 +71,7 @@ func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, 
 		}
 		image = base
 	}
-	if err := l.disk.admit(sp, "a new sprite", l.cloneCost(image)); err != nil {
+	if err := l.disk.admit(sp.Record, "a new sprite", l.cloneCost(image)); err != nil {
 		return sp, err
 	}
 	if err := l.store.Create(&sp); err != nil {
@@ -74,16 +79,17 @@ func (l *Lifecycle) Create(ctx context.Context, spec CreateSpec) (store.Sprite, 
 	}
 	disk := filepath.Join(l.store.Dir(sp.ID), vmm.DiskFile)
 	if err := cloneFile(ctx, image, disk); err != nil {
-		l.store.Delete(sp.Name)
+		l.store.Delete(sp.ID)
 		return sp, fmt.Errorf("%w: %v", errProvision, err)
 	}
-	l.log.Info("sprite created", "sprite", sp.Name, "id", sp.ID, "net_index", sp.NetIndex, "parent", sp.ParentID, "cloned", spec.Checkpoint != nil, "image", sp.Image)
-	l.emit(sp, "sprite.created", detail)
+	_, parent := l.describe(sp.ID)
+	l.log.Info("sprite created", "sprite", l.label(sp.Record), "id", sp.ID, "net_index", sp.NetIndex, "parent", parent, "cloned", spec.Checkpoint != nil, "image", sp.Image)
+	l.emit(sp.Record, "sprite.created", detail)
 	// A sprite can be born already inside the warning window -- a lobby child with
 	// a two-minute lease, say, under a five-minute --lease-warning. The janitor
 	// would never get to warn about it, so the warning is evaluated here too,
 	// after sprite.created, keeping the stream's order honest.
-	l.leases.warn(sp, time.Now())
+	l.leases.warn(sp.Record, time.Now())
 	return sp, nil
 }
 
@@ -110,29 +116,37 @@ func cloneFile(ctx context.Context, src, dst string) error {
 //
 // It takes and drops the sprite's lock to stop it, so the caller must not
 // hold it.
-func (l *Lifecycle) Delete(sp store.Sprite) error {
+func (l *Lifecycle) Delete(sp store.Record) error {
 	l.Stop(sp, false)
-	if err := l.store.Delete(sp.Name); err != nil {
+	// The record as it is just before it goes: what the hooks and the backup
+	// tombstone are given, and what sprite.deleted is described by.
+	gone, err := l.store.Get(sp.ID)
+	if err != nil {
+		return err
+	}
+	defer l.holdUnstored(gone)()
+	if err := l.store.Delete(sp.ID); err != nil {
 		return err
 	}
 	l.Forget(sp.ID)
-	l.egress.forget(sp)
+	l.egress.forget(gone.Record)
 	l.mu.Lock()
 	hooks := l.onDelete
 	l.mu.Unlock()
 	for _, f := range hooks {
-		f(sp)
+		f(gone)
 	}
 	// `wispd backups prune` retires the tombstone later.
-	l.backups.MarkDeleted(sp)
+	l.backups.MarkDeleted(gone)
 	l.leases.forget(sp.ID) // a warning already sent belongs to the sprite
-	l.log.Info("sprite deleted", "sprite", sp.Name)
+	l.log.Info("sprite deleted", "sprite", l.label(sp))
 	l.emit(sp, "sprite.deleted", nil)
 	return nil
 }
 
 // OnDelete registers f to run for every sprite Delete deletes, once its
-// record is gone and before sprite.deleted is published.
+// record is gone and before sprite.deleted is published. f is given the
+// whole stored record, front end's metadata and all, as it was last.
 func (l *Lifecycle) OnDelete(f func(store.Sprite)) {
 	l.mu.Lock()
 	l.onDelete = append(l.onDelete, f)

@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,7 +18,7 @@ func TestShutdownStopsLoops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, quit: make(chan struct{})}
+	l := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, quit: make(chan struct{})}
 
 	var passes atomic.Int32
 	inPass, release := make(chan struct{}), make(chan struct{})
@@ -57,7 +59,7 @@ func TestShutdownStopsLoops(t *testing.T) {
 // in-flight API count still reported.
 func TestPeekDoesNotWaitForATransition(t *testing.T) {
 	s, rt, _, _ := newCheckpointServer(t, 0)
-	sp, _ := s.store.Get("cp")
+	sp, _ := s.store.GetByName(store.Sprites, "cp")
 	rt.begin()
 	defer rt.end()
 	if vm := s.life.peek(sp.ID); vm.busy || vm.running() || vm.inflight != 1 || vm.pid != 0 {
@@ -70,5 +72,33 @@ func TestPeekDoesNotWaitForATransition(t *testing.T) {
 	defer rt.mu.Unlock()
 	if vm := s.life.peek(sp.ID); !vm.busy || vm.inflight != 1 {
 		t.Errorf("sprite mid-transition = %+v; want busy, one request in flight", vm)
+	}
+}
+
+// The guest's hostname is the record's, which the front end chose: a sprite's
+// is its name, whether it was just created or read back from disk, and the
+// engine never looks at the name itself.
+func TestVMHostnameIsTheRecords(t *testing.T) {
+	s, h := newOperatorServer(t, Options{})
+	st := s.store
+	dir := filepath.Dir(filepath.Dir(st.Dir("x")))
+	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"web"}`), http.StatusCreated)
+	other := &store.Sprite{Record: store.Record{ID: store.NewID(), API: "e2b", Hostname: "sbx"}}
+	if err := st.Create(other); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range []*store.Store{st, reopened} {
+		sp, _ := st.GetByName(store.Sprites, "web")
+		if got := s.life.vmConfig(sp.Record, "").Hostname; got != "web" {
+			t.Errorf("sprite hostname %q, want its name", got)
+		}
+		e, _ := st.GetRecord(other.ID)
+		if got := s.life.vmConfig(e, "").Hostname; got != "sbx" {
+			t.Errorf("another API's hostname %q", got)
+		}
 	}
 }

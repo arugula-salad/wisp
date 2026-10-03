@@ -66,7 +66,7 @@ func newTestServer(t *testing.T, helper *fakeHelper) (*Server, *store.Store) {
 		t.Fatal(err)
 	}
 	e := &egress{log: quiet, store: st, gateway: netip.MustParseAddr("10.209.0.1"), enf: netpolicy.NewEnforcer(quiet), push: helper.push}
-	life := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, egress: e}
+	life := &Lifecycle{store: st, log: quiet, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, egress: e}
 	s := &Server{store: st, life: life, log: quiet, token: "t"}
 	life.OnDelete(s.deleted)
 	return s, st
@@ -79,6 +79,16 @@ func addSprite(t *testing.T, st *store.Store, name string) store.Sprite {
 		t.Fatal(err)
 	}
 	return *sp
+}
+
+// spriteID is the ID of the sprite called name.
+func spriteID(t *testing.T, st *store.Store, name string) string {
+	t.Helper()
+	sp, err := st.GetByName(store.Sprites, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sp.ID
 }
 
 func call(s *Server, method, path, body string) *httptest.ResponseRecorder {
@@ -116,7 +126,7 @@ func TestPolicyRoundTripAndRestrictedSet(t *testing.T) {
 	}
 	// It is in the record, so it survives a restart.
 	reopened, _ := store.Open(filepath.Dir(filepath.Dir(st.Dir(a.ID))))
-	if sp, _ := reopened.Get("a"); len(sp.NetworkRules) != 2 {
+	if sp, _ := reopened.Get(a.ID); len(sp.NetworkRules) != 2 {
 		t.Errorf("persisted rules = %v", sp.NetworkRules)
 	}
 
@@ -165,10 +175,10 @@ func TestRestrictivePolicyFailsClosedWithoutHelper(t *testing.T) {
 	if w := call(s, "GET", "/v1/sprites/a/policy/network", ""); strings.TrimSpace(w.Body.String()) != noRules {
 		t.Errorf("a rejected policy is being reported: %s", w.Body)
 	}
-	if sp, _ := st.Get("a"); len(sp.NetworkRules) != 0 {
+	if sp, _ := st.GetByName(store.Sprites, "a"); len(sp.NetworkRules) != 0 {
 		t.Errorf("a rejected policy was stored: %v", sp.NetworkRules)
 	}
-	if err := s.life.egress.admit(a); err != nil {
+	if err := s.life.egress.admit(a.Record); err != nil {
 		t.Errorf("sprite with no policy should still get a NIC: %v", err)
 	}
 
@@ -189,7 +199,7 @@ func TestTighteningFailureKeepsThePreviousPolicy(t *testing.T) {
 	if w := call(s, "POST", "/v1/sprites/a/policy/network", `{"rules":[{"domain":"only-this.example","action":"allow"}]}`); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("got %d", w.Code)
 	}
-	sp, _ := st.Get("a")
+	sp, _ := st.GetByName(store.Sprites, "a")
 	if len(sp.NetworkRules) != 2 || sp.NetworkRules[0].Domain != "github.com" {
 		t.Errorf("rules = %v, want the previous policy intact", sp.NetworkRules)
 	}
@@ -255,13 +265,13 @@ func TestTapForFailsClosed(t *testing.T) {
 	call(s, "POST", "/v1/sprites/shut/policy/network", allowGithub)
 
 	helper.fail(errors.New("helper gone"))
-	if tap, err := l.tapFor(open); err != nil || tap != "mstap0" {
+	if tap, err := l.tapFor(open.Record); err != nil || tap != "mstap0" {
 		t.Fatalf("unrestricted sprite: tap %q err %v; the helper is none of its business", tap, err)
 	}
 	l.returnTap("mstap0")
 
 	// Deliberately the stale pre-policy copy: tapFor must go by the record.
-	tap, err := l.tapFor(shut)
+	tap, err := l.tapFor(shut.Record)
 	if err != nil || tap != "" {
 		t.Fatalf("restricted sprite, helper down, cold: tap %q err %v; want no NIC and no error", tap, err)
 	}
@@ -277,12 +287,12 @@ func TestTapForFailsClosed(t *testing.T) {
 	if !vmm.HasSnapshot(st.Dir(shut.ID)) {
 		t.Fatal("snapshot file names changed; update this test")
 	}
-	if tap, err := l.tapFor(shut); err == nil || !errors.Is(err, errUnenforceable) || tap != "" {
+	if tap, err := l.tapFor(shut.Record); err == nil || !errors.Is(err, errUnenforceable) || tap != "" {
 		t.Errorf("warm restricted sprite, helper down: tap %q err %v; want a refusal", tap, err)
 	}
 
 	helper.fail(nil)
-	if tap, err := l.tapFor(shut); err != nil || tap != "mstap0" {
+	if tap, err := l.tapFor(shut.Record); err != nil || tap != "mstap0" {
 		t.Errorf("helper back: tap %q err %v", tap, err)
 	}
 	if got := helper.last(); !reflect.DeepEqual(got, []string{"10.209.0.3"}) {

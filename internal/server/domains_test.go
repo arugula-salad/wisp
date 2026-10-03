@@ -95,7 +95,7 @@ func TestValidDomain(t *testing.T) {
 func TestDomainDNSCheck(t *testing.T) {
 	s, st := domainTestServer(t)
 	for _, d := range []string{"play.example.test", "apex.example.test", "split.example.test", "stolen.example.test", "bare.example.test", "missing.example.test"} {
-		st.AttachDomain("game", d, 0, 0)
+		st.AttachDomain(spriteID(t, st, "game"), d, 0, 0)
 	}
 	ctx := context.Background()
 	for d, want := range map[string]string{
@@ -217,7 +217,7 @@ func TestDomainsDisabledWithoutPublicListener(t *testing.T) {
 	if w := call(s, "POST", "/v1/sprites/game/domains", `{"domain":"play.example.test"}`); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "--public-listen") {
 		t.Errorf("attach: %d %s", w.Code, w.Body)
 	}
-	st.AttachDomain("game", "play.example.test", 0, 0) // e.g. a daemon restarted without --public-listen
+	st.AttachDomain(spriteID(t, st, "game"), "play.example.test", 0, 0) // e.g. a daemon restarted without --public-listen
 	if w := call(s, "GET", "/v1/sprites/game/domains", ""); !strings.Contains(w.Body.String(), `"inactive"`) {
 		t.Errorf("list: %d %s", w.Code, w.Body)
 	}
