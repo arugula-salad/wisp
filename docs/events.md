@@ -24,13 +24,13 @@ for a sprite created from inside another. `detail` is small and depends on the t
 |---|---|---|
 | `sprite.created` | created (by the API or a spawner) | `from: {sprite, checkpoint}` for a clone |
 | `sprite.deleted` | deleted | |
-| `sprite.expiring` | a workspace lease is about to run out (once per deadline, `--lease-warning` ahead of it) | `expires_at`, `in_ms` |
-| `sprite.expired` | the lease ran out and the sprite is being deleted; `sprite.deleted` follows | `expires_at` |
+| `sprite.expiring` | a workspace lease is about to run out (once per deadline, `--lease-warning` ahead of it); never for a deadline that stops or suspends | `expires_at`, `in_ms` |
+| `sprite.expired` | the lease ran out and the sprite is being deleted; `sprite.deleted` follows. Only a deleting deadline (a lease) | `expires_at` |
 | `sprite.woke` | booted or resumed | `mode` (`cold`/`warm`), `ms` (time to a running agent), `warm_discarded` (why a warm sprite booted cold, if it did) |
 | `sprite.wake_failed` | a wake failed | `error` |
-| `sprite.suspended` | snapshotted to disk (warm) | `ms`, `idle` (idle timeout, or the operator), `snapshot_bytes` (disk the memory snapshot takes) |
-| `sprite.cold` | memory state dropped | `reason`: `warm ttl`, `operator`, `disk space` (+ `for`) |
-| `sprite.stopped` | VM killed without a snapshot | `reason` when it was for lack of room |
+| `sprite.suspended` | snapshotted to disk (warm) | `ms`, `idle` (idle timeout, or the operator), `snapshot_bytes` (disk the memory snapshot takes), `reason: deadline` when a deadline did it |
+| `sprite.cold` | memory state dropped | `reason`: `warm ttl`, `operator`, `disk space` (+ `for`), `deadline` |
+| `sprite.stopped` | VM killed without a snapshot | `reason`: `idle` or `deadline` (a lifecycle policy), or the lack of room; none for the operator |
 | `sprite.exited` | the VM exited without being asked (guest reboot or poweroff, a crash) | |
 | `checkpoint.created` / `.deleted` / `.restored` | | `checkpoint`, `auto` / `pruned` |
 | `service.started` | a service process started | `service`, `pid`, `restart_count` on a restart |
@@ -42,6 +42,17 @@ for a sprite created from inside another. `detail` is small and depends on the t
 | `limit.refused` | `--max-sprites`, `--max-running`, `--max-running-memory-mib`, `--max-concurrent-boots`, a spawner's `max_children` or `--guest-checkpoint-limit` said no | `limit` (which one: `max_sprites`, `max_running`, `max_running_memory`, `max_concurrent_boots`, `max_children`, `guest_checkpoints`), `max`, `current` |
 | `disk.refused` | the disk guard refused a create, checkpoint or restore | `operation`, `needed_bytes`, `free_bytes`, `reserve_bytes` |
 | `disk.low` / `disk.ok` | the volume crossed `--disk-warn-percent` (repeated every 10 min while low) | free and total bytes |
+
+**Lifecycle policies.** A sandbox can have its own idle and deadline rules (see
+[lifecycle.md](lifecycle.md#per-sandbox-lifecycle-policies)); a sprite never does, so none of
+this reaches a Sprites client. What such a rule does is reported with the events the same
+transition already has, plus a `reason`: an idle *stop* is `sprite.stopped` with
+`reason: idle`, a deadline that suspends is `sprite.suspended` with `reason: deadline`
+(`idle: false`), and one that stops is `sprite.stopped` (running) or `sprite.cold` (warm)
+with `reason: deadline`. There is no separate deadline event: a follower that tracks state
+needs nothing new, and one that wants to know why reads the reason. `sprite.expiring` and
+`sprite.expired` stay the lease's alone, the deadline whose action is delete, because they
+announce a deletion: a deadline that stops or suspends loses nothing to warn about.
 
 `service.*` events come from the agent inside the guest, the one place that sees a service
 exit. They are therefore claims the guest makes about itself: checked for shape and rate

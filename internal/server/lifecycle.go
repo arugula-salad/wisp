@@ -693,7 +693,10 @@ func (l *Lifecycle) waitAgent(ctx context.Context, m *vmm.Machine, resumed bool)
 	}
 }
 
-// watch suspends the sprite once both the API and the guest have been idle for IdleTimeout.
+// watch applies the idle rule: it suspends the sprite (or stops it, or leaves
+// it be, as its lifecycle policy says) once both the API and the guest have
+// been idle for the timeout. The rule is read from the store on every tick,
+// so a policy change reaches a running sprite within a second.
 func (l *Lifecycle) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
@@ -711,7 +714,11 @@ func (l *Lifecycle) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 			return
 		case <-tick.C:
 		}
-		if idle, ok := rt.idleFor(); !ok || idle < l.opts.IdleTimeout {
+		timeout, action := l.idleRule(sp)
+		if action == store.IdleNone {
+			continue
+		}
+		if idle, ok := rt.idleFor(); !ok || idle < timeout {
 			continue
 		}
 		var act struct {
@@ -725,7 +732,7 @@ func (l *Lifecycle) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 		if err == nil {
 			l.noteHold(sp, &held, act.Tasks)
 		}
-		if err != nil || act.Tasks > 0 || act.Attached > 0 || time.Duration(act.IdleMS)*time.Millisecond < l.opts.IdleTimeout {
+		if err != nil || act.Tasks > 0 || act.Attached > 0 || time.Duration(act.IdleMS)*time.Millisecond < timeout {
 			continue
 		}
 
@@ -734,7 +741,15 @@ func (l *Lifecycle) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 			rt.mu.Unlock()
 			continue
 		}
-		err = l.suspendLocked(sp, rt, true)
+		// Again under the lock: SetPolicy takes it too, so this is the rule now.
+		switch _, action = l.idleRule(sp); action {
+		case store.IdleNone:
+			err = errGuestBusy // the policy changed while we looked: go on watching
+		case store.IdleStop:
+			err = l.stopLocked(sp, rt, true, "idle")
+		default:
+			err = l.suspendLocked(sp, rt, suspendIdle)
+		}
 		rt.mu.Unlock()
 		if err == nil {
 			return
@@ -746,9 +761,17 @@ func (l *Lifecycle) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 	}
 }
 
-// suspendLocked snapshots the sprite to disk. idle marks a suspend the guest may
-// still veto with errGuestBusy; one the operator asked for goes ahead regardless.
-func (l *Lifecycle) suspendLocked(sp store.Record, rt *runtime, idle bool) error {
+// Why a sprite is suspended, which sprite.suspended reports.
+const (
+	suspendIdle     = "idle"     // the idle rule
+	suspendOperator = "operator" // Suspend, Stop(keepWarm), shutdown
+	suspendDeadline = "deadline" // a deadline whose action is suspend
+)
+
+// suspendLocked snapshots the sprite to disk. An idle suspend is one the guest
+// may still veto with errGuestBusy; any other goes ahead regardless.
+func (l *Lifecycle) suspendLocked(sp store.Record, rt *runtime, why string) error {
+	idle := why == suspendIdle
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -795,7 +818,11 @@ func (l *Lifecycle) suspendLocked(sp store.Record, rt *runtime, idle bool) error
 	took := time.Since(start)
 	snap := vmm.SnapshotBytes(l.store.Dir(sp.ID))
 	l.log.Info("sprite suspended", "sprite", l.label(sp), "took", took.Round(time.Millisecond), "snapshot", mib(snap))
-	l.emit(sp, "sprite.suspended", map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap})
+	detail := map[string]any{"ms": took.Milliseconds(), "idle": idle, "snapshot_bytes": snap}
+	if why == suspendDeadline {
+		detail["reason"] = why
+	}
+	l.emit(sp, "sprite.suspended", detail)
 	// The disk is quiescent exactly here: the guest has synced and the VM is
 	// paused. Enqueueing is non-blocking and cannot fail, so a bucket that is
 	// unreachable never turns a good suspend into a bad one.
@@ -809,8 +836,8 @@ func (l *Lifecycle) suspendLocked(sp store.Record, rt *runtime, idle bool) error
 // upload has to notice the wake. Lock-free for the same reason.
 func (l *Lifecycle) diskGen(id string) uint64 { return l.rt(id).gen.Load() }
 
-// Stop halts a sprite. With keepWarm it is suspended so it can resume later;
-// otherwise the VM is killed and memory state discarded.
+// Stop halts a sprite. With keepWarm it is suspended so it can resume later
+// (Suspend); otherwise the VM is killed and memory state discarded.
 func (l *Lifecycle) Stop(sp store.Record, keepWarm bool) error {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
@@ -822,7 +849,7 @@ func (l *Lifecycle) Stop(sp store.Record, keepWarm bool) error {
 		return nil
 	}
 	if keepWarm {
-		return l.suspendLocked(sp, rt, false)
+		return l.suspendLocked(sp, rt, suspendOperator)
 	}
 	rt.m.Kill()
 	l.cleanupLocked(rt)
@@ -854,6 +881,8 @@ func (l *Lifecycle) Cool(sp store.Record) bool {
 //   - leases.reap and leases.set (leases.go) decide a sprite's lease
 //     against each other under it, so that a renewal and a reap in flight
 //     cannot both win.
+//   - SetPolicy (lifecycle_rules.go) changes a sandbox's deadline action
+//     under it, for the same reason.
 func (l *Lifecycle) WithLocked(id string, fn func() error) error {
 	rt := l.rt(id)
 	rt.mu.Lock()

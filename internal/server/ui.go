@@ -156,7 +156,7 @@ func (s *Server) uiHandler() http.Handler {
 		if !ok {
 			return
 		}
-		if err := s.life.Stop(sp.Record, true); err != nil {
+		if err := s.life.Suspend(sp.Record); err != nil {
 			writeErr(w, http.StatusInternalServerError, "suspend_failed", err.Error())
 			return
 		}
