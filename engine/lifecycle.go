@@ -911,6 +911,14 @@ func (l *Engine) forget(id string) {
 	l.mu.Unlock()
 }
 
+// Quitting reports whether Shutdown has begun: a front end whose connections
+// into a guest drop now is seeing the daemon stop, not the guest fail.
+func (l *Engine) Quitting() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.quitting
+}
+
 // Shutdown suspends every running sprite so they come back warm. The
 // background loops stop first, so none is cooling, reaping or checkpointing a
 // sprite while it suspends.

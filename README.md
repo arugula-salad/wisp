@@ -182,4 +182,5 @@ own (`game.example.com`), each with its own certificate: [custom domains](docs/p
 | [Security](docs/security.md) | How network policy is enforced, how each Firecracker is confined, and what neither covers |
 | [Differences from the hosted product](docs/differences.md) | Deliberate ones, and the official Go SDK issues this server works around |
 | [Using the E2B SDKs](docs/e2b-sdk.md) | `sandboxd`: the E2B API beside the Sprites API, for the official E2B SDKs, and [how it differs from hosted E2B](docs/providers/e2b-differences.md) |
+| [Using the Modal client](docs/modal-client.md) | A spike: `sandboxd --modal-listen` runs the unmodified `modal` client's sandboxes and exec, and [how it differs from hosted Modal](docs/providers/modal-differences.md) |
 | [Development](docs/development.md) | Tests, the e2e suite against the official SDKs, extra dev stacks |
