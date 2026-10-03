@@ -126,10 +126,12 @@ func (l *Lifecycle) stopLocked(sp store.Record, rt *runtime, idle bool, reason s
 	if idle {
 		path += "?idle=1"
 	}
+	synced := true
 	if err := agentCall(ctx, rt.m, http.MethodPost, path, nil, nil); err != nil {
 		if idle {
 			return err
 		}
+		synced = false
 		l.log.Warn("guest did not sync before a stop; stopping it anyway", "sprite", l.label(sp), "err", err)
 	}
 	rt.m.Kill()
@@ -137,8 +139,12 @@ func (l *Lifecycle) stopLocked(sp store.Record, rt *runtime, idle bool, reason s
 	vmm.DiscardSnapshot(l.store.Dir(sp.ID))
 	l.log.Info("sprite stopped", "sprite", l.label(sp), "reason", reason)
 	l.emit(sp, "sprite.stopped", map[string]any{"reason": reason})
-	// Synced and stopped: the disk is as quiescent as after a suspend.
-	l.backups.Enqueue(sp.ID, "suspend")
+	// Synced and stopped: the disk is as quiescent as after a suspend. One the
+	// guest did not sync is left to the periodic backup, which does not take it
+	// for a clean one.
+	if synced {
+		l.backups.Enqueue(sp.ID, "suspend")
+	}
 	return nil
 }
 
@@ -149,7 +155,7 @@ func (l *Lifecycle) stopLocked(sp store.Record, rt *runtime, idle bool, reason s
 // later; a front end that wants another sets one (E2B resets the timeout on
 // resume). sp is a candidate from a list read before any lock, so the
 // decision is taken again under the lock on a fresh record, as reap does.
-// A suspend that fails leaves the deadline for the next sweep to try again.
+// A suspend that fails becomes a cold stop, so the deadline is always spent.
 func (l *Lifecycle) passDeadline(sp store.Record) {
 	rt := l.rt(sp.ID)
 	rt.mu.Lock()
@@ -163,8 +169,13 @@ func (l *Lifecycle) passDeadline(sp store.Record) {
 	case store.DeadlineSuspend:
 		if rt.m != nil {
 			if err := l.suspendLocked(cur, rt, suspendDeadline); err != nil {
-				l.log.Error("suspend at the deadline failed; it will be tried again", "sprite", l.label(cur), "err", err)
-				return
+				// A deadline acts whatever the guest is doing: a sandbox that cannot
+				// be suspended (its agent wedged, say) is stopped cold instead, as
+				// Shutdown does, rather than running past its deadline forever.
+				l.log.Warn("suspend at the deadline failed; stopping it cold instead", "sprite", l.label(cur), "err", err)
+				if rt.m != nil {
+					l.stopLocked(cur, rt, false, "deadline")
+				}
 			}
 		}
 	case store.DeadlineStop:
