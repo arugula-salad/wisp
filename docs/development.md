@@ -48,3 +48,21 @@ WISP_POOL=1 SPRITES_API_URL=http://127.0.0.1:7802 SPRITE_TOKEN=$(cat ~/ws/1/toke
 
 `./bin/wispd status --data ~/ws/1 --net-pool 1` finds that pool's helper when the daemon is
 down.
+
+## Code map
+
+- `cmd/wispd`: the daemon. It builds the engine (`engine.New`), then the Sprites API over it
+  (`server.New`), and has the operator commands (`status`, `images`, `keys`, `backups`).
+- `engine/`: the sandbox engine, `*engine.Engine`, with no API of its own: VMs, disks and
+  the sprite volume, checkpoints, network policy, admission and the disk guard, memory
+  autoscale, backups, deadlines and leases, the idle rule, the image cache, the event bus
+  and the guest's host channel. It knows a sandbox by its record (`store.Record`); a front
+  end names sandboxes and adds its own behaviour through hooks (`SetDescriber`, `OnDelete`,
+  `SetGuestAPI`, `SetBackupFilter`). The lock order is at the top of `engine/lifecycle.go`.
+  It must not import `internal/server` (`go list -deps ./engine | grep internal/server`).
+- `internal/server`: the Sprites front end: the REST/WebSocket API, API keys, sprite URLs
+  and custom domains, the web UI, the event stream and webhooks, the operator socket, and
+  the API a guest reaches over its host channel.
+- `internal/store` (records on disk), `internal/vmm` (Firecracker), `internal/agent` and
+  `cmd/wisp-agent` (the guest side), `internal/backup` and `internal/s3` (the bucket),
+  `internal/netd` and `internal/netpolicy` (network policy enforcement).
