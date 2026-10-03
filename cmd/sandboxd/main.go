@@ -66,28 +66,28 @@ func main() {
 
 	daemon.Run("sandboxd", opts, f, modalFrontend(*modalListen, *modalImage, *modalRouter),
 		vercelFrontend(*vercelListen, *vercelDomain, *vercelImage, *vercelMaxTimeout, *vercelMem), daemon.Frontend{
-		Name:  "the E2B API",
-		Addr:  *e2bListen,
-		IDLen: 21, // "i" and 20 characters, as hosted E2B's
-		Setup: func(env daemon.Env) (http.Handler, error) {
-			disk := *e2bImage
-			if disk == "" {
-				disk = filepath.Join(env.DataDir, "images", "e2b.ext4")
-			}
-			domain := *e2bDomain
-			if _, _, err := net.SplitHostPort(domain); err != nil {
-				if _, port, err := net.SplitHostPort(*e2bListen); err == nil {
-					domain = net.JoinHostPort(domain, port)
+			Name:  "the E2B API",
+			Addr:  *e2bListen,
+			IDLen: 21, // "i" and 20 characters, as hosted E2B's
+			Setup: func(env daemon.Env) (http.Handler, error) {
+				disk := *e2bImage
+				if disk == "" {
+					disk = filepath.Join(env.DataDir, "images", "e2b.ext4")
 				}
-			}
-			fe := e2b.New(e2b.Options{Disk: disk, Domain: domain, CheckKey: env.Sprites.CheckKey,
-				MaxTimeout: *e2bMaxTimeout, CPUs: *e2bCPUs, MemMiB: *e2bMem,
-				DefaultCPUs: env.Options.DefaultVCPUs, DefaultMemMiB: env.Options.DefaultMemMiB,
-				MaxSandboxes: env.Options.MaxSprites},
-				env.Store, env.Engine, env.Log)
-			return fe.Handler(), nil
-		},
-	})
+				domain := *e2bDomain
+				if _, _, err := net.SplitHostPort(domain); err != nil {
+					if _, port, err := net.SplitHostPort(*e2bListen); err == nil {
+						domain = net.JoinHostPort(domain, port)
+					}
+				}
+				fe := e2b.New(e2b.Options{Disk: disk, Domain: domain, CheckKey: env.Sprites.CheckKey,
+					MaxTimeout: *e2bMaxTimeout, CPUs: *e2bCPUs, MemMiB: *e2bMem,
+					DefaultCPUs: env.Options.DefaultVCPUs, DefaultMemMiB: env.Options.DefaultMemMiB,
+					MaxSandboxes: env.Options.MaxSprites},
+					env.Store, env.Engine, env.Log)
+				return fe.Handler(), nil
+			},
+		})
 }
 
 // modalFrontend is the Modal API (frontend/modal) on addr.
