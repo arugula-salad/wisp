@@ -28,6 +28,29 @@ curl --unix-socket /.sprite/api.sock -X POST http://sprite/v1/tasks -d '{"name":
 They last at most 1h, are refreshed with PUT, and do not survive a cold boot or a wispd
 restart. `/v1/sprites/{name}/tasks` exposes the same thing from outside (our extension).
 
+## Per-sandbox lifecycle policies
+
+The rules above (suspend after `--idle-timeout`, delete at the lease) are every sprite's,
+and the Sprites API cannot change them. The engine underneath can, per sandbox, for the
+other APIs it serves: E2B runs a sandbox to a deadline whatever it is doing, Vercel stops
+one at its timeout, Daytona stops one after some idle minutes. A record's `lifecycle`
+(`store.LifecyclePolicy`) holds them, and with none, or all fields zero, the rules are
+exactly the ones above.
+
+- **Idle rule**: `idle_timeout_ns` (0 is `--idle-timeout`) and `idle_action`: `suspend`
+  (warm, the default), `stop` (cold, disk kept; the guest syncs first and may veto it, as
+  it may an idle suspend) or `none` (never stopped for being idle). What counts as activity
+  is unchanged. The watcher reads the rule every second, so a change reaches a running VM.
+- **Deadline rule**: the lease's `expires_at` and `protected` are the deadline, and
+  `deadline_action` what happens at it: `delete` (the default, the lease below), `suspend`
+  or `stop`. Those two act whatever the sandbox is doing, then clear `expires_at`: the
+  deadline is spent, and waking the sandbox does not stop it again 30 s later. Protection
+  holds off any action. Only `delete` gets `sprite.expiring` and `sprite.expired`.
+- **Engine calls**: `Lifecycle.SetPolicy`, `SetDeadline` (set or extend; `ChangeDeadline`
+  for a partial change, which is what the lease endpoints use) and `Suspend` (warm, on
+  demand; `Acquire` resumes it). Each takes the sandbox's lock, so it is ordered against
+  every transition and against a reap in flight.
+
 ## Leases: sprites that delete themselves
 
 A task holds a sprite awake. A **lease** is the other kind of expiry: a deadline on the

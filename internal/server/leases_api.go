@@ -120,7 +120,8 @@ func (s *Server) registerLeases(mux *http.ServeMux) {
 }
 
 // applyLease is every lease change from outside: the renewal endpoint and the
-// lease fields of PUT /v1/sprites/{name}. The write itself is leases.set,
+// lease fields of PUT /v1/sprites/{name}. A lease is the engine's deadline with
+// its default action, delete; the write is Lifecycle.ChangeDeadline,
 // serialized against a reap in flight.
 func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseRequest) (store.Sprite, bool) {
 	sp, ok := s.lookup(w, r)
@@ -132,14 +133,13 @@ func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseReq
 		writeErr(w, http.StatusBadRequest, "bad_request", msg)
 		return sp, false
 	}
-	cur, err := s.leases.set(sp.Record, func(sp *store.Record) {
+	cur, err := s.life.ChangeDeadline(sp.ID, func(d *Deadline) {
 		if req.touchesExpiry() {
-			sp.ExpiresAt = exp
+			d.At = exp
 		}
 		if req.Protected != nil {
-			sp.Protected = *req.Protected
+			d.Protected = *req.Protected
 		}
-		sp.UpdatedAt = time.Now().UTC()
 	})
 	switch {
 	case errors.Is(err, errLeaseReaping):

@@ -41,7 +41,7 @@ func TestLeaseExpiryAndAPIDeleteAreTheSameDeletion(t *testing.T) {
 		waitBackup(t, s, sp.ID)
 		// Leased and inside the warning window, so the reaper has a warning to forget.
 		soon := time.Now().Add(time.Minute).UTC()
-		if _, err := s.leases.set(sp.Record, func(sp *store.Record) { sp.ExpiresAt = &soon }); err != nil {
+		if _, err := s.life.SetDeadline(sp.ID, &soon, ""); err != nil {
 			t.Fatal(err)
 		}
 		s.life.rt(sp.ID) // a runtime to forget

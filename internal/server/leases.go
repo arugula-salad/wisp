@@ -26,6 +26,14 @@ import (
 // reaper leaves the same tombstone DELETE /v1/sprites/{name} leaves: proof the
 // sprite was deleted, never a promise that its last upload was current.
 //
+// That is the lease, and a sprite's deadline is always one. The deadline is
+// the engine's, though, and other front ends want something else to happen at
+// it: a sandbox whose lifecycle policy (store.LifecyclePolicy) names another
+// DeadlineAction is stopped or suspended instead (passDeadline), which spends
+// the deadline rather than the sandbox. Everything delete-specific here, the
+// sprite.expiring warning, the reaping claim and sprite.expired, is the lease
+// alone.
+//
 // The endpoint lives outside /v1, like the event stream and the webhook status,
 // so it cannot collide with anything upstream has or adds; the fields on a
 // sprite ride along in upstream's shape, where an SDK that does not know them
@@ -91,7 +99,7 @@ func (ls *leases) warning() time.Duration {
 	return defaultLeaseWarning
 }
 
-// leaseExpired is the whole rule. The reaper applies it twice, once on a stale
+// leaseExpired is the whole rule, whatever the deadline's action. The reaper applies it twice, once on a stale
 // record and once on a fresh one under the sprite's lock, so protection and
 // expiry are tested together here rather than by each caller.
 func leaseExpired(sp store.Record, now time.Time) bool {
@@ -109,7 +117,11 @@ func (ls *leases) sweep() {
 	now := time.Now()
 	for _, sp := range ls.store.Records() {
 		if leaseExpired(sp, now) {
-			ls.reap(sp)
+			if sp.Lifecycle.OnDeadline() == store.DeadlineDelete {
+				ls.reap(sp)
+			} else {
+				ls.life.passDeadline(sp)
+			}
 			continue
 		}
 		ls.warn(sp, now)
@@ -117,12 +129,14 @@ func (ls *leases) sweep() {
 }
 
 // warn publishes sprite.expiring once per deadline. A renewal or a protection
-// clears the mark, so the next deadline is warned about in its own right.
+// clears the mark, so the next deadline is warned about in its own right. Only
+// a lease is warned about: a deadline that stops or suspends loses nothing.
 func (ls *leases) warn(sp store.Record, now time.Time) {
 	if ls == nil {
 		return
 	}
-	if sp.ExpiresAt == nil || sp.Protected || now.Add(ls.warning()).Before(*sp.ExpiresAt) {
+	if sp.ExpiresAt == nil || sp.Protected || sp.Lifecycle.OnDeadline() != store.DeadlineDelete ||
+		now.Add(ls.warning()).Before(*sp.ExpiresAt) {
 		ls.forget(sp.ID)
 		return
 	}
@@ -154,7 +168,7 @@ func (ls *leases) reap(sp store.Record) {
 	ls.life.WithLocked(sp.ID, func() error {
 		var err error
 		cur, err = ls.store.GetRecord(sp.ID)
-		commit = err == nil && leaseExpired(cur, time.Now())
+		commit = err == nil && leaseExpired(cur, time.Now()) && cur.Lifecycle.OnDeadline() == store.DeadlineDelete
 		if commit {
 			ls.claim(cur.ID)
 		}
@@ -207,32 +221,58 @@ func (ls *leases) forget(id string) {
 	ls.mu.Unlock()
 }
 
-// set changes a sprite's lease from outside: update is applied to the record
-// under the sprite's lifecycle lock, which is what serializes it against a
-// reap in flight; see reap for the two orders and their outcomes. A sprite a
-// reap has committed to is errLeaseReaping, one that is gone store.ErrNotFound.
-func (ls *leases) set(sp store.Record, update func(*store.Record)) (store.Record, error) {
+// set changes a sandbox's deadline from outside (Lifecycle.ChangeDeadline):
+// change is applied under the sandbox's lifecycle lock, which is what
+// serializes it against a reap in flight; see reap for the two orders and
+// their outcomes. A sandbox a reap has committed to is errLeaseReaping, one
+// that is gone store.ErrNotFound, and an unknown action errBadPolicy.
+func (ls *leases) set(id string, change func(*Deadline)) (store.Record, error) {
 	if ls == nil {
 		return store.Record{}, errors.New("no lease reaper")
 	}
 	var cur store.Record
-	err := ls.life.WithLocked(sp.ID, func() error {
-		if ls.claimed(sp.ID) {
+	err := ls.life.WithLocked(id, func() error {
+		if ls.claimed(id) {
 			return errLeaseReaping
 		}
-		var err error
-		if cur, err = ls.store.UpdateRecord(sp.ID, update); err != nil {
+		old, err := ls.store.GetRecord(id)
+		if err != nil {
 			return err
 		}
-		ls.forget(cur.ID)
-		ls.log.Info("lease set", "sprite", ls.life.label(cur), "expires_at", cur.ExpiresAt, "protected", cur.Protected)
-		// forget cleared the mark for the old deadline; warn re-earns it for the new
-		// one straight away, because a lease set to less than --lease-warning (or to
-		// less than a janitor tick) would otherwise expire unannounced.
-		ls.warn(cur, time.Now())
+		d := Deadline{At: old.ExpiresAt, Protected: old.Protected, Action: old.Lifecycle.OnDeadline()}
+		change(&d)
+		p := LifecyclePolicyOf(old)
+		p.DeadlineAction = d.Action
+		if !p.Valid() {
+			return errBadPolicy
+		}
+		if cur, err = ls.store.UpdateRecord(id, func(sp *store.Record) {
+			sp.ExpiresAt, sp.Protected = d.At, d.Protected
+			sp.Lifecycle = normalPolicy(p)
+			sp.UpdatedAt = time.Now().UTC()
+		}); err != nil {
+			return err
+		}
+		ls.rearm(cur, "deadline set")
 		return nil
 	})
 	return cur, err
+}
+
+// rearm is what follows a change to a deadline or its action: the warning
+// already sent was about the old one, and the new one may be inside the
+// warning window already.
+func (ls *leases) rearm(cur store.Record, what string) {
+	if ls == nil {
+		return
+	}
+	ls.forget(cur.ID)
+	ls.log.Info(what, "sprite", ls.life.label(cur), "expires_at", cur.ExpiresAt, "protected", cur.Protected,
+		"action", cur.Lifecycle.OnDeadline())
+	// forget cleared the mark for the old deadline; warn re-earns it for the new
+	// one straight away, because a lease set to less than --lease-warning (or to
+	// less than a janitor tick) would otherwise expire unannounced.
+	ls.warn(cur, time.Now())
 }
 
 // errLeaseReaping is a lease change that lost the race with a reap.

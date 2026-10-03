@@ -146,7 +146,7 @@ func TestSpriteJSONFieldsMatch(t *testing.T) {
 	// And the legacy struct is spriteJSON without the fields added since.
 	legacy := map[string]reflect.Type{}
 	jsonFields(reflect.TypeOf(legacySprite{}), legacy)
-	for _, k := range []string{"api,omitempty", "hostname,omitempty", "ext,omitempty"} {
+	for _, k := range []string{"api,omitempty", "hostname,omitempty", "ext,omitempty", "lifecycle,omitempty"} {
 		delete(flat, k)
 	}
 	if !reflect.DeepEqual(legacy, flat) {
