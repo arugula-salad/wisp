@@ -241,3 +241,36 @@ func TestCheckpointMountsUnderTheLock(t *testing.T) {
 	}
 	rt.m, rt.guest = nil, nil
 }
+
+// HoldCheckpoint picks the newest manual checkpoint by default and keeps it
+// from being deleted until it is released.
+func TestHoldCheckpointKeepsTheCheckpoint(t *testing.T) {
+	s, rt, _, write := newCheckpointServer(t, 1)
+	write("disk")
+	sp, _ := s.store.Get("cp")
+	quiet := func(string, ...any) {}
+	if _, _, _, err := s.life.HoldCheckpoint(sp, ""); err != errNoCheckpoint {
+		t.Fatalf("hold with no checkpoints: %v, want errNoCheckpoint", err)
+	}
+	s.life.CreateCheckpoint(sp, nil, "", quiet)          // v1
+	s.life.CreateCheckpoint(sp, nil, "", quiet)          // v2
+	s.life.autoCheckpointLocked(rt, "cp", "", "", quiet) // auto-1, never the default
+	cur, id, release, err := s.life.HoldCheckpoint(sp, "")
+	if err != nil || id != "v2" || len(cur.Checkpoints) != 3 {
+		t.Fatalf("hold = %q (%d checkpoints), %v; want v2 on a fresh record", id, len(cur.Checkpoints), err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.life.DeleteCheckpoint(cur, "v2") }()
+	select {
+	case <-done:
+		t.Fatal("a held checkpoint was deleted")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := s.life.HoldCheckpoint(store.Sprite{ID: sp.ID, Name: "nope"}, ""); err != store.ErrNotFound {
+		t.Errorf("hold on a deleted sprite: %v, want store.ErrNotFound", err)
+	}
+}

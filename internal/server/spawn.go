@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -43,8 +44,8 @@ type createError struct {
 }
 
 // cloneSource resolves from to a sprite and one of its checkpoints. The source
-// stays locked until unlock, which keeps the checkpoint from being deleted
-// while it is read.
+// is held (Lifecycle.HoldCheckpoint) until unlock, which keeps the checkpoint
+// from being deleted while it is read.
 func (s *Server) cloneSource(from cloneFrom, parent *store.Sprite) (src store.Sprite, checkpoint string, unlock func(), _ *createError) {
 	notFound := &createError{http.StatusNotFound, "source_not_found", "from.sprite: no such sprite"}
 	name := from.Sprite
@@ -63,24 +64,15 @@ func (s *Server) cloneSource(from cloneFrom, parent *store.Sprite) (src store.Sp
 		// nothing about sprites that are not its business.
 		return src, "", nil, notFound
 	}
-	rt := s.life.rt(src.ID)
-	rt.mu.Lock()
-	if src, err = s.store.Get(name); err != nil { // re-read under the lock
-		rt.mu.Unlock()
-		return src, "", nil, notFound
-	}
-	checkpoint = from.Checkpoint
-	if checkpoint == "" {
-		if cps := filterCheckpoints(src, "", false); len(cps) > 0 {
-			checkpoint = cps[0].ID
-		}
-	}
-	if checkpoint == "" || findCheckpoint(src, checkpoint) == nil {
-		rt.mu.Unlock()
+	src, checkpoint, unlock, err = s.life.HoldCheckpoint(src, from.Checkpoint)
+	switch {
+	case errors.Is(err, errNoCheckpoint):
 		return src, "", nil, &createError{http.StatusNotFound, "checkpoint_not_found",
 			fmt.Sprintf("sprite %q has no such checkpoint to clone; create one first", src.Name)}
+	case err != nil:
+		return src, "", nil, notFound
 	}
-	return src, checkpoint, rt.mu.Unlock, nil
+	return src, checkpoint, unlock, nil
 }
 
 func spawnPolicy(sp store.Sprite) store.SpawnPolicy {

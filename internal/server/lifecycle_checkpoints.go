@@ -69,6 +69,32 @@ func (l *Lifecycle) RestoreCheckpoint(sp store.Sprite, from *guestChan, id strin
 	return l.restoreCheckpointLocked(rt, sp.Name, id, info, beforeStop)
 }
 
+// HoldCheckpoint locks sp and resolves one of its checkpoints, id or, when id
+// is "", the newest manual one. The record is re-read under the lock and
+// returned. Until release is called the sprite stays locked, so the checkpoint
+// cannot be deleted (nor the disk restored) while its file is read, as a clone
+// into a new sprite does. Errors: store.ErrNotFound, and errNoCheckpoint with
+// the re-read record.
+func (l *Lifecycle) HoldCheckpoint(sp store.Sprite, id string) (cur store.Sprite, checkpoint string, release func(), err error) {
+	rt := l.rt(sp.ID)
+	rt.mu.Lock()
+	if cur, err = l.store.Get(sp.Name); err != nil {
+		rt.mu.Unlock()
+		return cur, "", nil, err
+	}
+	checkpoint = id
+	if checkpoint == "" {
+		if cps := filterCheckpoints(cur, "", false); len(cps) > 0 {
+			checkpoint = cps[0].ID
+		}
+	}
+	if checkpoint == "" || findCheckpoint(cur, checkpoint) == nil {
+		rt.mu.Unlock()
+		return cur, "", nil, errNoCheckpoint
+	}
+	return cur, checkpoint, rt.mu.Unlock, nil
+}
+
 // createCheckpointLocked clones the live disk. name is re-read under the lock so
 // concurrent creates get distinct IDs.
 func (l *Lifecycle) createCheckpointLocked(rt *runtime, name, comment string, auto bool, info progress) (store.Checkpoint, error) {
