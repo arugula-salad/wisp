@@ -2,7 +2,6 @@ package server
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/arugula-salad/wisp/internal/store"
-	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // The privileges and resources policies. wispd is the source of truth (a
@@ -105,83 +103,11 @@ func (s *Server) storePolicy(w http.ResponseWriter, r *http.Request, policy stri
 		return
 	}
 	s.life.emit(sp, "policy.changed", map[string]any{"policy": policy})
-	rt := s.life.rt(sp.ID)
-	rt.mu.Lock()
-	if rt.m != nil {
-		err = s.life.pushPolicy(r.Context(), rt.m, sp.Name)
-	}
-	rt.mu.Unlock()
-	if err != nil {
+	if err := s.life.ApplyPolicy(r.Context(), sp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", "policy saved but not applied to the running sprite: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// guestPolicy is agent.Policy: the part of the policies the guest enforces.
-type guestPolicy struct {
-	Profile       string `json:"profile,omitempty"`
-	NoNewPrivs    bool   `json:"no_new_privs,omitempty"`
-	MemoryLimitMB int    `json:"memory_limit_mb,omitempty"`
-}
-
-func guestPolicyFor(sp store.Sprite) guestPolicy {
-	var p guestPolicy
-	if sp.Privileges != nil {
-		p.Profile, p.NoNewPrivs = sp.Privileges.Profile, sp.Privileges.NoNewPrivileges
-	}
-	if sp.Resources != nil && sp.Resources.Memory != nil {
-		p.MemoryLimitMB = sp.Resources.Memory.LimitMB
-	}
-	return p
-}
-
-// pushPolicy sends the stored policy to a running guest. It reads the store
-// rather than take a Sprite, because callers' copies can predate a policy change.
-func (l *Lifecycle) pushPolicy(ctx context.Context, m *vmm.Machine, name string) error {
-	sp, err := l.store.Get(name)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	return agentCall(ctx, m, http.MethodPost, "/internal/policy", guestPolicyFor(sp), nil)
-}
-
-// policyResumed brings a sprite that just woke from a snapshot up to date: the
-// policy may have changed while it slept. (A cold boot has it on the kernel
-// command line.) False means the guest cannot be trusted to enforce the policy
-// and must be cold booted instead, at the cost of its memory state. A guest
-// that fails to take an empty policy is let through: that is a snapshot from
-// before agents knew about policies, and it has nothing to enforce.
-func (l *Lifecycle) policyResumed(ctx context.Context, m *vmm.Machine, sp store.Sprite) bool {
-	err := l.pushPolicy(ctx, m, sp.Name)
-	if err == nil {
-		return true
-	}
-	if cur, gerr := l.store.Get(sp.Name); gerr == nil && guestPolicyFor(cur) == (guestPolicy{}) {
-		l.log.Warn("guest did not accept the (empty) policy", "sprite", sp.Name, "err", err)
-		return true
-	}
-	l.log.Warn("guest cannot enforce the policy; discarding warm state to boot a current agent", "sprite", sp.Name, "err", err)
-	return false
-}
-
-// applyPolicy shapes a cold boot: the policy rides the kernel command line so
-// it is in force before the guest starts its services, and a memory limit
-// sizes the VM, which is the one bound that root inside the guest cannot lift.
-func applyPolicy(cfg *vmm.Config, sp store.Sprite) {
-	p := guestPolicyFor(sp)
-	if p.Profile != "" {
-		cfg.BootArgs = append(cfg.BootArgs, "sprite.profile="+p.Profile)
-	}
-	if p.NoNewPrivs {
-		cfg.BootArgs = append(cfg.BootArgs, "sprite.nnp=1")
-	}
-	if p.MemoryLimitMB > 0 {
-		cfg.BootArgs = append(cfg.BootArgs, "sprite.memlimit="+strconv.Itoa(p.MemoryLimitMB))
-		cfg.MemMiB = p.MemoryLimitMB + vmHeadroomMiB
-	}
 }
 
 func hostMemMiB() int {

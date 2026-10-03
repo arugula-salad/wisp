@@ -1,14 +1,11 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/arugula-salad/wisp/internal/netpolicy"
 	"github.com/arugula-salad/wisp/internal/store"
-	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 type networkPolicyJSON struct {
@@ -49,39 +46,8 @@ func (s *Server) setNetworkPolicy(w http.ResponseWriter, r *http.Request) {
 		if sp, err := s.store.Get(r.PathValue("name")); err == nil {
 			s.life.emit(sp, "policy.changed", map[string]any{"policy": "network", "rules": len(req.Rules), "restricted": policy.Restrictive()})
 		}
-		go s.life.republishNetworkPolicy(r.PathValue("name"))
+		go s.life.RepublishNetworkPolicy(r.PathValue("name"))
 		// 204, not the 200 the API reference lists: the official Go SDK treats anything else as failure.
 		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-// publishNetworkPolicy writes the policy to /.sprite/policy/network.json inside
-// a running sprite, where upstream puts it. Best effort: the file is information
-// for tools in the guest, enforcement is entirely on the host, and the next wake
-// publishes again.
-func (l *Lifecycle) publishNetworkPolicy(ctx context.Context, m *vmm.Machine, sp store.Sprite) {
-	rules := sp.NetworkRules
-	if rules == nil {
-		rules = []store.NetworkRule{}
-	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if err := agentCall(ctx, m, http.MethodPost, "/internal/netpolicy", networkPolicyJSON{Rules: rules}, nil); err != nil {
-		l.log.Debug("could not publish the network policy file in the guest", "sprite", sp.Name, "err", err)
-	}
-}
-
-// republishNetworkPolicy is for a policy change on a sprite that may be running.
-func (l *Lifecycle) republishNetworkPolicy(name string) {
-	sp, err := l.store.Get(name)
-	if err != nil {
-		return
-	}
-	rt := l.rt(sp.ID)
-	rt.mu.Lock()
-	m := rt.m
-	rt.mu.Unlock()
-	if m != nil {
-		l.publishNetworkPolicy(context.Background(), m, sp)
 	}
 }
