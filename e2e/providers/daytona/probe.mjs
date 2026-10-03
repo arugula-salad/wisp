@@ -7,6 +7,7 @@
 //   DAYTONA_PROBE_STOP=0 (skip stop/start).
 // Prints one "[js] <step>: OK|FAILED|SKIP ..." line per step. Exit status = failures.
 import http from 'node:http'
+import https from 'node:https'
 import { Daytona, DaytonaError, DaytonaNotFoundError } from '@daytonaio/sdk'
 
 const RUN = process.env.DAYTONA_PROBE_RUN || `js-${process.pid}`
@@ -51,9 +52,11 @@ function httpGet(url, headers = {}) {
   const u = new URL(url)
   const api = new URL(process.env.DAYTONA_API_URL || 'http://127.0.0.1')
   const host = u.hostname.endsWith('.localhost') ? api.hostname : u.hostname
+  // A public server's preview URL is https:// (as probe.py does).
+  const client = u.protocol === 'https:' ? https : http
   return new Promise((resolve, reject) => {
-    const req = http.request(
-      { host, port: u.port || api.port, path: u.pathname + u.search, headers: { ...headers, Host: u.host } },
+    const req = client.request(
+      { host, port: u.port || (u.hostname.endsWith('.localhost') ? api.port : undefined), servername: u.hostname, path: u.pathname + u.search, headers: { ...headers, Host: u.host } },
       (res) => {
         const chunks = []
         res.on('data', (c) => chunks.push(c))
