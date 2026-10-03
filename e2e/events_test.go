@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// event is the stream's JSON (internal/server/events.go).
+// event is the stream's JSON (engine/events.go).
 type event struct {
 	ID       uint64         `json:"id"`
 	Type     string         `json:"type"`

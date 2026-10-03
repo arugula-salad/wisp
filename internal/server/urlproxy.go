@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
@@ -64,7 +65,7 @@ func dialGuestTCP(ctx context.Context, m *vmm.Machine, port string) (net.Conn, e
 // ceiling, for the guest port to accept a connection.
 //
 // It is a wait, not a hold: it runs inside the request, under the keep-awake
-// hold Acquire already took for it (lifecycle.go), and adds nothing that
+// hold Acquire already took for it (engine/lifecycle.go), and adds nothing that
 // outlives the response. A visitor that gives up cancels the request context and
 // the gate stops with it, so nothing keeps polling an otherwise idle sprite.
 const (
@@ -257,7 +258,7 @@ func (s *Server) serveSpriteURL(w http.ResponseWriter, r *http.Request, name str
 		}
 	}
 	m, release, err := s.life.Acquire(r.Context(), sp.Record)
-	var lim *LimitError
+	var lim *engine.LimitError
 	if errors.As(err, &lim) {
 		httpstats.NoteErr(r.Context(), "at a limit")
 		writeLimitErr(w, lim)

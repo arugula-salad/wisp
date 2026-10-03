@@ -15,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/arugula-salad/wisp/engine"
 )
 
 // Webhooks are ours too: the operator names URLs (--webhook) and every event
@@ -46,7 +48,7 @@ type webhook struct {
 	types  []string
 	log    *slog.Logger
 	client *http.Client
-	q      chan Event
+	q      chan engine.Event
 	// backoff is the delay before the first retry; it doubles after each. Tests shorten it.
 	backoff time.Duration
 
@@ -70,16 +72,16 @@ type WebhookStatus struct {
 
 func newWebhook(url string, opts WebhookOptions, log *slog.Logger) *webhook {
 	return &webhook{url: url, secret: []byte(opts.Secret), types: opts.Types, log: log,
-		client: &http.Client{Timeout: webhookTimeout}, q: make(chan Event, webhookQueue), backoff: time.Second}
+		client: &http.Client{Timeout: webhookTimeout}, q: make(chan engine.Event, webhookQueue), backoff: time.Second}
 }
 
 // startWebhooks subscribes one sender per configured URL to the bus.
-func startWebhooks(bus *eventBus, opts WebhookOptions, log *slog.Logger) []*webhook {
+func startWebhooks(bus *engine.Bus, opts WebhookOptions, log *slog.Logger) []*webhook {
 	var hooks []*webhook
 	for _, u := range opts.URLs {
 		h := newWebhook(u, opts, log)
 		hooks = append(hooks, h)
-		bus.addSink(h.offer)
+		bus.AddSink(h.offer)
 		go h.run()
 		log.Info("webhook enabled", "url", redactURL(u), "types", strings.Join(opts.Types, ","))
 	}
@@ -87,7 +89,7 @@ func startWebhooks(bus *eventBus, opts WebhookOptions, log *slog.Logger) []*webh
 }
 
 // offer queues e without ever waiting: it runs under the bus lock.
-func (h *webhook) offer(e Event) {
+func (h *webhook) offer(e engine.Event) {
 	if len(h.types) > 0 && !(eventFilter{types: h.types}).match(e) {
 		return
 	}
@@ -115,7 +117,7 @@ func (h *webhook) run() {
 }
 
 // deliver tries one event until it lands, is refused, or runs out of attempts.
-func (h *webhook) deliver(e Event) {
+func (h *webhook) deliver(e engine.Event) {
 	body, _ := json.Marshal(e)
 	delay := h.backoff
 	for attempt := 1; ; attempt++ {
@@ -139,7 +141,7 @@ func (h *webhook) deliver(e Event) {
 
 // post makes one attempt. retry says whether another could go differently:
 // network errors, 5xx and 429 may; any other refusal will not.
-func (h *webhook) post(e Event, body []byte) (retry bool, err error) {
+func (h *webhook) post(e engine.Event, body []byte) (retry bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), webhookTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, bytes.NewReader(body))

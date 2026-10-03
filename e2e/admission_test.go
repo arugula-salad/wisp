@@ -15,7 +15,7 @@ import (
 	sprites "github.com/superfly/sprites-go"
 )
 
-// Host admission (internal/server/admission.go) against a real daemon: the
+// Host admission (engine/admission.go) against a real daemon: the
 // aggregate running-memory budget and the concurrent cold-boot cap. Both are
 // operator flags with no default, so each subtest needs a daemon started with
 // the limit and the same number in the environment:

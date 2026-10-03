@@ -13,7 +13,7 @@ import (
 
 func publicTestServer(t *testing.T) *Server {
 	t.Helper()
-	s, st := newTestServer(t, &fakeHelper{})
+	s, st := newTestServer(t)
 	s.urlDomains = []string{"widgets.test"}
 	for _, sp := range []*store.Sprite{
 		{Name: "locked", URLSettings: store.URLSettings{Auth: "sprite"}},

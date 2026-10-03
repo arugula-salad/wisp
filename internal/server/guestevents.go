@@ -3,9 +3,8 @@ package server
 import (
 	"net/http"
 	"regexp"
-	"sync"
-	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -40,49 +39,10 @@ const (
 	guestEventRate  = 5
 )
 
-// rateLimiter is a token bucket per key.
-type rateLimiter struct {
-	burst, rate float64
-	now         func() time.Time
-
-	mu      sync.Mutex
-	buckets map[string]*bucket
-}
-
-type bucket struct {
-	tokens float64
-	at     time.Time
-}
-
-func newRateLimiter(burst, perSecond float64) *rateLimiter {
-	return &rateLimiter{burst: burst, rate: perSecond, now: time.Now, buckets: map[string]*bucket{}}
-}
-
-func (rl *rateLimiter) allow(key string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	now := rl.now()
-	b, ok := rl.buckets[key]
-	if !ok {
-		if len(rl.buckets) > 10000 { // keys are sprite IDs; this only bounds memory against churn
-			clear(rl.buckets)
-		}
-		b = &bucket{tokens: rl.burst, at: now}
-		rl.buckets[key] = b
-	}
-	b.tokens = min(rl.burst, b.tokens+now.Sub(b.at).Seconds()*rl.rate)
-	b.at = now
-	if b.tokens < 1 {
-		return false
-	}
-	b.tokens--
-	return true
-}
-
 // serviceEvent turns a report into an event, or refuses it.
-func serviceEvent(sp store.Sprite, r serviceReport) (Event, bool) {
+func serviceEvent(sp store.Sprite, r serviceReport) (engine.Event, bool) {
 	if !reportServiceRE.MatchString(r.Service) {
-		return Event{}, false
+		return engine.Event{}, false
 	}
 	d := map[string]any{"service": r.Service}
 	switch r.Type {
@@ -106,7 +66,7 @@ func serviceEvent(sp store.Sprite, r serviceReport) (Event, bool) {
 		}
 		d["error"], d["restart_in_ms"] = r.Error, r.RestartInMS
 	default:
-		return Event{}, false
+		return engine.Event{}, false
 	}
 	return spriteEvent(sp, "service."+r.Type, d), true
 }
@@ -134,7 +94,7 @@ func (s *Server) registerGuestEvents(mux *http.ServeMux, sp store.Sprite) {
 			return
 		}
 		id := self.ID
-		s.life.events.serveEvents(w, r, func(e Event) bool { return e.ParentID == id }, s.eventHeartbeat())
+		serveEvents(s.life.Events(), w, r, func(e engine.Event) bool { return e.ParentID == id }, s.eventHeartbeat())
 	})
 	mux.HandleFunc("POST /internal/service-event", func(w http.ResponseWriter, r *http.Request) {
 		self, ok := current(w)
@@ -150,11 +110,11 @@ func (s *Server) registerGuestEvents(mux *http.ServeMux, sp store.Sprite) {
 			writeErr(w, http.StatusBadRequest, "bad_request", "not a service event")
 			return
 		}
-		if !s.guestEvents.allow(self.ID) {
+		if !s.guestEvents.Allow(self.ID) {
 			writeErr(w, http.StatusTooManyRequests, "rate_limited", "too many events from this sprite")
 			return
 		}
-		s.life.events.Publish(e)
+		s.life.Events().Publish(e)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

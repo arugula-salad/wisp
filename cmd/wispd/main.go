@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/certs"
 	"github.com/arugula-salad/wisp/internal/confine"
 	"github.com/arugula-salad/wisp/internal/server"
@@ -153,7 +154,7 @@ func main() {
 			opts.Webhooks.Types = strings.Split(f.webhookTypes, ",")
 		}
 	}
-	life := server.NewLifecycle(opts, st, log)
+	life := engine.New(opts.Options, st, log)
 
 	urlDomains, err := parseURLDomains(f.urlDomain)
 	if err != nil {

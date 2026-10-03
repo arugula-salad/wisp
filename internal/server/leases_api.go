@@ -5,11 +5,20 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
-// The Sprites side of leases (leases.go has the reaper): the lease fields of a
+// The Sprites side of leases (engine/leases.go has the reaper): the lease fields of a
 // create or an update, and the renewal endpoint.
+//
+// The endpoint lives outside /v1, like the event stream and the webhook status,
+// so it cannot collide with anything upstream has or adds; the fields on a
+// sprite ride along in upstream's shape, where an SDK that does not know them
+// ignores them.
+
+// leasePath is the renewal endpoint, ours, outside /v1.
+const leasePath = "/wisp/v1/sprites/{name}/lease"
 
 // leaseRequest is the lease in a create, an update or a renewal. There are two
 // ways to name the moment because callers differ: an operator has a date in
@@ -121,7 +130,7 @@ func (s *Server) registerLeases(mux *http.ServeMux) {
 
 // applyLease is every lease change from outside: the renewal endpoint and the
 // lease fields of PUT /v1/sprites/{name}. A lease is the engine's deadline with
-// its default action, delete; the write is Lifecycle.ChangeDeadline,
+// its default action, delete; the write is engine.Engine.ChangeDeadline,
 // serialized against a reap in flight.
 func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseRequest) (store.Sprite, bool) {
 	sp, ok := s.lookup(w, r)
@@ -133,7 +142,7 @@ func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseReq
 		writeErr(w, http.StatusBadRequest, "bad_request", msg)
 		return sp, false
 	}
-	cur, err := s.life.ChangeDeadline(sp.ID, func(d *Deadline) {
+	cur, err := s.life.ChangeDeadline(sp.ID, func(d *engine.Deadline) {
 		if req.touchesExpiry() {
 			d.At = exp
 		}
@@ -142,7 +151,7 @@ func (s *Server) applyLease(w http.ResponseWriter, r *http.Request, req leaseReq
 		}
 	})
 	switch {
-	case errors.Is(err, errLeaseReaping):
+	case errors.Is(err, engine.ErrLeaseReaping):
 		writeErr(w, http.StatusConflict, "expired",
 			"this sprite's lease ran out and it is being deleted; create a new sprite")
 		return sp, false

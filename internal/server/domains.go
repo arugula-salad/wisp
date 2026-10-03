@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/certs"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/miekg/dns"
@@ -142,7 +143,7 @@ func (s *Server) attachDomain(w http.ResponseWriter, r *http.Request) {
 		if limit == 0 || n < limit {
 			limit, n, what = s.domains.cfg.Total, len(s.store.AllDomains()), "this host"
 		}
-		writeLimitErr(w, &LimitError{Code: "domain_limit_exceeded", Limit: limit, Current: n,
+		writeLimitErr(w, &engine.LimitError{Code: "domain_limit_exceeded", Limit: limit, Current: n,
 			Message: fmt.Sprintf("%s already has %d custom domains, the most it allows; detach one first", what, n)})
 		return
 	case err != nil:

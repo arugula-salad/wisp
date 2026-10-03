@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -22,7 +23,7 @@ func fromInside(t *testing.T, s *Server, sprite, method, path, body string) *htt
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	s.guestAPI(sp.Record, &guestChan{}).ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+	s.guestAPI(sp.Record, &engine.GuestChan{}).ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
 	return rec.Result()
 }
 

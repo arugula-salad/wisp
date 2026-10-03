@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -33,7 +34,7 @@ type cloneFrom struct {
 	Sprite string `json:"sprite"`
 	// Checkpoint defaults to the source's newest manual checkpoint.
 	Checkpoint string `json:"checkpoint"`
-	// Image starts the sprite from a container image instead (images.go). From
+	// Image starts the sprite from a container image instead (engine/images.go). From
 	// inside a sprite it must already be in the host's image cache.
 	Image string `json:"image,omitempty"`
 }
@@ -44,7 +45,7 @@ type createError struct {
 }
 
 // cloneSource resolves from to a sprite and one of its checkpoints. The source
-// is held (Lifecycle.HoldCheckpoint) until unlock, which keeps the checkpoint
+// is held (engine.Engine.HoldCheckpoint) until unlock, which keeps the checkpoint
 // from being deleted while it is read.
 func (s *Server) cloneSource(from cloneFrom, parent *store.Sprite) (src store.Sprite, checkpoint string, unlock func(), _ *createError) {
 	notFound := &createError{http.StatusNotFound, "source_not_found", "from.sprite: no such sprite"}
@@ -66,7 +67,7 @@ func (s *Server) cloneSource(from cloneFrom, parent *store.Sprite) (src store.Sp
 	}
 	src.Record, checkpoint, unlock, err = s.life.HoldCheckpoint(src.Record, from.Checkpoint)
 	switch {
-	case errors.Is(err, errNoCheckpoint):
+	case errors.Is(err, engine.ErrNoCheckpoint):
 		return src, "", nil, &createError{http.StatusNotFound, "checkpoint_not_found",
 			fmt.Sprintf("sprite %q has no such checkpoint to clone; create one first", src.Name)}
 	case err != nil:
@@ -97,12 +98,12 @@ func (s *Server) children(parent store.Sprite) []store.Sprite {
 }
 
 // childLimit is approximate under concurrent creates, which is fine for a ceiling.
-func (s *Server) childLimit(parent store.Sprite) *LimitError {
+func (s *Server) childLimit(parent store.Sprite) *engine.LimitError {
 	limit, n := spawnPolicy(parent).MaxChildren, len(s.children(parent))
 	if n < limit {
 		return nil
 	}
-	return &LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
+	return &engine.LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
 		Message: fmt.Sprintf("this sprite already holds %d sprites, the most it may create (spawn policy max_children); delete one first", n)}
 }
 
@@ -115,7 +116,7 @@ func inherit(sp *store.Sprite, parent store.Sprite, cloned bool) {
 	if !cloned {
 		sp.Config, sp.Privileges, sp.Resources = parent.Config, parent.Privileges, parent.Resources
 	}
-	// A spawner's children are why leases exist (leases.go): max_children caps
+	// A spawner's children are why leases exist (engine/leases.go): max_children caps
 	// how many a lobby holds, and without an expiry the sprite a visitor left an
 	// hour ago holds its slot forever. The policy's TTL is a ceiling rather than
 	// a default, so a lobby that knows a game is short-lived may ask for less,
@@ -133,7 +134,7 @@ func (s *Server) registerGuestSpawn(mux *http.ServeMux, bind func(guestHandler) 
 	// spawner refuses a sprite without the policy; the policy is read per
 	// request, so granting and revoking it need no reboot.
 	spawner := func(h func(http.ResponseWriter, *http.Request, store.Sprite)) http.HandlerFunc {
-		return bind(func(w http.ResponseWriter, r *http.Request, self store.Sprite, _ *guestChan) {
+		return bind(func(w http.ResponseWriter, r *http.Request, self store.Sprite, _ *engine.GuestChan) {
 			if !spawnPolicy(self).Enabled {
 				s.spawnRefused(w, self)
 				return
@@ -166,7 +167,7 @@ func (s *Server) registerGuestSpawn(mux *http.ServeMux, bind func(guestHandler) 
 // spawnRefused answers a sprite without a spawn policy that asked for
 // something only a spawner may do.
 func (s *Server) spawnRefused(w http.ResponseWriter, self store.Sprite) {
-	s.life.emit(self.Record, "policy.denied", map[string]any{"policy": "spawn"})
+	s.life.Emit(self.Record, "policy.denied", map[string]any{"policy": "spawn"})
 	writeErr(w, http.StatusForbidden, "spawn_disabled",
 		"this sprite may not manage sprites; enable it from outside with POST /v1/sprites/"+self.Name+"/policy/spawn")
 }
@@ -218,6 +219,6 @@ func (s *Server) setSpawnPolicy(w http.ResponseWriter, r *http.Request, p *store
 		return
 	}
 	s.log.Info("spawn policy set", "sprite", sp.Name, "enabled", p != nil && p.Enabled)
-	s.life.emit(sp.Record, "policy.changed", map[string]any{"policy": "spawn", "enabled": p != nil && p.Enabled})
+	s.life.Emit(sp.Record, "policy.changed", map[string]any{"policy": "spawn", "enabled": p != nil && p.Enabled})
 	w.WriteHeader(http.StatusNoContent)
 }

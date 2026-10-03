@@ -18,6 +18,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/server"
 )
 
@@ -83,7 +84,7 @@ func runImages(args []string) int {
 	}
 	switch verb {
 	case "list", "ls":
-		var imgs []server.CachedImage
+		var imgs []engine.CachedImage
 		resp, err := operatorClient(abs, 30*time.Second).Get("http://wispd/images")
 		switch {
 		case err == nil:
@@ -92,7 +93,7 @@ func runImages(args []string) int {
 				return fail(err)
 			}
 		case noDaemon(err):
-			imgs = server.OfflineImages(abs)
+			imgs = engine.OfflineImages(abs)
 		default:
 			return fail(err)
 		}
@@ -124,9 +125,9 @@ func runImages(args []string) int {
 		for sc.Scan() {
 			line := sc.Text()
 			if b, ok := strings.CutPrefix(line, "ok "); ok {
-				var img server.CachedImage
+				var img engine.CachedImage
 				if json.Unmarshal([]byte(b), &img) == nil {
-					printImages(os.Stdout, []server.CachedImage{img})
+					printImages(os.Stdout, []engine.CachedImage{img})
 				}
 				return 0
 			}
@@ -153,7 +154,7 @@ func runImages(args []string) int {
 		if resp.StatusCode != http.StatusOK {
 			return fail(apiError(resp))
 		}
-		var img server.CachedImage
+		var img engine.CachedImage
 		json.NewDecoder(resp.Body).Decode(&img)
 		fmt.Printf("removed %.12s (%s)\n", img.ID, strings.Join(img.Refs, ", "))
 		return 0
@@ -171,7 +172,7 @@ func apiError(resp *http.Response) error {
 	return fmt.Errorf("daemon answered %s: %s", resp.Status, strings.TrimSpace(string(b)))
 }
 
-func printImages(w io.Writer, imgs []server.CachedImage) {
+func printImages(w io.Writer, imgs []engine.CachedImage) {
 	if len(imgs) == 0 {
 		fmt.Fprintln(w, "no cached images")
 		return

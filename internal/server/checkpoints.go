@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"slices"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -23,11 +23,9 @@ import (
 // newest checkpoint.
 //
 // This file is the routes. Taking, restoring and pruning checkpoints is the
-// lifecycle's, under the sprite's lock (lifecycle_checkpoints.go); what is
+// lifecycle's, under the sprite's lock (engine/lifecycle_checkpoints.go); what is
 // reported while that runs comes back through a progress callback, and how it
 // is streamed to the client is decided here.
-
-var errNoCheckpoint = errors.New("checkpoint not found")
 
 type ndjson struct {
 	w  http.ResponseWriter
@@ -51,39 +49,12 @@ func (n *ndjson) info(f string, a ...any)     { n.emit("info", "data", fmt.Sprin
 func (n *ndjson) fail(f string, a ...any)     { n.emit("error", "error", fmt.Sprintf(f, a...)) }
 func (n *ndjson) complete(f string, a ...any) { n.emit("complete", "data", fmt.Sprintf(f, a...)) }
 
-func findCheckpoint(sp store.Record, id string) *store.Checkpoint {
-	for i := range sp.Checkpoints {
-		if sp.Checkpoints[i].ID == id {
-			return &sp.Checkpoints[i]
-		}
-	}
-	return nil
-}
-
-// filterCheckpoints is the listing, newest first. Autos appear only on request;
-// history keeps the checkpoints that descend from that one.
-func filterCheckpoints(sp store.Record, history string, includeAuto bool) []store.Checkpoint {
-	out := []store.Checkpoint{}
-	for _, cp := range slices.Backward(sp.Checkpoints) {
-		if cp.IsAuto && !includeAuto {
-			continue
-		}
-		if history != "" && !slices.Contains(cp.History, history) {
-			continue
-		}
-		out = append(out, cp)
-	}
-	return out
-}
-
 // The handlers below take the sprite as an argument, and the in-guest channel
 // the request arrived on (nil for the public API). A guest request is only
-// honoured while the VM that sent it is still the running one; the lifecycle
-// answers errStaleGuest otherwise.
+// honoured while the VM that sent it is still the running one; the engine
+// answers engine.ErrStaleGuest otherwise.
 
-var errStaleGuest = errors.New("the sprite was suspended before the request ran; retry")
-
-func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, from *guestChan) {
+func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, from *engine.GuestChan) {
 	var req struct {
 		Comment string `json:"comment"`
 	}
@@ -97,8 +68,8 @@ func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	// sprite may not. Every checkpoint is a full clone, so without a ceiling a
 	// loop in one guest would starve every other sprite. (Approximate under
 	// concurrent creates, which is fine for a ceiling.)
-	if limit := s.opts.GuestCheckpointLimit; from != nil && limit > 0 && len(filterCheckpoints(sp.Record, "", false)) >= limit {
-		s.life.emit(sp.Record, "limit.refused", map[string]any{"limit": "guest_checkpoints", "max": limit, "current": len(filterCheckpoints(sp.Record, "", false))})
+	if limit := s.opts.GuestCheckpointLimit; from != nil && limit > 0 && len(engine.ListCheckpoints(sp.Record, "", false)) >= limit {
+		s.life.Emit(sp.Record, "limit.refused", map[string]any{"limit": "guest_checkpoints", "max": limit, "current": len(engine.ListCheckpoints(sp.Record, "", false))})
 		writeErr(w, http.StatusConflict, "checkpoint_limit", fmt.Sprintf(
 			"this sprite already has %d checkpoints, the most it may create from inside; delete some first", limit))
 		return
@@ -113,14 +84,14 @@ func (s *Server) createCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 	out.complete("Checkpoint %s created", cp.ID)
 }
 
-func (s *Server) listCheckpoints(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *guestChan) {
+func (s *Server) listCheckpoints(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *engine.GuestChan) {
 	// Always JSON: the SDK rejects the text/plain form upstream has for history listings.
 	q := r.URL.Query()
-	writeJSON(w, http.StatusOK, filterCheckpoints(sp.Record, q.Get("history"), q.Get("includeAuto") == "true"))
+	writeJSON(w, http.StatusOK, engine.ListCheckpoints(sp.Record, q.Get("history"), q.Get("includeAuto") == "true"))
 }
 
-func (s *Server) getCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *guestChan) {
-	cp := findCheckpoint(sp.Record, r.PathValue("id"))
+func (s *Server) getCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *engine.GuestChan) {
+	cp := engine.FindCheckpoint(sp.Record, r.PathValue("id"))
 	if cp == nil {
 		writeErr(w, http.StatusNotFound, "not_found", "checkpoint not found")
 		return
@@ -128,13 +99,13 @@ func (s *Server) getCheckpoint(w http.ResponseWriter, r *http.Request, sp store.
 	writeJSON(w, http.StatusOK, cp)
 }
 
-func (s *Server) deleteCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *guestChan) {
+func (s *Server) deleteCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, _ *engine.GuestChan) {
 	switch err := s.life.DeleteCheckpoint(sp.Record, r.PathValue("id")); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, errCheckpointMounted):
-		writeErr(w, http.StatusConflict, "checkpoint_mounted", errCheckpointMounted.Error())
-	case errors.Is(err, errNoCheckpoint):
+	case errors.Is(err, engine.ErrCheckpointMounted):
+		writeErr(w, http.StatusConflict, "checkpoint_mounted", engine.ErrCheckpointMounted.Error())
+	case errors.Is(err, engine.ErrNoCheckpoint):
 		writeErr(w, http.StatusNotFound, "not_found", "checkpoint not found")
 	default:
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
@@ -145,9 +116,9 @@ func (s *Server) deleteCheckpoint(w http.ResponseWriter, r *http.Request, sp sto
 // sprite-env -> the user's terminal before the VM carrying it is killed.
 const guestRestoreGrace = 300 * time.Millisecond
 
-func (s *Server) restoreCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, from *guestChan) {
+func (s *Server) restoreCheckpoint(w http.ResponseWriter, r *http.Request, sp store.Sprite, from *engine.GuestChan) {
 	id := r.PathValue("id")
-	if findCheckpoint(sp.Record, id) == nil {
+	if engine.FindCheckpoint(sp.Record, id) == nil {
 		writeErr(w, http.StatusNotFound, "not_found", "checkpoint not found")
 		return
 	}
@@ -164,7 +135,7 @@ func (s *Server) restoreCheckpoint(w http.ResponseWriter, r *http.Request, sp st
 		}
 	}
 	if err := s.life.RestoreCheckpoint(sp.Record, from, id, out.info, beforeStop); err != nil {
-		if from != nil && !errors.Is(err, errStaleGuest) {
+		if from != nil && !errors.Is(err, engine.ErrStaleGuest) {
 			s.log.Error("in-guest restore failed", "sprite", sp.Name, "checkpoint", id, "err", err)
 		}
 		out.fail("%v", err)

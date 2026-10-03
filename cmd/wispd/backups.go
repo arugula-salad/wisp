@@ -12,8 +12,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/backup"
-	"github.com/arugula-salad/wisp/internal/server"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -24,7 +24,7 @@ import (
 
 // backupFlags registers the bucket flags on fs, shared by the daemon and both
 // subcommands so that the same arguments work everywhere.
-func backupFlags(fs *flag.FlagSet) func() server.BackupOptions {
+func backupFlags(fs *flag.FlagSet) func() engine.BackupOptions {
 	endpoint := fs.String("backup-endpoint", "", "S3 endpoint for the backup tier, e.g. http://garage-s3:3900")
 	bucket := fs.String("backup-bucket", "", "S3 bucket for sprite backups (empty disables backups entirely)")
 	region := fs.String("backup-region", "us-east-1", "S3 region the bucket reports, e.g. home-cloud for Garage")
@@ -35,14 +35,14 @@ func backupFlags(fs *flag.FlagSet) func() server.BackupOptions {
 	interval := fs.Duration("backup-interval", 6*time.Hour, "re-upload a sprite whose disk changed this long after its last backup; also the retry for a failed one (0 = only on suspend)")
 	retention := fs.Duration("backup-retention", 30*24*time.Hour, "how long a deleted sprite's backups are kept by `wispd backups prune`")
 	keep := fs.Int("backup-keep", 0, "manifests to keep per sprite in `wispd backups prune` (0 = all)")
-	return func() server.BackupOptions {
-		return server.BackupOptions{Endpoint: *endpoint, Bucket: *bucket, Region: *region,
+	return func() engine.BackupOptions {
+		return engine.BackupOptions{Endpoint: *endpoint, Bucket: *bucket, Region: *region,
 			CredentialsFile: *creds, KeyFile: *key, Parallel: *parallel, RateLimit: *rate,
 			Interval: *interval, Retention: *retention, Keep: *keep}
 	}
 }
 
-func openRepo(ctx context.Context, opts server.BackupOptions, log *slog.Logger) (*backup.Repo, error) {
+func openRepo(ctx context.Context, opts engine.BackupOptions, log *slog.Logger) (*backup.Repo, error) {
 	if opts.Bucket == "" {
 		return nil, errors.New("--backup-bucket is required")
 	}

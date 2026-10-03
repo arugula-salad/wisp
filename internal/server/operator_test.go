@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,14 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	sprites "github.com/superfly/sprites-go"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
-	"github.com/arugula-salad/wisp/internal/vmm"
 )
 
 // newOperatorServer is a daemon with a tiny base image and no VMs: enough for
@@ -36,7 +34,7 @@ func newOperatorServer(t *testing.T, opts Options) (*Server, http.Handler) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	s := New(testURLs(opts, "acme", "0"), st, NewLifecycle(opts, st, log), log, "tok")
+	s := New(testURLs(opts, "acme", "0"), st, engine.New(opts.Options, st, log), log, "tok")
 	return s, s.Handler()
 }
 
@@ -67,7 +65,7 @@ func apiError(t *testing.T, resp *http.Response) *sprites.APIError {
 }
 
 func TestListCarriesOrgAndMaxSpritesIsEnforced(t *testing.T) {
-	_, h := newOperatorServer(t, Options{MaxSprites: 2, MaxRunning: 5})
+	_, h := newOperatorServer(t, Options{MaxSprites: 2, Options: engine.Options{MaxRunning: 5}})
 	for _, name := range []string{"a", "b"} {
 		if resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"`+name+`"}`); resp.StatusCode != http.StatusCreated {
 			t.Fatalf("create %s: %d", name, resp.StatusCode)
@@ -88,168 +86,24 @@ func TestListCarriesOrgAndMaxSpritesIsEnforced(t *testing.T) {
 	}
 }
 
-func TestMaxRunningRefusesAWakeInUpstreamsShape(t *testing.T) {
-	s, _ := newOperatorServer(t, Options{MaxRunning: 1, IdleTimeout: 30 * time.Second})
-	if err := s.life.reserveRun(); err != nil {
-		t.Fatal(err)
-	}
-	err := s.life.reserveRun()
-	var lim *LimitError
-	if !errors.As(err, &lim) {
-		t.Fatalf("second reservation: %v", err)
-	}
-	rec := httptest.NewRecorder()
-	s.writeWakeErr(rec, "x", err)
-	e := apiError(t, rec.Result())
-	if !e.IsRateLimitError() || !e.IsConcurrentLimitExceeded() || e.Limit != 1 || e.CurrentCount != 1 || e.GetRetryAfterSeconds() != 30 || e.RetryAfterHeader != 30 {
-		t.Fatalf("limit error = %+v", e)
-	}
-	s.life.releaseRun()
-	if err := s.life.reserveRun(); err != nil {
-		t.Fatalf("a freed slot should be usable: %v", err)
-	}
-}
-
-// fakeVolume stands in for statfs: free space is whatever the test last stored.
-// (The guard also probes from its own goroutines, hence the atomic.)
-func fakeVolume(s *Server) *atomic.Int64 {
-	free := new(atomic.Int64)
-	s.life.disk.probe = func() (Headroom, error) {
-		return Headroom{VolumeTotal: 40 << 30, VolumeFree: free.Load(), Free: free.Load()}, nil
-	}
-	return free
-}
-
-func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
-	s, h := newOperatorServer(t, Options{DiskReserve: 2 << 30})
-	vol := fakeVolume(s)
-	vol.Store(3 << 30)
-	if resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"fits"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create with room: %d", resp.StatusCode)
-	}
-
-	vol.Store(1 << 30)
-	sub, _, _ := s.life.events.subscribe(func(e Event) bool { return e.Type == "disk.refused" }, 0, false)
-	defer s.life.events.unsubscribe(sub)
+// A create the disk guard refuses is 507 insufficient_storage, and leaves no
+// sprite behind.
+func TestDiskGuardRefusalInUpstreamsShape(t *testing.T) {
+	_, h := newOperatorServer(t, Options{Options: engine.Options{DiskReserve: 1 << 62}})
 	resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"full"}`)
 	if e := apiError(t, resp); e.StatusCode != http.StatusInsufficientStorage || e.ErrorCode != "insufficient_storage" {
 		t.Fatalf("create on a full volume = %+v", e)
 	}
-	if _, err := s.store.GetByName(store.Sprites, "full"); err == nil {
-		t.Fatal("a refused create left a sprite behind")
-	}
-	// The refusal comes before there is a record, and still names the sprite.
-	select {
-	case e := <-sub.ch:
-		if e.Sprite != "full" || e.SpriteID == "" || e.Detail["operation"] != "a new sprite" {
-			t.Fatalf("disk.refused = %+v", e)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("no disk.refused event")
-	}
-	sp, _ := s.store.GetByName(store.Sprites, "fits")
-	_, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), sp.ID, "", false, func(string, ...any) {})
-	if !errors.Is(err, errNoRoom) {
-		t.Fatalf("checkpoint on a full volume: %v", err)
-	}
-	if got, _ := s.store.GetByName(store.Sprites, "fits"); len(got.Checkpoints) != 0 {
-		t.Fatal("a refused checkpoint was recorded")
-	}
-}
-
-func TestMakeRoomTurnsTheOldestWarmSpritesCold(t *testing.T) {
-	s, _ := newOperatorServer(t, Options{})
-	vol := fakeVolume(s)
-	const snap = 1 << 20
-	warmed := time.Now().Add(-time.Hour)
-	for i, name := range []string{"oldest", "older", "newest", "suspending"} {
-		sp := &store.Sprite{ID: store.NewID(), Name: name, CreatedAt: time.Now()}
-		if err := s.store.Create(sp); err != nil {
-			t.Fatal(err)
-		}
-		if name == "suspending" {
-			continue
-		}
-		at := warmed.Add(time.Duration(i) * time.Minute)
-		s.store.UpdateByName(store.Sprites, name, func(sp *store.Sprite) { sp.LastWarmingAt = &at })
-		for _, f := range []string{"snap.vmstate", "snap.mem"} {
-			if err := os.WriteFile(filepath.Join(s.store.Dir(sp.ID), f), bytes.Repeat([]byte{1}, snap/2), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	warm := func(name string) bool {
-		sp, _ := s.store.GetByName(store.Sprites, name)
-		return vmm.HasSnapshot(s.store.Dir(sp.ID))
-	}
-	me, _ := s.store.GetByName(store.Sprites, "suspending")
-
-	room := func(need int64) bool {
-		release, fits := s.life.makeRoom(me.Record, need)
-		release()
-		return fits
-	}
-	vol.Store(10 * snap)
-	if !room(5*snap) || !warm("oldest") {
-		t.Fatal("a snapshot that fits should cost nobody anything")
-	}
-	// Two suspends at once may not both be promised the same free bytes.
-	release, fits := s.life.makeRoom(me.Record, 9*snap)
-	if !fits || !warm("oldest") {
-		t.Fatal("9 of 10 free should fit")
-	}
-	vol.Store(10*snap + snap/2) // what a second suspend sees while the first still writes
-	other, _ := s.store.GetByName(store.Sprites, "newest")
-	if _, fits := s.life.makeRoom(other.Record, 9*snap); fits {
-		t.Fatal("the same space was promised twice")
-	}
-	release()
-	if !warm("oldest") || !warm("older") {
-		t.Fatal("an attempt that could not succeed still cost sprites their memory state")
-	}
-
-	// Half a snapshot short: one demotion covers it, and it is the oldest that goes.
-	vol.Store(snap)
-	if !room(snap + snap/2) {
-		t.Fatal("no room even after a demotion")
-	}
-	if warm("oldest") || !warm("older") || !warm("newest") {
-		t.Fatalf("warm after one demotion: oldest=%v older=%v newest=%v", warm("oldest"), warm("older"), warm("newest"))
-	}
-
-	// Hopeless: the caller is told so, and nobody is turned cold for nothing.
-	vol.Store(snap)
-	if room(100 * snap) {
-		t.Fatal("reported room that is not there")
-	}
-	if !warm("older") || !warm("newest") {
-		t.Fatal("warm sprites were dropped for a snapshot that could never fit")
-	}
-}
-
-func TestExclusiveCountsOnlyUnsharedBytes(t *testing.T) {
-	owners := [][]span{
-		merge([]span{{0, 60}, {40, 100}}), // overlaps itself: still one owner
-		{{50, 150}},
-		{{200, 300}},
-		nil,
-	}
-	got := exclusive(owners)
-	for i, want := range []int64{50, 50, 100, 0} {
-		if got[i] != want {
-			t.Fatalf("owner %d: %d exclusive bytes, want %d (all: %v)", i, got[i], want, got)
-		}
-	}
-	if n := total(owners[0]); n != 100 {
-		t.Fatalf("merged total = %d, want 100", n)
+	if resp := apiCall(t, h, "GET", "/v1/sprites/full", ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("a refused create left a sprite behind: %d", resp.StatusCode)
 	}
 }
 
 func TestStatusLiveAndOffline(t *testing.T) {
-	s, h := newOperatorServer(t, Options{MaxRunning: 3})
+	s, h := newOperatorServer(t, Options{Options: engine.Options{MaxRunning: 3}})
 	apiCall(t, h, "POST", "/v1/sprites", `{"name":"one"}`)
 	sp, _ := s.store.GetByName(store.Sprites, "one")
-	if _, err := s.life.createCheckpointLocked(s.life.rt(sp.ID), sp.ID, "", false, func(string, ...any) {}); err != nil {
+	if _, err := s.life.CreateCheckpoint(sp.Record, nil, "", func(string, ...any) {}); err != nil {
 		t.Fatal(err)
 	}
 

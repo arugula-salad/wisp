@@ -1,3 +1,9 @@
+// Package server is wispd's Sprites front end: the Sprites REST/WebSocket API
+// and its auth and API keys, sprite URLs and custom domains, the web UI, the
+// event stream and webhooks, the operator socket, and the API a guest reaches
+// over its host channel. Everything about running a sprite (its VM, disk,
+// checkpoints, network policy, backups and lifecycle) is the engine's
+// (github.com/arugula-salad/wisp/engine), reached through an *engine.Engine.
 package server
 
 import (
@@ -8,7 +14,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -16,7 +21,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/httpstats"
+	"github.com/arugula-salad/wisp/internal/ratelimit"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -26,10 +33,47 @@ const apiVersion = "v0.0.1-rc48"
 
 var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+// Options configures the Sprites front end: the engine's options, which it
+// reads too (data directory, limits), and the API's own.
+type Options struct {
+	engine.Options
+	// URLReadyWait is how long a sprite URL waits for the app inside to accept a
+	// connection before answering 503 (urlproxy.go); 0 fails on the first refusal.
+	URLReadyWait time.Duration
+	// NoControl answers 404 on /control, which makes SDKs fall back to one
+	// WebSocket per operation.
+	NoControl bool
+	// ControlForGoSDK offers /control to the official Go SDK too. See offersControl.
+	ControlForGoSDK bool
+	// GuestCheckpointLimit caps the manual checkpoints a sprite can hold when the
+	// request to create one comes from inside it (0 = no limit).
+	GuestCheckpointLimit int
+	// MaxSprites is how many sprites may exist (limits.go); 0 means no limit.
+	MaxSprites int
+	// Listen is the API address, reported by the status views.
+	Listen string
+	// Org is the organization name reported in API responses.
+	Org string
+	// URLDomains are the domains sprite URLs are under, <name>.<domain>; the
+	// first is the default.
+	URLDomains []string
+	// URLFormat is the pattern for the URL a sprite is reported to have: where
+	// clients reach it, which only the operator knows once a router is
+	// involved. It is given the sprite's name and then its URL domain.
+	URLFormat string
+	// APIHosts are names a reverse proxy in front of the API listener serves it
+	// under, for the public. They are the bearer API alone: never a sprite URL,
+	// even under a URL domain (wisp.widgets.wtf with --url-domain widgets.wtf),
+	// and never the dashboard, which stays on the names the proxy does not serve.
+	APIHosts []string
+	// Webhooks receive every event (webhooks.go).
+	Webhooks WebhookOptions
+}
+
 type Server struct {
 	opts   Options
 	store  *store.Store
-	life   *Lifecycle
+	life   *engine.Engine
 	log    *slog.Logger
 	token  string
 	org    string
@@ -38,15 +82,12 @@ type Server struct {
 	// urlDomains are the domains sprite URLs are under, <name>.<domain>; the
 	// first is the default. A sprite answers only under its own (urlDomainOf).
 	urlDomains []string
-	storage    *storage
-	images     *imageCache      // disks built from container images (images.go)
-	backups    *backupManager   // nil when no backup bucket is configured
-	metrics    *metrics         // history for the web UI (ui.go)
-	httpStats  *httpstats.Stats // request counts and latency for the web UI
-	webhooks   []*webhook       // webhooks.go
-	leases     *leases          // expiring workspaces (leases.go)
+	images     *engine.ImageCache // disks built from container images (images_api.go)
+	metrics    *metrics           // history for the web UI (ui.go)
+	httpStats  *httpstats.Stats   // request counts and latency for the web UI
+	webhooks   []*webhook         // webhooks.go
 	// guestEvents limits the events a guest may report about itself (guestevents.go).
-	guestEvents *rateLimiter
+	guestEvents *ratelimit.Limiter
 	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
 	domains     *domains      // custom domains (domains.go); nil without a public listener
 	keys        *keyring      // API keys beside the root token (apikeys.go)
@@ -57,36 +98,39 @@ type Server struct {
 }
 
 // New serves the API over st and life. token is the root bearer token.
-func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token string) *Server {
+func New(opts Options, st *store.Store, life *engine.Engine, log *slog.Logger, token string) *Server {
 	s := &Server{opts: opts, store: st, life: life, log: log, token: token, org: opts.Org,
 		urlDomains: opts.URLDomains, urlFmt: opts.URLFormat, started: time.Now()}
-	life.guestAPI = s.guestAPI
+	life.SetGuestAPI(s.guestAPI)
 	s.keys = openKeyring(opts.DataDir)
 	if s.keys.broken != nil {
 		log.Error("API keys unreadable: only the root token works until this is fixed", "err", s.keys.broken)
 	}
-	s.storage = life.storage
-	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admitHost, log)
+	s.images = life.Images()
 	s.metrics = newMetrics(s)
 	s.httpStats = httpstats.New(func(name string) bool { _, err := st.GetByName(store.Sprites, name); return err == nil })
-	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
-	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
-	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
-		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
-	}
-	s.backups = life.backups
+	s.guestEvents = ratelimit.New(guestEventBurst, guestEventRate)
+	s.webhooks = startWebhooks(life.Events(), opts.Webhooks, log)
 	life.SetDescriber(describeSprite)
+	life.SetBackupFilter(backedUp)
 	life.OnDelete(s.deleted)
-	s.leases = life.leases
 	// Once here, before anything is served: a lease that ran out while the
 	// daemon was down has still run out, and the sprite should not come back.
 	life.StartReaping()
 	return s
 }
 
+// NoBackupLabel opts a sprite out of backups. Everything else with a configured
+// bucket is backed up, because an opt-in default would leave most sprites with
+// the durability this issue exists to fix.
+const NoBackupLabel = "nobackup"
+
+// backedUp is the Server's backup filter (engine.Engine.SetBackupFilter).
+func backedUp(sp store.Sprite) bool { return !slices.Contains(sp.Labels, NoBackupLabel) }
+
 // named adapts a handler that takes its sprite as an argument to the public
 // API, where the sprite comes from {name}. (The in-guest channel supplies it differently.)
-func (s *Server) named(h func(http.ResponseWriter, *http.Request, store.Sprite, *guestChan)) http.HandlerFunc {
+func (s *Server) named(h func(http.ResponseWriter, *http.Request, store.Sprite, *engine.GuestChan)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if sp, ok := s.lookup(w, r); ok {
 			h(w, r, sp, nil)
@@ -136,7 +180,7 @@ func (s *Server) buildRoutes() *http.ServeMux {
 	s.registerPolicyLimits(mux)
 	s.registerSpawnPolicy(mux)
 	s.registerDomains(mux)
-	// Ours, outside /v1 (events.go, webhooks.go, leases.go).
+	// Ours, outside /v1 (events_api.go, webhooks.go, leases_api.go).
 	s.registerLeases(mux)
 	mux.HandleFunc("GET "+eventsPath, s.serveAPIEvents)
 	mux.HandleFunc("GET /wisp/v1/webhooks", s.serveWebhookStatus)
@@ -250,14 +294,14 @@ type spriteJSON struct {
 	ParentID string `json:"parent_id,omitempty"`
 	// SourceImage is ours: the container image the sprite was created from.
 	SourceImage string `json:"source_image,omitempty"`
-	// ExpiresAt and Protected are ours: the workspace lease (leases.go). Absent
+	// ExpiresAt and Protected are ours: the workspace lease (engine/leases.go). Absent
 	// on the sprites that have none, which is most of them.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	Protected bool       `json:"protected,omitempty"`
 	// Backup is ours, not upstream's: where this sprite's durability stands. The
 	// SDKs ignore fields they do not know, and it is absent entirely when no bucket
 	// is configured.
-	Backup *backupState `json:"backup,omitempty"`
+	Backup *engine.BackupState `json:"backup,omitempty"`
 }
 
 func (s *Server) render(sp store.Sprite) spriteJSON {
@@ -266,7 +310,7 @@ func (s *Server) render(sp store.Sprite) spriteJSON {
 		Config: sp.Config, Environment: sp.Environment, URL: fmt.Sprintf(s.urlFmt, sp.Name, s.urlDomainOf(sp)),
 		URLSettings: sp.URLSettings, URLDomain: s.urlDomainOf(sp), Labels: sp.Labels, CreatedAt: sp.CreatedAt, UpdatedAt: sp.UpdatedAt,
 		LastRunningAt: sp.LastRunningAt, LastWarmingAt: sp.LastWarmingAt, ParentID: sp.ParentID,
-		SourceImage: sp.Image, Backup: s.backups.State(sp.ID),
+		SourceImage: sp.Image, Backup: s.life.BackupState(sp.ID),
 		ExpiresAt: sp.ExpiresAt, Protected: sp.Protected,
 	}
 }
@@ -296,7 +340,7 @@ type createRequest struct {
 	// URLDomain, ours, is which of the --url-domain list its URL is under;
 	// empty is the first. A sprite made from inside always gets its parent's.
 	URLDomain string `json:"url_domain"`
-	// The workspace lease, ours (leases.go); no lease without one of its fields.
+	// The workspace lease, ours (engine/leases.go); no lease without one of its fields.
 	leaseRequest
 }
 
@@ -315,16 +359,16 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	}
 	// A refused create is reported under the name it asked for, and to the
 	// spawner that asked, if one did.
-	refused := func(lim *LimitError, which string) {
-		e := Event{Type: "limit.refused", Sprite: req.Name, Detail: map[string]any{"limit": which, "max": lim.Limit, "current": lim.Current}}
+	refused := func(lim *engine.LimitError, which string) {
+		e := engine.Event{Type: "limit.refused", Sprite: req.Name, Detail: map[string]any{"limit": which, "max": lim.Limit, "current": lim.Current}}
 		if parent != nil {
 			e.ParentID = parent.ID
 		}
-		s.life.events.Publish(e)
+		s.life.Events().Publish(e)
 		writeLimitErr(w, lim)
 	}
 	if limit, n := s.opts.MaxSprites, s.store.Count(); limit > 0 && n >= limit {
-		refused(&LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
+		refused(&engine.LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
 			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)}, "max_sprites")
 		return
 	}
@@ -364,7 +408,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		return
 	}
 
-	spec := CreateSpec{}
+	spec := engine.CreateSpec{}
 	cloned := false
 	switch {
 	case req.From != nil && req.From.Image != "":
@@ -397,7 +441,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		}
 		// Held until the image is cloned, so the checkpoint cannot be deleted under the copy.
 		defer unlock()
-		spec.Checkpoint = &CheckpointRef{Sprite: src.Record, ID: cp}
+		spec.Checkpoint = &engine.CheckpointRef{Sprite: src.Record, ID: cp}
 		// A clone is the source's machine as well as its disk.
 		sp.Config, sp.NetworkRules, sp.Privileges, sp.Resources = src.Config, src.NetworkRules, src.Privileges, src.Resources
 		sp.Image = src.Image // the disk still descends from it
@@ -411,7 +455,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	spec.Sprite = *sp
 	created, err := s.life.Create(r.Context(), spec)
 	switch {
-	case errors.Is(err, errNoRoom):
+	case errors.Is(err, engine.ErrNoRoom):
 		writeNoRoom(w, err)
 		return
 	case errors.Is(err, store.ErrExists):
@@ -471,7 +515,7 @@ func (s *Server) updateSprite(w http.ResponseWriter, r *http.Request) {
 		// URL stops answering at once. Only from outside: a spawner's children
 		// keep the domain they were made under.
 		URLDomain string `json:"url_domain"`
-		// The lease, ours (leases.go). It is not written here: it goes through
+		// The lease, ours (engine/leases.go). It is not written here: it goes through
 		// the one path that is serialized against the reaper.
 		leaseRequest
 	}
@@ -525,7 +569,7 @@ func (s *Server) deleteSprite(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// deleted is the front end's part of a deletion (Lifecycle.OnDelete), however
+// deleted is the front end's part of a deletion (engine.Engine.OnDelete), however
 // it came about: the sprite's custom domains go with it.
 func (s *Server) deleted(store.Sprite) { s.syncDomains() }
 
@@ -582,7 +626,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, pin bool) {
 				pr.Out.URL.RawQuery = withSpriteEnv(pr.Out.URL.Query(), sp).Encode()
 			}
 		},
-		Transport:     agentTransport(m),
+		Transport:     engine.AgentTransport(m),
 		FlushInterval: -1,
 		ModifyResponse: func(resp *http.Response) error {
 			if !pin && resp.StatusCode == http.StatusSwitchingProtocols {
