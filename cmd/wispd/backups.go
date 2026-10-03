@@ -174,18 +174,20 @@ func restoreOne(ctx context.Context, repo *backup.Repo, st *store.Store,
 	if rename != "" {
 		rec.Name, rec.Hostname = rename, rename // a sprite's hostname is its name
 	}
-	if existing, err := st.GetByName(store.Sprites, rec.Name); err == nil {
+	named, nameErr := st.GetByName(store.Sprites, rec.Name)
+	// The record keeps its ID, and with it its machine directory, so it cannot
+	// go beside the sprite it was backed up from. Checked before --force deletes
+	// anything, so a refused restore leaves every sprite as it was.
+	if existing, err := st.Get(rec.ID); err == nil && (nameErr != nil || named.ID != rec.ID) {
+		return fmt.Errorf("this backup's sprite is here already, as %q (id %s); restoring a copy beside it is not supported", existing.Name, existing.ID)
+	}
+	if nameErr == nil {
 		if !force {
-			return fmt.Errorf("%q already exists here (id %s); pass --force to replace it, or --rename", rec.Name, existing.ID)
+			return fmt.Errorf("%q already exists here (id %s); pass --force to replace it, or --rename", rec.Name, named.ID)
 		}
-		if err := st.Delete(existing.ID); err != nil {
+		if err := st.Delete(named.ID); err != nil {
 			return err
 		}
-	}
-	// The record keeps its ID, and with it its machine directory, so it cannot
-	// go beside the sprite it was backed up from.
-	if existing, err := st.Get(rec.ID); err == nil {
-		return fmt.Errorf("this backup's sprite is here already, as %q (id %s); restoring a copy beside it is not supported", existing.Name, existing.ID)
 	}
 	// Create reserves the name, allocates an address free on *this* host and makes
 	// the machine directory; the record it writes is what the API will serve.
