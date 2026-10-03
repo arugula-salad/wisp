@@ -39,7 +39,7 @@ import (
 //     before the delete).
 //  3. Everything else is a leaf, taken under rt.mu or alone and held only
 //     for bookkeeping: l.mu (the runtime table, the tap pool, the loops, the
-//     delete hooks), rt.useMu, the store's own lock, and the mutexes of the
+//     delete and boot hooks), rt.useMu, the store's own lock, and the mutexes of the
 //     disk guard, admission, egress, backups and leases. None is ever held while
 //     waiting for rt.mu, so l.rt(id) may be called with or without a sprite
 //     locked, and the store may be read and written under rt.mu. Naming a
@@ -188,6 +188,9 @@ type Engine struct {
 	// onDelete is what the front end does when a sprite is deleted (OnDelete);
 	// guarded by mu.
 	onDelete []func(store.Sprite)
+	// onBoot prepares a guest before anything else gets its VM (OnBoot);
+	// guarded by mu.
+	onBoot []BootHook
 	// describer names records in events and logs (SetDescriber); unstored are
 	// the records Create and Delete hold while the store does not (guarded by
 	// mu), so that what they report about is described too.
@@ -580,6 +583,11 @@ func (l *Engine) bootLocked(ctx context.Context, sp store.Record, rt *runtime) e
 	if mode == "cold" {
 		rt.grantMiB = 0
 	}
+	if err := l.runBootHooks(ctx, Boot{Record: sp, Warm: mode == "warm", Machine: m}); err != nil {
+		m.Kill()
+		l.returnTap(tap)
+		return fmt.Errorf("preparing the guest: %w", err)
+	}
 	l.setBalloon(ctx, sp, rt, m, mode == "warm")
 	rt.m, rt.tap, rt.guest = m, tap, guest
 	if cur, err := l.store.GetRecord(sp.ID); err == nil {
@@ -734,7 +742,7 @@ func (l *Engine) watch(sp store.Record, rt *runtime, m *vmm.Machine) {
 			rt.mu.Unlock()
 			continue
 		}
-		// Again under the lock: setPolicy takes it too, so this is the rule now.
+		// Again under the lock: SetPolicy takes it too, so this is the rule now.
 		switch _, action = l.idleRule(sp); action {
 		case store.IdleNone:
 			err = errGuestBusy // the policy changed while we looked: go on watching
@@ -887,7 +895,7 @@ func (l *Engine) Cool(sp store.Record) bool {
 //   - leases.reap and leases.set (leases.go) decide a sprite's lease
 //     against each other under it, so that a renewal and a reap in flight
 //     cannot both win.
-//   - setPolicy (lifecycle_rules.go) changes a sandbox's deadline action
+//   - SetPolicy (lifecycle_rules.go) changes a sandbox's deadline action
 //     under it, for the same reason.
 func (l *Engine) withLocked(id string, fn func() error) error {
 	rt := l.rt(id)

@@ -13,7 +13,7 @@ import (
 )
 
 // refused is what a guest port that nothing has bound yet looks like from here:
-// the agent answers the tunnel request with a 502 and dialGuestTCP turns that
+// the agent answers the tunnel request with a 502 and engine.DialPort turns that
 // into an error.
 var refused = errors.New("nothing is listening on the http port inside the sprite")
 

@@ -2,6 +2,7 @@
 """Logging reverse proxy for recording what the official E2B SDKs send and receive.
 
     recorder.py --listen 127.0.0.1:8790 --out golden/py.jsonl [--domain e2b.app]
+    recorder.py --listen 127.0.0.1:8790 --out run.jsonl --upstream http://127.0.0.1:7823
     recorder.py --pretty golden/py.jsonl > golden/py.json
 
 Point an SDK at it with:
@@ -19,6 +20,10 @@ Routing, per request:
   * a Host header naming a sandbox port host (`<port>-<id>.<domain>`, sent by the probes
     for the port check) goes to https://<that host>;
   * everything else goes to https://api.<domain>.
+
+With --upstream (or $E2B_RECORD_UPSTREAM) every request goes instead to that one plain-HTTP
+origin, an E2B-compatible server that routes for itself (wisp's sandboxd): the routing
+headers, the signed URLs and a port Host are passed on as the SDK sent them.
 
 Bodies stream both ways (Connect server-streams stay open for minutes), and each
 `application/connect+json` envelope is recorded as a separate frame with its arrival
@@ -39,8 +44,9 @@ MAX_BODY = 64 * 1024
 
 
 class Recorder:
-    def __init__(self, out, domain):
+    def __init__(self, out, domain, upstream=None):
         self.out, self.domain = out, domain
+        self.upstream = urllib.parse.urlsplit(upstream) if upstream else None
         self.lock = threading.Lock()
         self.seq = 0
         self.t0 = time.time()
@@ -203,9 +209,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             record["request"]["body"] = rec.body(body, self.headers.get("Content-Type"), self.headers.get("Content-Encoding", ""))
         try:
-            conn = http.client.HTTPSConnection(upstream, timeout=600, context=ssl.create_default_context())
+            if rec.upstream:
+                u = rec.upstream
+                conn = http.client.HTTPConnection(u.hostname, u.port, timeout=600)
+                # A port Host is how the server routes it; anything else is for the server itself.
+                host = self.headers.get("Host") if kind == "port" else u.netloc
+                record["upstream"] = f"{u.netloc} ({upstream})"
+            else:
+                conn = http.client.HTTPSConnection(upstream, timeout=600, context=ssl.create_default_context())
+                host = upstream
             conn.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)
-            conn.putheader("Host", upstream)
+            conn.putheader("Host", host)
             for k, v in hdrs:
                 if k.lower() != "content-length":
                     conn.putheader(k, v)
@@ -286,14 +300,16 @@ def main():
     ap.add_argument("--listen", default="127.0.0.1:8790")
     ap.add_argument("--out")
     ap.add_argument("--domain", default=os.environ.get("E2B_RECORD_DOMAIN", "e2b.app"))
+    ap.add_argument("--upstream", default=os.environ.get("E2B_RECORD_UPSTREAM"),
+                    help="send everything to this plain-HTTP E2B-compatible server instead of *.<domain>")
     ap.add_argument("--pretty")
     a = ap.parse_args()
     if a.pretty:
         return pretty(a.pretty)
     host, port = a.listen.rsplit(":", 1)
-    Handler.rec = Recorder(a.out, a.domain)
+    Handler.rec = Recorder(a.out, a.domain, a.upstream)
     srv = Server((host, int(port)), Handler)
-    print(f"recorder: {a.listen} -> *.{a.domain}, writing {a.out}", file=sys.stderr, flush=True)
+    print(f"recorder: {a.listen} -> {a.upstream or '*.' + a.domain}, writing {a.out}", file=sys.stderr, flush=True)
     srv.serve_forever()
 
 

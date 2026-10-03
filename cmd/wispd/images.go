@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/arugula-salad/wisp/engine"
+	"github.com/arugula-salad/wisp/internal/daemon"
 	"github.com/arugula-salad/wisp/internal/server"
 )
 
@@ -56,7 +57,7 @@ func runImages(args []string) int {
 	}
 	verb := args[0]
 	fs := flag.NewFlagSet("images "+verb, flag.ExitOnError)
-	data := fs.String("data", defaultDataDir(), "data directory")
+	data := fs.String("data", daemon.DefaultDataDir(), "data directory")
 	asJSON := fs.Bool("json", false, "print JSON (list)")
 	// Flags may come before or after the positional argument.
 	var pos []string

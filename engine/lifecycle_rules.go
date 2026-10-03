@@ -56,12 +56,12 @@ func normalPolicy(p store.LifecyclePolicy) *store.LifecyclePolicy {
 	return &p
 }
 
-// setPolicy replaces a sandbox's lifecycle policy, the deadline action
-// included (the deadline itself is setDeadline's). It takes effect at once: a
+// SetPolicy replaces a sandbox's lifecycle policy, the deadline action
+// included (the deadline itself is SetDeadline's). It takes effect at once: a
 // running sandbox's idle watcher reads it on its next tick, and the deadline
 // sweep on its next pass. A sandbox whose lease a reap has committed to is
 // ErrLeaseReaping; one that is gone store.ErrNotFound.
-func (l *Engine) setPolicy(id string, p store.LifecyclePolicy) (store.Record, error) {
+func (l *Engine) SetPolicy(id string, p store.LifecyclePolicy) (store.Record, error) {
 	if !p.Valid() {
 		return store.Record{}, errBadPolicy
 	}
@@ -81,11 +81,11 @@ func (l *Engine) setPolicy(id string, p store.LifecyclePolicy) (store.Record, er
 	return cur, err
 }
 
-// setDeadline gives a sandbox a deadline, at which action is taken; at nil
+// SetDeadline gives a sandbox a deadline, at which action is taken; at nil
 // clears it, and an empty action leaves the action as it was. Setting it
 // again is the extension: E2B's set-timeout, a lease renewal. Protection is
-// left as it is. Errors are setPolicy's, and errBadPolicy for an unknown action.
-func (l *Engine) setDeadline(id string, at *time.Time, action store.DeadlineAction) (store.Record, error) {
+// left as it is. Errors are SetPolicy's, and errBadPolicy for an unknown action.
+func (l *Engine) SetDeadline(id string, at *time.Time, action store.DeadlineAction) (store.Record, error) {
 	return l.ChangeDeadline(id, func(d *Deadline) {
 		d.At = at
 		if action != "" {
@@ -94,7 +94,7 @@ func (l *Engine) setDeadline(id string, at *time.Time, action store.DeadlineActi
 	})
 }
 
-// ChangeDeadline is setDeadline for a caller that changes part of the
+// ChangeDeadline is SetDeadline for a caller that changes part of the
 // deadline: change sees the current one, under the sandbox's lock, and edits
 // it in place. The Sprites lease endpoints are this.
 func (l *Engine) ChangeDeadline(id string, change func(*Deadline)) (store.Record, error) {
