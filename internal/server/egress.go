@@ -57,7 +57,7 @@ func newEgress(opts Options, st *store.Store, log *slog.Logger, gateway net.IP, 
 	e.enf.OnDeny = onDeny
 	socket := opts.NetdSocket
 	if socket == "" {
-		socket = netd.DefaultSocket
+		socket = netd.Pool(opts.NetPool).Socket()
 	}
 	e.push = func(ctx context.Context, addrs []netip.Addr) error { return netd.Push(ctx, socket, addrs) }
 	gw, ok := netip.AddrFromSlice(gateway.To4())

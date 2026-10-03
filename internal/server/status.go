@@ -53,8 +53,10 @@ type HostStatus struct {
 	DiskReserve int64 `json:"disk_reserve_bytes"`
 	// Networking is false for a daemon run with --net=false or without the bridge.
 	Networking bool `json:"networking"`
-	TapsTotal  int  `json:"taps_total"`
-	TapsUsed   int  `json:"taps_used"`
+	// Bridge is the network pool's bridge the daemon uses or looked for (daemon only).
+	Bridge    string `json:"bridge,omitempty"`
+	TapsTotal int    `json:"taps_total"`
+	TapsUsed  int    `json:"taps_used"`
 	// PolicyHelper is wisp-netd, without which restrictive network policies are refused.
 	PolicyHelper HelperStatus `json:"policy_helper"`
 	Running      int          `json:"running"`
@@ -319,7 +321,7 @@ func OfflineStatus(dataDir, netdSocket string) (Status, error) {
 	out.Host.Volume, _ = probeHeadroom(vmRoot)
 	out.Host.Images = imageCacheStatus(vmRoot)
 	if netdSocket == "" {
-		netdSocket = netd.DefaultSocket
+		netdSocket = netd.Pool(0).Socket()
 	}
 	// Connecting would make the helper log a refused request, so only look.
 	if fi, err := os.Stat(netdSocket); err == nil && fi.Mode()&os.ModeSocket != 0 {
@@ -372,7 +374,7 @@ func (s *Server) status(ctx context.Context, started time.Time, listen string) S
 	vmRoot := filepath.Join(s.opts.DataDir, "vm")
 	out := Status{Daemon: &DaemonStatus{Pid: os.Getpid(), StartedAt: started, Listen: listen},
 		Host: HostStatus{DataDir: s.opts.DataDir, Reflink: s.storage.reflink, DiskReserve: s.opts.DiskReserve,
-			Networking: l.gateway != nil, PolicyHelper: l.egress.helperStatus(),
+			Networking: l.gateway != nil, Bridge: netd.Pool(s.opts.NetPool).Bridge(), PolicyHelper: l.egress.helperStatus(),
 			MaxRunning: s.opts.MaxRunning, MaxSprites: s.opts.MaxSprites,
 			MaxRunningMemoryMiB: s.opts.MaxRunningMemoryMiB, MaxConcurrentBoots: s.opts.MaxConcurrentBoots},
 		Sprites: []SpriteStatus{}}

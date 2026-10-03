@@ -17,6 +17,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/arugula-salad/wisp/internal/netd"
 	"github.com/arugula-salad/wisp/internal/server"
 )
 
@@ -61,8 +62,12 @@ func runStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	data := fs.String("data", defaultDataDir(), "data directory")
 	asJSON := fs.Bool("json", false, "print the full status as JSON")
-	netdSocket := fs.String("netd-socket", "", "wisp-netd socket to look for when no daemon is running (default /run/wisp/netd.sock)")
+	netdSocket := fs.String("netd-socket", "", "wisp-netd socket to look for when no daemon is running (default /run/wisp/netd.sock, /run/wispN/netd.sock with --net-pool N)")
+	pool := fs.Int("net-pool", 0, "the daemon's --net-pool, which picks the default --netd-socket")
 	fs.Parse(args)
+	if *netdSocket == "" {
+		*netdSocket = netd.Pool(*pool).Socket()
+	}
 	abs, err := filepath.Abs(*data)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -205,7 +210,11 @@ func printStatus(w io.Writer, st server.Status) {
 		if h.Networking {
 			fmt.Fprintf(w, "network    %d of %d taps in use\n", h.TapsUsed, h.TapsTotal)
 		} else {
-			fmt.Fprintln(w, "network    off for this daemon (--net=false, or no msbr0 bridge)")
+			bridge := h.Bridge
+			if bridge == "" {
+				bridge = "pool"
+			}
+			fmt.Fprintf(w, "network    off for this daemon (--net=false, or no %s bridge)\n", bridge)
 		}
 	}
 	helper := "reachable"

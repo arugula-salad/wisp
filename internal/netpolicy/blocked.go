@@ -6,7 +6,7 @@ import (
 )
 
 // nonPublic is every IPv4 range that is not the public internet. The proxy dials
-// from the host, so its connections skip the msbr0 forward-chain isolation that
+// from the host, so its connections skip the sprite bridge's forward-chain isolation that
 // protects these ranges on the kernel path; this list is that isolation, redone.
 var nonPublic = func() []netip.Prefix {
 	var out []netip.Prefix

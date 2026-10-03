@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -49,11 +50,12 @@ func parseFlags() (server.Options, daemonFlags) {
 	apiHosts := flag.String("api-host", "", "comma-separated names a reverse proxy serves the API listener under (e.g. wisp.widgets.wtf). They reach the bearer API alone: never a sprite, even under a --url-domain, and never the dashboard, whose cookie counts for nothing there")
 	control := flag.Bool("control", true, "serve the multiplexed /control channel; --control=false makes every SDK fall back to per-operation WebSockets")
 	flag.BoolVar(&o.ControlForGoSDK, "control-for-go-sdk", false, "also offer /control to the official Go SDK (by default it is answered 404 there and falls back to per-operation WebSockets, because its ProxyPorts races on a control socket)")
-	netOn := flag.Bool("net", true, "attach sprites to the msbr0 tap pool; only one wispd per host may own it, so run extra dev/test instances with --net=false")
+	netOn := flag.Bool("net", true, "attach sprites to the --net-pool tap pool (bridge msbr0 for pool 0); only one wispd per host may own a pool, so run extra dev/test instances with --net=false or on another --net-pool")
+	flag.IntVar(&o.NetPool, "net-pool", 0, "host network pool to use: bridge msbrN, taps msNtap*, nft table inet wispN and wisp-netd at /run/wispN/netd.sock (pool 0 is msbr0, mstap*, inet wisp, /run/wisp/netd.sock). A second pool, made with 'sudo WISP_POOL=1 scripts/setup-host.sh', lets a networked wispd (a test stack) run beside another that owns pool 0")
 	flag.DurationVar(&o.AutoCheckpointInterval, "auto-checkpoint-interval", time.Hour, "take an automatic checkpoint of a sprite whose disk changed and whose newest checkpoint is older than this (0 = only before restores)")
 	flag.IntVar(&o.AutoCheckpointKeep, "auto-checkpoint-keep", 3, "automatic checkpoints kept per sprite; each is a full disk clone (0 = take none)")
 	flag.IntVar(&o.GuestCheckpointLimit, "guest-checkpoint-limit", 20, "most checkpoints a sprite may hold when creating one from inside via sprite-env; the API is not limited (0 = no limit)")
-	flag.StringVar(&o.NetdSocket, "netd-socket", "", "wisp-netd socket, the root helper that backs restrictive network policies (default /run/wisp/netd.sock)")
+	flag.StringVar(&o.NetdSocket, "netd-socket", "", "wisp-netd socket, the root helper that backs restrictive network policies (default /run/wisp/netd.sock, /run/wispN/netd.sock with --net-pool N)")
 	flag.StringVar(&f.org, "org", "local", "organization name reported in API responses")
 	flag.StringVar(&f.publicListen, "public-listen", "", "serve sprite URLs, and only sprite URLs, over HTTPS on this address; the one to forward a router port to. Needs --url-domain set to a real domain with a wildcard record, and a certificate: --tls-cert/--tls-key, or a Cloudflare token for an automatic one")
 	flag.IntVar(&f.publicPort, "public-port", 443, "the port clients reach --public-listen on (the router's side of the forward); used in the URLs the API reports")
@@ -88,6 +90,10 @@ func parseFlags() (server.Options, daemonFlags) {
 	flag.StringVar(&f.webhookSecret, "webhook-secret-file", "", "the HMAC key for webhook signatures (default <data>/webhook-secret, generated on first use)")
 	flag.StringVar(&f.webhookTypes, "webhook-types", "", "comma-separated event type prefixes to send to webhooks, e.g. sprite.,service.crashed (default: every event)")
 	flag.Parse()
+	if o.NetPool < 0 {
+		fmt.Fprintln(os.Stderr, "--net-pool must not be negative")
+		os.Exit(2)
+	}
 
 	o.Host.NoFreePageReporting = !*fpr
 	o.NoNetwork, o.NoControl = !*netOn, !*control
