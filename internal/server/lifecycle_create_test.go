@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -50,7 +51,7 @@ func TestLeaseExpiryAndAPIDeleteAreTheSameDeletion(t *testing.T) {
 	var mu sync.Mutex
 	hooked := map[string]int{}
 	s.life.OnDelete(func(sp store.Sprite) { mu.Lock(); hooked[sp.Name]++; mu.Unlock() })
-	sub, _, _ := s.life.events.subscribe(func(Event) bool { return true }, 0, false)
+	sub, _, _, _ := s.life.events.Subscribe(func(engine.Event) bool { return true }, 0, false)
 
 	status(t, apiCall(t, h, "DELETE", "/v1/sprites/"+byAPI.Name, ""), http.StatusNoContent)
 	expire(t, s, byLease.Name, time.Now().Add(-time.Second))
@@ -109,7 +110,7 @@ func TestLeaseExpiryAndAPIDeleteAreTheSameDeletion(t *testing.T) {
 
 func TestCreateRollsBackADiskThatCouldNotBeMade(t *testing.T) {
 	s, _ := newOperatorServer(t, Options{})
-	sub, _, _ := s.life.events.subscribe(func(Event) bool { return true }, 0, false)
+	sub, _, _, _ := s.life.events.Subscribe(func(engine.Event) bool { return true }, 0, false)
 	sp := store.Sprite{ID: store.NewID(), Name: "broken", CreatedAt: time.Now().UTC()}
 	_, err := s.life.Create(t.Context(), CreateSpec{Sprite: sp, ImageDisk: filepath.Join(t.TempDir(), "missing.ext4")})
 	if !errors.Is(err, errProvision) || !strings.HasPrefix(err.Error(), "provision disk: ") {

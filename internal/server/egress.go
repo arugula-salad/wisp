@@ -246,12 +246,19 @@ func (e *egress) forget(sp store.Record) {
 	}
 }
 
+// policy.denied events: a burst of denialBurst per sprite, then denialRate a
+// second, the limit a guest's own reports get (guestevents.go).
+const (
+	denialBurst = 30
+	denialRate  = 5
+)
+
 // networkDenied publishes a refusal of the network policy. A guest retrying in
 // a loop can refuse itself thousands of times a second, so the events are
 // rate limited per sprite; the log keeps every one. The enforcer knows sprites
 // by ID.
 func (l *Lifecycle) networkDenied(id, kind, target, reason string) {
-	if !l.denials.allow(id) {
+	if !l.denials.Allow(id) {
 		return
 	}
 	sp, err := l.store.GetRecord(id)

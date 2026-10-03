@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -52,9 +53,9 @@ type diskGuard struct {
 	reserve int64 // creates, checkpoints and restores must leave this much free
 	warnPct int   // warn below this share of the volume (or of the image, for the host)
 	probe   func() (Headroom, error)
-	events  *eventBus // nil in tests that build a guard by hand
+	events  *engine.Bus // nil in tests that build a guard by hand
 	// event builds an event about a record (Lifecycle.event); nil with events.
-	event func(store.Record, string, map[string]any) Event
+	event func(store.Record, string, map[string]any) engine.Event
 
 	mu       sync.Mutex
 	low      bool
@@ -192,10 +193,10 @@ func (g *diskGuard) watch() {
 		g.lastWarn = time.Now()
 		g.log.Warn("sprite volume is running out of space: creates and checkpoints will be refused, and warm sprites turned cold, before it fills",
 			"volume_free", mib(h.VolumeFree), "volume_size", mib(h.VolumeTotal), "image", h.Image, "host_free", mib(h.HostFree))
-		g.events.Publish(Event{Type: "disk.low", Detail: map[string]any{"volume_free_bytes": h.VolumeFree, "volume_total_bytes": h.VolumeTotal, "host_free_bytes": h.HostFree}})
+		g.events.Publish(engine.Event{Type: "disk.low", Detail: map[string]any{"volume_free_bytes": h.VolumeFree, "volume_total_bytes": h.VolumeTotal, "host_free_bytes": h.HostFree}})
 	case !low && g.low:
 		g.log.Info("sprite volume has headroom again", "volume_free", mib(h.VolumeFree))
-		g.events.Publish(Event{Type: "disk.ok", Detail: map[string]any{"volume_free_bytes": h.VolumeFree, "volume_total_bytes": h.VolumeTotal}})
+		g.events.Publish(engine.Event{Type: "disk.ok", Detail: map[string]any{"volume_free_bytes": h.VolumeFree, "volume_total_bytes": h.VolumeTotal}})
 	}
 	g.low = low
 }

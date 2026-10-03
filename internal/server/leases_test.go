@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -38,11 +39,11 @@ func expire(t *testing.T, s *Server, name string, at time.Time) store.Sprite {
 }
 
 // collect drains the events published so far.
-func collect(sub *eventSub) []Event {
-	var out []Event
+func collect(sub *engine.Subscription) []engine.Event {
+	var out []engine.Event
 	for {
 		select {
-		case e := <-sub.ch:
+		case e := <-sub.Events():
 			out = append(out, e)
 		default:
 			return out
@@ -50,8 +51,8 @@ func collect(sub *eventSub) []Event {
 	}
 }
 
-func leaseEvents(s *Server) *eventSub {
-	sub, _, _ := s.life.events.subscribe(func(e Event) bool {
+func leaseEvents(s *Server) *engine.Subscription {
+	sub, _, _, _ := s.life.events.Subscribe(func(e engine.Event) bool {
 		return e.Type == "sprite.expiring" || e.Type == "sprite.expired" || e.Type == "sprite.deleted"
 	}, 0, false)
 	return sub

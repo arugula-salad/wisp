@@ -12,6 +12,7 @@ import (
 
 	sprites "github.com/superfly/sprites-go"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -55,7 +56,7 @@ func TestMemoryBudgetRefusesAWakeInUpstreamsShape(t *testing.T) {
 		t.Fatalf("first 2048 of 3000: %v", err)
 	}
 	err := a.reserveMemory(rtB, "b", 2048)
-	var lim *LimitError
+	var lim *engine.LimitError
 	if !errors.As(err, &lim) {
 		t.Fatalf("second reservation: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestConcurrentBootCapRefusesRatherThanQueues(t *testing.T) {
 		}
 	}
 	err := a.reserveBoot("third")
-	var lim *LimitError
+	var lim *engine.LimitError
 	if !errors.As(err, &lim) {
 		t.Fatalf("third boot: %v", err)
 	}
@@ -151,9 +152,9 @@ func TestAdmitStartIsNeverOversubscribed(t *testing.T) {
 			for r := 0; r < rounds; r++ {
 				booted, err := s.life.admitStart(sprites[i].Record, rts[i])
 				if err != nil {
-					var lim *LimitError
+					var lim *engine.LimitError
 					if !errors.As(err, &lim) {
-						note("refusal is not a LimitError: %v", err)
+						note("refusal is not a engine.LimitError: %v", err)
 					} else if lim.Which == "" || lim.Message == "" {
 						note("refusal has no shape: %+v", lim)
 					}
@@ -242,8 +243,8 @@ func TestARefusedStartReservesNothing(t *testing.T) {
 func TestWakeRefusalPublishesLimitRefused(t *testing.T) {
 	s, _ := newOperatorServer(t, Options{MaxRunningMemoryMiB: 256, DefaultMemMiB: 2048})
 	var mu sync.Mutex
-	var got []Event
-	s.life.events.addSink(func(e Event) {
+	var got []engine.Event
+	s.life.events.AddSink(func(e engine.Event) {
 		if e.Type == "limit.refused" {
 			mu.Lock()
 			got = append(got, e)

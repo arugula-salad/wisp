@@ -13,110 +13,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
-
-func TestEventBusIDsRingAndResume(t *testing.T) {
-	b := newEventBus()
-	all := func(Event) bool { return true }
-	b.Publish(Event{Type: "a"})
-	first := b.ring[0].ID
-	b.Publish(Event{Type: "b"})
-	b.Publish(Event{Type: "c"})
-	if b.ring[1].ID != first+1 || b.ring[2].ID != first+2 || b.ring[0].Time.IsZero() {
-		t.Fatalf("ids/times not stamped in order: %+v", b.ring)
-	}
-
-	_, replay, gap := b.subscribe(all, first, true)
-	if gap != nil || len(replay) != 2 || replay[0].Type != "b" || replay[1].Type != "c" {
-		t.Fatalf("resume after the first: gap %v, replay %+v", gap, replay)
-	}
-	if _, replay, gap = b.subscribe(all, 0, true); gap != nil || len(replay) != 3 {
-		t.Fatalf("0 replays everything: gap %v, %d events", gap, len(replay))
-	}
-	if _, replay, _ = b.subscribe(all, 0, false); len(replay) != 0 {
-		t.Fatalf("no resume, no replay: %+v", replay)
-	}
-	// Caught up exactly: nothing to replay, and no gap either.
-	if _, replay, gap = b.subscribe(all, first+2, true); gap != nil || len(replay) != 0 {
-		t.Fatalf("caught up: gap %v, replay %+v", gap, replay)
-	}
-	// An ID ahead of anything published: say so rather than wait for it.
-	if _, _, gap = b.subscribe(all, first+100, true); gap == nil {
-		t.Fatal("an ID from the future was not reported as a gap")
-	}
-
-	for i := 0; i < eventRing; i++ {
-		b.Publish(Event{Type: "fill"})
-	}
-	if len(b.ring) != eventRing || b.ring[0].ID != first+3 {
-		t.Fatalf("ring holds %d, oldest %d; want %d from %d", len(b.ring), b.ring[0].ID, eventRing, first+3)
-	}
-	_, replay, gap = b.subscribe(all, first+1, true)
-	if gap == nil || gap.Requested != first+1 || gap.Oldest != first+3 || len(replay) != eventRing {
-		t.Fatalf("fell out of the ring: gap %+v, %d replayed", gap, len(replay))
-	}
-	// Right at the edge: first+2 was dropped, but everything after it is still here.
-	if _, _, gap = b.subscribe(all, first+2, true); gap != nil {
-		t.Fatalf("no event was missed, yet: %+v", gap)
-	}
-}
-
-func TestEventBusCutsASlowStreamWithoutWaiting(t *testing.T) {
-	b := newEventBus()
-	slow, _, _ := b.subscribe(func(Event) bool { return true }, 0, false)
-	other, _, _ := b.subscribe(func(e Event) bool { return e.Type == "rare" }, 0, false)
-	done := make(chan struct{})
-	go func() {
-		for i := 0; i < eventSubBuffer+10; i++ {
-			b.Publish(Event{Type: "x"})
-		}
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Publish blocked on a reader")
-	}
-	n := 0
-	for range slow.ch {
-		n++
-	}
-	if n != eventSubBuffer || slow.why != "lagged" {
-		t.Fatalf("slow reader got %d events and %q, want %d and lagged", n, slow.why, eventSubBuffer)
-	}
-	// A stream the flood did not match is untouched.
-	b.Publish(Event{Type: "rare"})
-	if e := <-other.ch; e.Type != "rare" {
-		t.Fatalf("got %+v", e)
-	}
-	b.Close()
-	if _, ok := <-other.ch; ok || other.why != "shutdown" {
-		t.Fatalf("Close left a stream open (%q)", other.why)
-	}
-	if s, _, _ := b.subscribe(func(Event) bool { return true }, 0, false); s.why != "shutdown" {
-		t.Fatal("subscribing after Close must end at once")
-	}
-}
 
 func TestEventFilter(t *testing.T) {
 	req := httptest.NewRequest("GET", "/?sprite=a,b&sprite=c&type=sprite.&type=checkpoint.created", nil)
 	f := parseEventFilter(req)
 	for _, c := range []struct {
-		e    Event
+		e    engine.Event
 		want bool
 	}{
-		{Event{Sprite: "a", Type: "sprite.woke"}, true},
-		{Event{Sprite: "c", Type: "checkpoint.created"}, true},
-		{Event{Sprite: "c", Type: "checkpoint.deleted"}, false},
-		{Event{Sprite: "d", Type: "sprite.woke"}, false},
-		{Event{Type: "disk.low"}, false},
+		{engine.Event{Sprite: "a", Type: "sprite.woke"}, true},
+		{engine.Event{Sprite: "c", Type: "checkpoint.created"}, true},
+		{engine.Event{Sprite: "c", Type: "checkpoint.deleted"}, false},
+		{engine.Event{Sprite: "d", Type: "sprite.woke"}, false},
+		{engine.Event{Type: "disk.low"}, false},
 	} {
 		if got := f.match(c.e); got != c.want {
 			t.Errorf("%+v: %v", c.e, got)
 		}
 	}
-	if !(eventFilter{}).match(Event{Type: "disk.low"}) {
+	if !(eventFilter{}).match(engine.Event{Type: "disk.low"}) {
 		t.Error("an empty filter must match everything")
 	}
 }
@@ -124,7 +42,7 @@ func TestEventFilter(t *testing.T) {
 // sseFrame is one message off a stream: id is empty for notices.
 type sseFrame struct {
 	id   string
-	ev   Event
+	ev   engine.Event
 	ping bool
 }
 
@@ -324,10 +242,10 @@ func TestGuestSeesOnlyItsChildrensEvents(t *testing.T) {
 func TestGuestServiceReports(t *testing.T) {
 	s, h := newOperatorServer(t, Options{})
 	status(t, apiCall(t, h, "POST", "/v1/sprites", `{"name":"a"}`), http.StatusCreated)
-	sub, _, _ := s.life.events.subscribe(func(e Event) bool { return strings.HasPrefix(e.Type, "service.") }, 0, false)
+	sub, _, _, _ := s.life.events.Subscribe(func(e engine.Event) bool { return strings.HasPrefix(e.Type, "service.") }, 0, false)
 
 	status(t, fromInside(t, s, "a", "POST", "/internal/service-event", `{"type":"crashed","service":"web","exit_code":1,"restart_count":2,"restart_in_ms":2000}`), http.StatusNoContent)
-	e := <-sub.ch
+	e := <-sub.Events()
 	if e.Type != "service.crashed" || e.Sprite != "a" || e.Detail["service"] != "web" || e.Detail["exit_code"] != 1 || e.Detail["restart_in_ms"] != int64(2000) {
 		t.Fatalf("event = %+v", e)
 	}
@@ -343,22 +261,6 @@ func TestGuestServiceReports(t *testing.T) {
 	}
 	if limited == 0 {
 		t.Fatal("no rate limit on guest reports")
-	}
-}
-
-func TestRateLimiter(t *testing.T) {
-	now := time.Unix(1000, 0)
-	rl := newRateLimiter(2, 1)
-	rl.now = func() time.Time { return now }
-	if !rl.allow("a") || !rl.allow("a") || rl.allow("a") {
-		t.Fatal("burst of 2")
-	}
-	if !rl.allow("b") {
-		t.Fatal("keys are independent")
-	}
-	now = now.Add(1500 * time.Millisecond)
-	if !rl.allow("a") || rl.allow("a") {
-		t.Fatal("refills at the rate")
 	}
 }
 

@@ -19,9 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/backup"
 	"github.com/arugula-salad/wisp/internal/httpstats"
 	"github.com/arugula-salad/wisp/internal/netd"
+	"github.com/arugula-salad/wisp/internal/ratelimit"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -219,9 +221,9 @@ type Lifecycle struct {
 	describer atomic.Pointer[Describer]
 	unstored  map[string]store.Sprite
 	// events is where everything below reports what it did (events.go).
-	events *eventBus
+	events *engine.Bus
 	// denials rate-limits policy.denied events for the network policy.
-	denials *rateLimiter
+	denials *ratelimit.Limiter
 
 	// quit is closed by Shutdown to stop the loops started with every; loops
 	// is how Shutdown waits for the pass in flight before it suspends anything.
@@ -231,8 +233,8 @@ type Lifecycle struct {
 }
 
 func NewLifecycle(opts Options, st *store.Store, log *slog.Logger) *Lifecycle {
-	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, disk: newDiskGuard(opts, log), events: newEventBus(),
-		admit: newAdmission(opts, log), denials: newRateLimiter(guestEventBurst, guestEventRate), quit: make(chan struct{})}
+	l := &Lifecycle{opts: opts, store: st, log: log, runtimes: map[string]*runtime{}, unstored: map[string]store.Sprite{}, disk: newDiskGuard(opts, log), events: engine.NewBus(),
+		admit: newAdmission(opts, log), denials: ratelimit.New(denialBurst, denialRate), quit: make(chan struct{})}
 	l.disk.events, l.disk.event = l.events, l.event
 	l.storage = newStorage(filepath.Join(opts.DataDir, "vm"), opts.BaseImage)
 	if l.storage.reflink {
@@ -473,7 +475,7 @@ func (l *Lifecycle) Acquire(ctx context.Context, sp store.Record) (m *vmm.Machin
 			from = "warm"
 		}
 		if err := l.startLocked(ctx, sp, rt); err != nil {
-			var lim *LimitError
+			var lim *engine.LimitError
 			if errors.As(err, &lim) {
 				l.emit(sp, "limit.refused", map[string]any{"limit": lim.Which, "max": lim.Limit, "current": lim.Current})
 			} else {

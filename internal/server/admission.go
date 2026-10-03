@@ -6,6 +6,7 @@ import (
 	"math"
 	"sync"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -20,7 +21,7 @@ import (
 // not capped; it costs a fraction of a boot, and a warm sprite that cannot be
 // resumed on demand is a sprite nobody can use.
 //
-// Both refuse with the same retryable LimitError the SDKs already parse, and
+// Both refuse with the same retryable engine.LimitError the SDKs already parse, and
 // neither queues: a caller is told to come back, not made to wait. A bounded
 // wake queue would be the next step and is deliberately not this one.
 //
@@ -115,7 +116,7 @@ func (a *admission) reserveMemory(rt *runtime, name string, mib int) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.budgetMiB > 0 && a.reserved+mib > a.budgetMiB {
-		return &LimitError{Code: codeConcurrentLimit, Which: "max_running_memory",
+		return &engine.LimitError{Which: "max_running_memory",
 			Limit: a.budgetMiB, Current: a.reserved, RetryAfter: a.idleRetry,
 			Message: fmt.Sprintf("running sprites already hold %d MiB of the host's %d MiB memory budget (--max-running-memory-mib) and %s needs %d MiB more; one frees up when a sprite goes idle",
 				a.reserved, a.budgetMiB, name, mib)}
@@ -141,7 +142,7 @@ func (a *admission) reserveBoot(name string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.maxBoots > 0 && a.boots >= a.maxBoots {
-		return &LimitError{Code: codeConcurrentLimit, Which: "max_concurrent_boots",
+		return &engine.LimitError{Which: "max_concurrent_boots",
 			Limit: a.maxBoots, Current: a.boots, RetryAfter: bootRetrySeconds,
 			Message: fmt.Sprintf("%d sprites are already cold booting, the most this host starts at once (--max-concurrent-boots); %s can boot when one of them is up", a.boots, name)}
 	}

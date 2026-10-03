@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -14,42 +15,38 @@ import (
 // of the list response. Errors use upstream's shape, which the SDKs parse into
 // their APIError: {error, message, limit, current_count, retry_after_seconds}.
 // The host memory budget and the concurrent-boot cap are in admission.go and
-// report themselves through the same LimitError.
+// report themselves through the same engine.LimitError.
 
 const (
-	// codeConcurrentLimit is upstream's code for too many sprites running at once.
+	// codeConcurrentLimit is upstream's code for too many sprites running at once; every engine ceiling (limitCode).
 	codeConcurrentLimit = "concurrent_sprite_limit_exceeded"
 	codeSpriteLimit     = "sprite_limit_exceeded"
 )
 
-// LimitError is a configured ceiling being hit.
-type LimitError struct {
-	Code    string
-	Message string
-	// Which names the ceiling for the limit.refused event (docs/events.md).
-	// Several ceilings share one upstream Code, so this is what tells them apart.
-	Which      string
-	Limit      int
-	Current    int
-	RetryAfter int // seconds; 0 when waiting will not help
+// limitCode is upstream's error code for e. The engine's ceilings leave Code
+// empty, and every one of them keeps a sprite from running, which upstream
+// reports as codeConcurrentLimit.
+func limitCode(e *engine.LimitError) string {
+	if e.Code != "" {
+		return e.Code
+	}
+	return codeConcurrentLimit
 }
 
-func (e *LimitError) Error() string { return e.Message }
-
-func writeLimitErr(w http.ResponseWriter, e *LimitError) {
+func writeLimitErr(w http.ResponseWriter, e *engine.LimitError) {
 	status := http.StatusForbidden
 	if e.RetryAfter > 0 {
 		// Only a limit that clears by itself is worth a client's retry loop.
 		status = http.StatusTooManyRequests
 		w.Header().Set("Retry-After", strconv.Itoa(e.RetryAfter))
 	}
-	writeJSON(w, status, map[string]any{"error": e.Code, "message": e.Message,
+	writeJSON(w, status, map[string]any{"error": limitCode(e), "message": e.Message,
 		"limit": e.Limit, "current_count": e.Current, "retry_after_seconds": e.RetryAfter})
 }
 
 // writeWakeErr answers a request whose sprite could not be made to run.
 func (s *Server) writeWakeErr(w http.ResponseWriter, sprite string, err error) {
-	var lim *LimitError
+	var lim *engine.LimitError
 	if errors.As(err, &lim) {
 		s.log.Warn("wake refused", "sprite", sprite, "reason", err)
 		writeLimitErr(w, lim)
@@ -67,7 +64,7 @@ func (l *Lifecycle) reserveRun() error {
 	if limit := l.opts.MaxRunning; limit > 0 && l.running >= limit {
 		// An idle sprite frees its slot after IdleTimeout, so that is when to look again.
 		retry := max(int(math.Ceil(l.opts.IdleTimeout.Seconds())), 1)
-		return &LimitError{Code: codeConcurrentLimit, Which: "max_running", Limit: limit, Current: l.running, RetryAfter: retry,
+		return &engine.LimitError{Which: "max_running", Limit: limit, Current: l.running, RetryAfter: retry,
 			Message: fmt.Sprintf("%d sprites are already running, the most this host allows (--max-running); one frees up when a sprite goes idle", l.running)}
 	}
 	l.running++

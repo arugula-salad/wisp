@@ -7,54 +7,28 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
-// The event stream is ours, not upstream's: the Sprites API pushes nothing, so
-// anything that wants to follow sprites (a dashboard, a lobby showing its games,
-// an alert) would otherwise have to poll. Everything that changes a sprite
-// publishes to one in-process bus, which keeps the newest eventRing events for
-// resuming, fans them out to SSE streams (eventsPath) and hands them to
-// webhooks (webhooks.go).
-//
-// Publishing never waits on a reader. A stream that falls a buffer behind is
-// cut off, and resumes from the ring with Last-Event-ID; a webhook whose queue
-// is full drops the event and counts it. The lifecycle holds a sprite's lock
-// while it publishes, so anything slower would stall the sprite.
+// The Sprites API's side of the event stream (engine/events.go has the bus):
+// it is served as server-sent events on eventsPath, and handed to webhooks
+// (webhooks.go). A stream that falls a buffer behind is cut off by the bus,
+// and resumes from its ring with Last-Event-ID.
 
 // eventsPath is where the stream is served, on the API and on the guest
 // socket alike. The prefix keeps it clear of anything upstream has, or might
 // add, under /v1.
 const eventsPath = "/wisp/v1/events"
 
-const (
-	eventRing      = 1024 // events kept for resuming
-	eventSubBuffer = 256  // events a stream may be behind before it is cut off
-	eventHeartbeat = 15 * time.Second
-)
-
-// Event is one thing that happened. The ID increases by one per event and is
-// seeded from the clock at startup, so IDs keep increasing across restarts.
-// Detail is small and depends on Type (see docs/events.md).
-type Event struct {
-	ID       uint64    `json:"id"`
-	Type     string    `json:"type"`
-	Time     time.Time `json:"time"`
-	Sprite   string    `json:"sprite,omitempty"`
-	SpriteID string    `json:"sprite_id,omitempty"`
-	// ParentID is the sprite that created this one from inside, which is also
-	// what decides whether a spawner may see the event (guestEvents).
-	ParentID string         `json:"parent_id,omitempty"`
-	Detail   map[string]any `json:"detail,omitempty"`
-}
+const eventHeartbeat = 15 * time.Second
 
 // spriteEvent is an Event about sp.
-func spriteEvent(sp store.Sprite, typ string, detail map[string]any) Event {
+func spriteEvent(sp store.Sprite, typ string, detail map[string]any) engine.Event {
 	name, parent := describeSprite(sp)
-	return Event{Type: typ, Sprite: name, SpriteID: sp.ID, ParentID: parent, Detail: detail}
+	return engine.Event{Type: typ, Sprite: name, SpriteID: sp.ID, ParentID: parent, Detail: detail}
 }
 
 // describeSprite is the Server's Describer: a sprite is known by its name, and
@@ -64,136 +38,6 @@ func describeSprite(sp store.Sprite) (name, parentID string) {
 		return "", ""
 	}
 	return sp.Name, sp.ParentID
-}
-
-type eventBus struct {
-	now func() time.Time
-
-	mu     sync.Mutex
-	next   uint64
-	ring   []Event // oldest first, at most eventRing
-	subs   map[*eventSub]struct{}
-	sinks  []func(Event) // must not block: called with mu held
-	closed bool
-}
-
-type eventSub struct {
-	ch    chan Event
-	match func(Event) bool
-	// why is set when the bus closed ch: "lagged" or "shutdown".
-	why string
-}
-
-func newEventBus() *eventBus {
-	return &eventBus{now: time.Now, next: uint64(time.Now().UnixMilli()) * 1000, subs: map[*eventSub]struct{}{}}
-}
-
-// Publish stamps e with its ID and time and delivers it. Safe on a nil bus, so
-// a Lifecycle assembled by hand in tests needs none.
-func (b *eventBus) Publish(e Event) {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.next++
-	e.ID, e.Time = b.next, b.now().UTC()
-	if len(b.ring) == eventRing {
-		copy(b.ring, b.ring[1:])
-		b.ring = b.ring[:eventRing-1]
-	}
-	b.ring = append(b.ring, e)
-	for s := range b.subs {
-		if !s.match(e) {
-			continue
-		}
-		select {
-		case s.ch <- e:
-		default:
-			b.dropLocked(s, "lagged")
-		}
-	}
-	for _, sink := range b.sinks {
-		sink(e)
-	}
-}
-
-func (b *eventBus) dropLocked(s *eventSub, why string) {
-	delete(b.subs, s)
-	s.why = why
-	close(s.ch)
-}
-
-// addSink registers a non-blocking consumer of every event.
-func (b *eventBus) addSink(f func(Event)) {
-	b.mu.Lock()
-	b.sinks = append(b.sinks, f)
-	b.mu.Unlock()
-}
-
-// gapNotice tells a client that resumed from an ID the ring no longer holds.
-type gapNotice struct {
-	Requested uint64 `json:"requested"`
-	Oldest    uint64 `json:"oldest"`
-}
-
-// subscribe registers a stream. With resume set it also returns the buffered
-// events after the ID `after` (all of them for 0), and a gap notice when
-// events after it have already been dropped from the ring. Replay and
-// registration happen under one lock, so nothing falls between them.
-func (b *eventBus) subscribe(match func(Event) bool, after uint64, resume bool) (*eventSub, []Event, *gapNotice) {
-	s, replay, gap, _ := b.subscribeAt(match, after, resume)
-	return s, replay, gap
-}
-
-// subscribeAt is subscribe that also returns the newest ID published so far:
-// every event the stream delivers live is newer.
-func (b *eventBus) subscribeAt(match func(Event) bool, after uint64, resume bool) (*eventSub, []Event, *gapNotice, uint64) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	s := &eventSub{ch: make(chan Event, eventSubBuffer), match: match}
-	if b.closed {
-		s.why = "shutdown"
-		close(s.ch)
-		return s, nil, nil, b.next
-	}
-	b.subs[s] = struct{}{}
-	if !resume {
-		return s, nil, nil, b.next
-	}
-	oldest := b.next + 1
-	if len(b.ring) > 0 {
-		oldest = b.ring[0].ID
-	}
-	var gap *gapNotice
-	// An ID ahead of ours is from before a restart whose clock went backwards,
-	// or from another daemon: either way we cannot say what was missed.
-	if after != 0 && (after+1 < oldest || after > b.next) {
-		gap = &gapNotice{Requested: after, Oldest: oldest}
-	}
-	var replay []Event
-	for _, e := range b.ring {
-		if (gap != nil || e.ID > after) && match(e) {
-			replay = append(replay, e)
-		}
-	}
-	return s, replay, gap, b.next
-}
-
-func (b *eventBus) unsubscribe(s *eventSub) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.subs, s)
-}
-
-// Close ends every stream, so a graceful HTTP shutdown does not wait on them.
-func (b *eventBus) Close() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.closed = true
-	for s := range b.subs {
-		b.dropLocked(s, "shutdown")
-	}
 }
 
 // eventFilter is what a client asked for: sprite names and type prefixes,
@@ -219,7 +63,7 @@ func parseEventFilter(r *http.Request) eventFilter {
 	return eventFilter{sprites: split(q["sprite"]), types: split(q["type"])}
 }
 
-func (f eventFilter) match(e Event) bool {
+func (f eventFilter) match(e engine.Event) bool {
 	if len(f.sprites) > 0 && !slices.Contains(f.sprites, e.Sprite) {
 		return false
 	}
@@ -255,11 +99,11 @@ func lastEventID(r *http.Request) (uint64, bool) {
 // the event's ID. Notices about the stream itself carry no id, so they never
 // move a client's resume point: stream.gap, and stream.lagged or
 // stream.shutdown just before the server ends the stream.
-func (b *eventBus) serveEvents(w http.ResponseWriter, r *http.Request, scope func(Event) bool, heartbeat time.Duration) {
+func serveEvents(b *engine.Bus, w http.ResponseWriter, r *http.Request, scope func(engine.Event) bool, heartbeat time.Duration) {
 	f := parseEventFilter(r)
 	after, resume := lastEventID(r)
-	sub, replay, gap, pos := b.subscribeAt(func(e Event) bool { return scope(e) && f.match(e) }, after, resume)
-	defer b.unsubscribe(sub)
+	sub, replay, gap, pos := b.Subscribe(func(e engine.Event) bool { return scope(e) && f.match(e) }, after, resume)
+	defer b.Unsubscribe(sub)
 
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
@@ -275,7 +119,7 @@ func (b *eventBus) serveEvents(w http.ResponseWriter, r *http.Request, scope fun
 		}
 		return rc.Flush() == nil
 	}
-	send := func(e Event) bool {
+	send := func(e engine.Event) bool {
 		data, _ := json.Marshal(e)
 		return write(fmt.Sprintf("id: %d\ndata: %s\n\n", e.ID, data))
 	}
@@ -308,13 +152,13 @@ func (b *eventBus) serveEvents(w http.ResponseWriter, r *http.Request, scope fun
 	defer tick.Stop()
 	for {
 		select {
-		case e, ok := <-sub.ch:
+		case e, ok := <-sub.Events():
 			if !ok {
 				msg := "the daemon is shutting down"
-				if sub.why == "lagged" {
+				if sub.Why() == "lagged" {
 					msg = "this stream fell too far behind and was closed; reconnect with Last-Event-ID to resume"
 				}
-				notice("stream."+sub.why, map[string]string{"message": msg})
+				notice("stream."+sub.Why(), map[string]string{"message": msg})
 				return
 			}
 			if !send(e) {
@@ -332,7 +176,7 @@ func (b *eventBus) serveEvents(w http.ResponseWriter, r *http.Request, scope fun
 
 // serveAPIEvents is GET eventsPath on the API: every event, for the operator.
 func (s *Server) serveAPIEvents(w http.ResponseWriter, r *http.Request) {
-	s.life.events.serveEvents(w, r, func(Event) bool { return true }, s.eventHeartbeat())
+	serveEvents(s.life.events, w, r, func(engine.Event) bool { return true }, s.eventHeartbeat())
 }
 
 func (s *Server) eventHeartbeat() time.Duration {
@@ -403,7 +247,7 @@ func (l *Lifecycle) emit(rec store.Record, typ string, detail map[string]any) {
 	l.events.Publish(l.event(rec, typ, detail))
 }
 
-func (l *Lifecycle) event(rec store.Record, typ string, detail map[string]any) Event {
+func (l *Lifecycle) event(rec store.Record, typ string, detail map[string]any) engine.Event {
 	name, parent := l.describe(rec.ID)
-	return Event{Type: typ, Sprite: name, SpriteID: rec.ID, ParentID: parent, Detail: detail}
+	return engine.Event{Type: typ, Sprite: name, SpriteID: rec.ID, ParentID: parent, Detail: detail}
 }

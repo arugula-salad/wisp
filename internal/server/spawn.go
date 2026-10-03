@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -97,12 +98,12 @@ func (s *Server) children(parent store.Sprite) []store.Sprite {
 }
 
 // childLimit is approximate under concurrent creates, which is fine for a ceiling.
-func (s *Server) childLimit(parent store.Sprite) *LimitError {
+func (s *Server) childLimit(parent store.Sprite) *engine.LimitError {
 	limit, n := spawnPolicy(parent).MaxChildren, len(s.children(parent))
 	if n < limit {
 		return nil
 	}
-	return &LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
+	return &engine.LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
 		Message: fmt.Sprintf("this sprite already holds %d sprites, the most it may create (spawn policy max_children); delete one first", n)}
 }
 

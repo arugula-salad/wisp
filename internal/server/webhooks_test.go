@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/arugula-salad/wisp/engine"
 )
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -28,7 +30,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 func TestWebhookSignsAndRetries(t *testing.T) {
 	var mu sync.Mutex
-	var got []Event
+	var got []engine.Event
 	var calls atomic.Int32
 	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -41,7 +43,7 @@ func TestWebhookSignsAndRetries(t *testing.T) {
 			http.Error(w, "busy", http.StatusServiceUnavailable)
 			return
 		}
-		var e Event
+		var e engine.Event
 		json.Unmarshal(body, &e)
 		if r.Header.Get("X-Wisp-Event") != e.Type {
 			t.Errorf("type header %q for %q", r.Header.Get("X-Wisp-Event"), e.Type)
@@ -52,11 +54,11 @@ func TestWebhookSignsAndRetries(t *testing.T) {
 	}))
 	defer recv.Close()
 
-	bus := newEventBus()
+	bus := engine.NewBus()
 	hooks := startWebhooks(bus, WebhookOptions{URLs: []string{recv.URL}, Secret: "s3cret", Types: []string{"sprite."}}, quietLog())
 	hooks[0].backoff = time.Millisecond
-	bus.Publish(Event{Type: "disk.low"}) // filtered out
-	bus.Publish(Event{Type: "sprite.woke", Sprite: "a", Detail: map[string]any{"mode": "warm"}})
+	bus.Publish(engine.Event{Type: "disk.low"}) // filtered out
+	bus.Publish(engine.Event{Type: "sprite.woke", Sprite: "a", Detail: map[string]any{"mode": "warm"}})
 	waitFor(t, "delivery", func() bool { return hooks[0].delivered.Load() == 1 })
 	mu.Lock()
 	defer mu.Unlock()
@@ -79,12 +81,12 @@ func TestWebhookGivesUp(t *testing.T) {
 		http.Error(w, "down", http.StatusBadGateway)
 	}))
 	defer recv.Close()
-	bus := newEventBus()
+	bus := engine.NewBus()
 	hooks := startWebhooks(bus, WebhookOptions{URLs: []string{recv.URL + "/gone", recv.URL + "/down"}}, quietLog())
 	for _, h := range hooks {
 		h.backoff = time.Millisecond
 	}
-	bus.Publish(Event{Type: "x"})
+	bus.Publish(engine.Event{Type: "x"})
 	waitFor(t, "both to give up", func() bool { return hooks[0].failed.Load() == 1 && hooks[1].failed.Load() == 1 })
 	// A 4xx is final; a 5xx is tried webhookAttempts times.
 	if n := calls.Load(); n != 1+webhookAttempts {
@@ -97,12 +99,12 @@ func TestWebhookQueueDropsInsteadOfBlocking(t *testing.T) {
 	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
 	defer recv.Close()
 	defer close(release)
-	bus := newEventBus()
+	bus := engine.NewBus()
 	hooks := startWebhooks(bus, WebhookOptions{URLs: []string{recv.URL}}, quietLog())
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < webhookQueue+50; i++ {
-			bus.Publish(Event{Type: "x"})
+			bus.Publish(engine.Event{Type: "x"})
 		}
 		close(done)
 	}()

@@ -18,6 +18,7 @@ import (
 
 	sprites "github.com/superfly/sprites-go"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -94,7 +95,7 @@ func TestMaxRunningRefusesAWakeInUpstreamsShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := s.life.reserveRun()
-	var lim *LimitError
+	var lim *engine.LimitError
 	if !errors.As(err, &lim) {
 		t.Fatalf("second reservation: %v", err)
 	}
@@ -129,8 +130,8 @@ func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
 	}
 
 	vol.Store(1 << 30)
-	sub, _, _ := s.life.events.subscribe(func(e Event) bool { return e.Type == "disk.refused" }, 0, false)
-	defer s.life.events.unsubscribe(sub)
+	sub, _, _, _ := s.life.events.Subscribe(func(e engine.Event) bool { return e.Type == "disk.refused" }, 0, false)
+	defer s.life.events.Unsubscribe(sub)
 	resp := apiCall(t, h, "POST", "/v1/sprites", `{"name":"full"}`)
 	if e := apiError(t, resp); e.StatusCode != http.StatusInsufficientStorage || e.ErrorCode != "insufficient_storage" {
 		t.Fatalf("create on a full volume = %+v", e)
@@ -140,7 +141,7 @@ func TestDiskGuardRefusesCreatesAndCheckpoints(t *testing.T) {
 	}
 	// The refusal comes before there is a record, and still names the sprite.
 	select {
-	case e := <-sub.ch:
+	case e := <-sub.Events():
 		if e.Sprite != "full" || e.SpriteID == "" || e.Detail["operation"] != "a new sprite" {
 			t.Fatalf("disk.refused = %+v", e)
 		}

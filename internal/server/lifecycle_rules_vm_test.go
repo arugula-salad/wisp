@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -96,13 +97,13 @@ func eventually(t *testing.T, s *Server, r store.Record, state string, within ti
 }
 
 // eventFor is the first event of that type about r so far.
-func eventFor(es []Event, r store.Record, typ string) (Event, bool) {
+func eventFor(es []engine.Event, r store.Record, typ string) (engine.Event, bool) {
 	for _, e := range es {
 		if e.SpriteID == r.ID && e.Type == typ {
 			return e, true
 		}
 	}
-	return Event{}, false
+	return engine.Event{}, false
 }
 
 // Three sandboxes idle side by side under one daemon timeout: the one without
@@ -115,7 +116,7 @@ func TestIdleRulesOnRunningVMs(t *testing.T) {
 	plain := vmSandbox(t, s, base, "plain", nil)
 	stops := vmSandbox(t, s, base, "stops", &store.LifecyclePolicy{IdleAction: store.IdleStop})
 	stays := vmSandbox(t, s, base, "stays", &store.LifecyclePolicy{IdleAction: store.IdleNone})
-	sub, _, _ := s.life.events.subscribe(func(Event) bool { return true }, 0, false)
+	sub, _, _, _ := s.life.events.Subscribe(func(engine.Event) bool { return true }, 0, false)
 	for _, r := range []store.Record{plain, stops, stays} {
 		wake(t, s, r)()
 	}

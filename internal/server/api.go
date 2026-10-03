@@ -16,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/httpstats"
+	"github.com/arugula-salad/wisp/internal/ratelimit"
 	"github.com/arugula-salad/wisp/internal/store"
 )
 
@@ -46,7 +48,7 @@ type Server struct {
 	webhooks   []*webhook       // webhooks.go
 	leases     *leases          // expiring workspaces (leases.go)
 	// guestEvents limits the events a guest may report about itself (guestevents.go).
-	guestEvents *rateLimiter
+	guestEvents *ratelimit.Limiter
 	heartbeat   time.Duration // SSE keepalive; 0 is eventHeartbeat. Tests shorten it.
 	domains     *domains      // custom domains (domains.go); nil without a public listener
 	keys        *keyring      // API keys beside the root token (apikeys.go)
@@ -69,7 +71,7 @@ func New(opts Options, st *store.Store, life *Lifecycle, log *slog.Logger, token
 	s.images = newImageCache(filepath.Join(opts.DataDir, "vm"), opts.BaseImage, life.disk.admitHost, log)
 	s.metrics = newMetrics(s)
 	s.httpStats = httpstats.New(func(name string) bool { _, err := st.GetByName(store.Sprites, name); return err == nil })
-	s.guestEvents = newRateLimiter(guestEventBurst, guestEventRate)
+	s.guestEvents = ratelimit.New(guestEventBurst, guestEventRate)
 	s.webhooks = startWebhooks(life.events, opts.Webhooks, log)
 	if opts.AutoCheckpointInterval > 0 && opts.AutoCheckpointKeep > 0 {
 		s.life.every(min(max(opts.AutoCheckpointInterval/10, time.Second), time.Minute), s.life.autoCheckpoints)
@@ -315,8 +317,8 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 	}
 	// A refused create is reported under the name it asked for, and to the
 	// spawner that asked, if one did.
-	refused := func(lim *LimitError, which string) {
-		e := Event{Type: "limit.refused", Sprite: req.Name, Detail: map[string]any{"limit": which, "max": lim.Limit, "current": lim.Current}}
+	refused := func(lim *engine.LimitError, which string) {
+		e := engine.Event{Type: "limit.refused", Sprite: req.Name, Detail: map[string]any{"limit": which, "max": lim.Limit, "current": lim.Current}}
 		if parent != nil {
 			e.ParentID = parent.ID
 		}
@@ -324,7 +326,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request, parent *store.Sp
 		writeLimitErr(w, lim)
 	}
 	if limit, n := s.opts.MaxSprites, s.store.Count(); limit > 0 && n >= limit {
-		refused(&LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
+		refused(&engine.LimitError{Code: codeSpriteLimit, Limit: limit, Current: n,
 			Message: fmt.Sprintf("this host already holds %d sprites, the most it allows (--max-sprites); delete one first", n)}, "max_sprites")
 		return
 	}

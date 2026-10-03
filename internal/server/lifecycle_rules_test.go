@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arugula-salad/wisp/engine"
 	"github.com/arugula-salad/wisp/internal/store"
 	"github.com/arugula-salad/wisp/internal/vmm"
 )
@@ -17,8 +18,8 @@ import (
 // has the running ones, which need a VM.
 
 // ruleEvents follows every event a deadline or idle rule can lead to.
-func ruleEvents(s *Server) *eventSub {
-	sub, _, _ := s.life.events.subscribe(func(e Event) bool {
+func ruleEvents(s *Server) *engine.Subscription {
+	sub, _, _, _ := s.life.events.Subscribe(func(e engine.Event) bool {
 		switch e.Type {
 		case "sprite.expiring", "sprite.expired", "sprite.deleted", "sprite.suspended", "sprite.stopped", "sprite.cold":
 			return true
@@ -28,7 +29,7 @@ func ruleEvents(s *Server) *eventSub {
 	return sub
 }
 
-func eventTypes(es []Event) string {
+func eventTypes(es []engine.Event) string {
 	var out []string
 	for _, e := range es {
 		out = append(out, e.Type)
